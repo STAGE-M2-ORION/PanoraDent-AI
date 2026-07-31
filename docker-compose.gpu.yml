@@ -1,0 +1,16 @@
+# Override GPU : à combiner avec le compose principal quand un GPU est disponible.
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+# Prérequis : NVIDIA Container Toolkit installé sur l'hôte.
+services:
+  inference:
+    build:
+      context: ./inference
+      args:
+        TORCH_VARIANT: gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

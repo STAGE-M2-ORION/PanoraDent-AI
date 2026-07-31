@@ -1,0 +1,3 @@
+Déposer ici le modèle entraîné sous le nom model.pt (YOLOv11 export .pt).
+Tant que ce fichier est absent, le service tourne en MODE MOCK et renvoie
+des détections factices pour valider la chaîne de bout en bout.
