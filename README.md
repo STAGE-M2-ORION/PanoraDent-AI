@@ -166,10 +166,9 @@ Détail complémentaire : [docs/architecture.md](docs/architecture.md).
 4. **Inférence** — le backend `POST` le PNG au service `inference`
    ([`inference_client.py`](backend/app/services/inference_client.py), timeout
    **60 s**) et reçoit une liste de détections normalisées.
-5. **Persistance** — une ligne `analyses` + N lignes `detections` en base, avec
-   la version de modèle et le mode (`mock` / `real`) renvoyés par le service
-   d'inférence. Chaque détection est créée avec `source="model"` et
-   `reviewed=false`.
+5. **Persistance** — une ligne `analyses` + N lignes `detections` en base :
+   - version de modèle et mode (`mock` / `real`) renvoyés par le service d'inférence ;
+   - chaque détection est créée avec `source="model"` et `reviewed=false`.
 6. **Revue praticien** — le schéma de données est prêt (colonnes `reviewed`,
    `source`), l'API et l'UI ne le sont pas encore (voir
    [Limites connues](#limites-connues)).
@@ -202,12 +201,12 @@ Détail complémentaire : [docs/architecture.md](docs/architecture.md).
 | `backend` | *aucun* | — |
 | `frontend` | *aucun* | — |
 
-**Ordre de démarrage** : le backend attend que `db` et `minio` soient *healthy*
-(`condition: service_healthy`) et que `inference` soit simplement **lancé**
-(`condition: service_started`) — le backend peut donc démarrer avant que le
-modèle soit chargé, ce qui est sans conséquence : `GET /api/health` le signale
-et l'inférence n'est appelée qu'à l'upload. Le `frontend` dépend du `backend`
-sans condition.
+**Ordre de démarrage** :
+- `backend` attend que `db` et `minio` soient *healthy* (`condition: service_healthy`).
+- `backend` attend seulement que `inference` soit **lancé** (`condition: service_started`) —
+  il peut donc démarrer avant que le modèle soit chargé. Sans conséquence :
+  `GET /api/health` le signale, et l'inférence n'est appelée qu'à l'upload.
+- `frontend` dépend de `backend`, sans condition de santé.
 
 **Volumes persistants** : `db_data` (PostgreSQL) et `minio_data` (objets).
 `make clean` (= `docker compose down -v`) les supprime — **les données sont
@@ -417,19 +416,22 @@ L'index de classe renvoyé par YOLO est mappé sur cette liste, dans cet ordre.
 
 [`inference/app/model.py`](inference/app/model.py) produit :
 
-- **6 à 12 boîtes `tooth`** réparties horizontalement sur l'arcade, de largeur
-  `width/16` et de hauteur `height/6`, centrées verticalement avec une gigue de
-  ±5 % de la hauteur ; `fdi` est calculé arbitrairement
-  (`quadrant*10 + position`), confiance tirée dans 0,80–0,99.
-- **Jusqu'à 3 anomalies** (`caries`, `deep_caries`, `periapical_lesion` ou
-  `impacted_tooth`) tirées au sort parmi les dents générées, confiance
-  0,55–0,90. Ces anomalies **réutilisent la boîte exacte de la dent** : dans le
-  viewer et le PDF, elles se superposent parfaitement à une boîte `tooth`.
+- **Dents** : 6 à 12 boîtes `tooth` réparties horizontalement sur l'arcade.
+  - Largeur `width/16`, hauteur `height/6`, centrées verticalement avec une
+    gigue de ±5 % de la hauteur.
+  - `fdi` calculé arbitrairement (`quadrant*10 + position`).
+  - Confiance tirée dans 0,80–0,99.
+- **Anomalies** : jusqu'à 3, tirées au sort parmi `caries`, `deep_caries`,
+  `periapical_lesion`, `impacted_tooth`.
+  - Confiance tirée dans 0,55–0,90.
+  - Elles **réutilisent la boîte exacte d'une dent** : dans le viewer et le
+    PDF, elles se superposent donc parfaitement à une boîte `tooth`
+    (comportement attendu, pas un bug).
 
 Le générateur aléatoire est initialisé à partir de `width`/`height`
-(`Random(width * 7919 + height)`) : les détections sont **déterministes pour une
-taille d'image donnée**. Deux appels sur la même image donnent le même résultat,
-ce qui rend les tests d'intégration reproductibles.
+(`Random(width * 7919 + height)`) : les détections sont **déterministes pour
+une taille d'image donnée**. Deux appels sur la même image donnent le même
+résultat, ce qui rend les tests d'intégration reproductibles.
 
 ---
 
@@ -694,13 +696,15 @@ Python 3.11 :
 
 Rappels issus du PRD §9, appliqués dans le code :
 
-- **Anonymisation à l'import.** Tags DICOM identifiants écrasés (`PatientName`,
-  `PatientID`, `PatientBirthDate`, `PatientAddress`, `PatientTelephoneNumbers`,
-  `OtherPatientIDs`, `OtherPatientNames`, `ReferringPhysicianName`,
-  `InstitutionName`, `InstitutionAddress`, `StudyDate`, `AccessionNumber`,
-  `StudyID`) et EXIF supprimé par ré-encodage PNG, **avant tout stockage**.
-  Seuls les pixels sont conservés — le fichier DICOM d'origine n'est jamais
-  persisté, ce qui rend l'écrasement des tags redondant par sécurité.
+- **Anonymisation à l'import**, **avant tout stockage** :
+  - DICOM — tags identifiants écrasés (`PatientName`, `PatientID`,
+    `PatientBirthDate`, `PatientAddress`, `PatientTelephoneNumbers`,
+    `OtherPatientIDs`, `OtherPatientNames`, `ReferringPhysicianName`,
+    `InstitutionName`, `InstitutionAddress`, `StudyDate`, `AccessionNumber`,
+    `StudyID`).
+  - Toutes images — EXIF supprimé par ré-encodage PNG.
+  - Seuls les pixels sont conservés : le fichier d'origine n'est jamais
+    persisté, ce qui rend l'écrasement des tags redondant par sécurité.
 - **Aucune donnée patient identifiante en base** : uniquement des métadonnées
   techniques et des coordonnées de boîtes.
 - **Images et rapports dans le stockage objet**, chiffrés au repos côté S3 en
