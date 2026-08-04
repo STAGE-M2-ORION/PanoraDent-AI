@@ -1,0 +1,7 @@
+.mock {
+  color: var(--color-warning);
+}
+
+.real {
+  color: var(--color-brand-700);
+}

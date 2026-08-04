@@ -1,0 +1,15 @@
+.wrapper {
+  margin-top: var(--space-4);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.link {
+  color: var(--color-brand-700);
+  font-weight: 600;
+}

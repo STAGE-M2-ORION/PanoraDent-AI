@@ -1,0 +1,33 @@
+.picker {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-brand-700);
+  color: var(--color-on-brand);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.picker:hover {
+  background: var(--color-brand-900);
+}
+
+.picker:focus-within {
+  outline: 2px solid var(--color-brand-900);
+  outline-offset: 2px;
+}
+
+.disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.disabled:hover {
+  background: var(--color-brand-700);
+}
+
+.input {
+  display: none;
+}

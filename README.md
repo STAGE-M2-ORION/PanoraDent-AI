@@ -151,7 +151,7 @@ Détail complémentaire : [docs/architecture.md](docs/architecture.md).
 
 1. **Import** — l'utilisateur dépose un DICOM (`.dcm`) ou une image (JPG/PNG)
    depuis le navigateur : `POST /api/analyses` en `multipart/form-data`
-   ([`UploadPanel.jsx`](frontend/src/components/UploadPanel.jsx)).
+   ([`upload-analysis`](frontend/src/features/upload-analysis/)).
    Un corps vide est rejeté en `400`.
 2. **Anonymisation** ([`backend/app/services/anonymize.py`](backend/app/services/anonymize.py)) —
    le format est détecté par l'extension `.dcm` **ou** par la signature `DICM`
@@ -499,26 +499,43 @@ Application Next.js 14 en **export statique** (`output: "export"` dans
 [`next.config.mjs`](frontend/next.config.mjs)), donc sans serveur Node en
 production : le build produit `out/`, servi tel quel par nginx.
 
-- [`pages/index.jsx`](frontend/pages/index.jsx) — page unique : interroge
-  `/api/health` au montage, affiche le bandeau d'état (avec l'avertissement
-  « détections factices » en mode mock), puis compose l'upload et le viewer.
-- [`src/components/UploadPanel.jsx`](frontend/src/components/UploadPanel.jsx) —
-  input fichier `accept=".dcm,image/*"`, état « Analyse en cours… », message
-  d'erreur en cas d'échec.
-- [`src/components/DetectionViewer.jsx`](frontend/src/components/DetectionViewer.jsx) —
-  récupère l'URL présignée de l'image, la dessine dans un `<canvas>` à sa taille
-  native, superpose les boîtes (vert `#0F766E` pour `tooth`, rouge `#C0392B`
-  pour les anomalies) avec label, FDI et confiance, et déclenche la génération
-  du PDF.
-- [`src/api.js`](frontend/src/api.js) — client axios ; base d'URL
-  `process.env.NEXT_PUBLIC_API_BASE || "/api"`.
+Le code est organisé en **Feature-Sliced Design** — couches `app` → `views` →
+`widgets` → `features` → `entities` → `shared`, les imports allant strictement
+vers le bas. Détail des conventions, des segments et des règles d'import :
+[frontend/README.md](frontend/README.md).
+
+- [`pages/`](frontend/pages/) — routeur Next.js uniquement. `index.jsx`
+  ré-exporte `views/home`, `_app.jsx` monte les providers et le CSS global.
+- [`views/home`](frontend/src/views/home/) — page unique : compose l'en-tête,
+  l'import et le viewer. Détient l'analyse courante, rien d'autre.
+- [`features/upload-analysis`](frontend/src/features/upload-analysis/) — input
+  fichier `accept=".dcm,image/*"`, état « Analyse en cours… », message d'erreur.
+- [`features/generate-report`](frontend/src/features/generate-report/) — bouton
+  de génération du PDF et lien vers le rapport produit.
+- [`widgets/detection-viewer`](frontend/src/widgets/detection-viewer/) —
+  récupère l'URL présignée, dessine l'image dans un `<canvas>` à sa taille
+  native et superpose les boîtes (vert `#0F766E` pour `tooth`, rouge `#C0392B`
+  pour les anomalies) avec label, FDI et confiance. Le tracé est isolé dans
+  `lib/draw-detections.js`, sans dépendance à React.
+- [`widgets/app-header`](frontend/src/widgets/app-header/) — titre et bandeau
+  d'état, avec l'avertissement « détections factices » en mode mock.
+- [`entities/`](frontend/src/entities/) — `analysis`, `detection` et
+  `system-status` : appels API, normalisation DTO → modèle (le snake_case du
+  backend s'arrête ici) et UI de présentation.
+- [`shared/`](frontend/src/shared/) — client axios unique
+  ([`api/client.js`](frontend/src/shared/api/client.js), base d'URL
+  `process.env.NEXT_PUBLIC_API_BASE || "/api"`), normalisation des erreurs en
+  `AppError`, hooks utilitaires et kit UI (`Button`, `Alert`, `Card`,
+  `FilePicker`).
 - [`nginx.conf`](frontend/nginx.conf) — proxy `location /api/` →
   `http://backend:8000/api/`, `client_max_body_size 50m`, fallback SPA
   `try_files … /index.html`.
 
-Le style est en CSS inline dans les composants, plus un
-[`styles/globals.css`](frontend/styles/globals.css) minimal importé par
-[`pages/_app.jsx`](frontend/pages/_app.jsx). Aucun framework CSS.
+Le style repose sur des **CSS Modules** colocalisés avec chaque composant, sur
+des jetons de design centralisés
+([`app/styles/tokens.css`](frontend/src/app/styles/tokens.css)) et sur un
+[`globals.css`](frontend/src/app/styles/globals.css) minimal importé par
+`pages/_app.jsx`. Aucun style inline, aucun framework CSS.
 
 ---
 
@@ -644,18 +661,23 @@ panoradent-ai/
 │   │   └── config.py           # chemin des poids, version, classes
 │   └── weights/                # y déposer model.pt (non versionné)
 │
-├── frontend/                   # Next.js 14, export statique servi par nginx
+├── frontend/                   # Next.js 14 (Feature-Sliced Design), export statique
 │   ├── Dockerfile              # build node → image nginx
+│   ├── README.md               # couches FSD, segments, règles d'import
 │   ├── next.config.mjs         # output: "export"
+│   ├── jsconfig.json           # alias @/* → src/*
 │   ├── package.json
 │   ├── nginx.conf              # proxy /api → backend, upload jusqu'à 50 Mo
-│   ├── pages/
-│   │   ├── _app.jsx            # import du CSS global
-│   │   └── index.jsx           # page unique : état + upload + viewer
-│   ├── src/
-│   │   ├── api.js              # client axios
-│   │   └── components/         # UploadPanel, DetectionViewer (canvas)
-│   └── styles/globals.css
+│   ├── pages/                  # routeur Next : adaptateurs uniquement
+│   │   ├── _app.jsx            # providers + CSS global
+│   │   └── index.jsx           # ré-export de views/home
+│   └── src/
+│       ├── app/                # providers globaux, jetons de design, globals.css
+│       ├── views/home/         # page composée : header + upload + viewer
+│       ├── widgets/            # app-header, detection-viewer (canvas)
+│       ├── features/           # upload-analysis, generate-report
+│       ├── entities/           # analysis, detection, system-status
+│       └── shared/             # api (axios + AppError), config, lib, ui
 │
 ├── .github/workflows/ci.yml    # tests backend + build frontend + build images
 └── docs/architecture.md
