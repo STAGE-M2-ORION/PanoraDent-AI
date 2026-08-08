@@ -23,6 +23,11 @@ inférence → persistance → rapport PDF) dès le premier jour.
 | **Prérequis** | Docker + Docker Compose v2, ~4 Go de disque. Aucun GPU requis |
 | **Démarrage** | `cp .env.example .env && docker compose up --build` |
 
+**Documentation** : ce fichier couvre l'ensemble de la stack ;
+[docs/architecture.md](docs/architecture.md) en donne la vue condensée, et
+[frontend/README.md](frontend/README.md) détaille les conventions
+Feature-Sliced Design du client.
+
 ---
 
 ## Table des matières
@@ -86,9 +91,10 @@ signifie que les détections affichées sont **factices**.
 **Premier essai** : ouvrir http://localhost:3000, cliquer sur « Importer une
 panoramique », choisir n'importe quel JPG/PNG (ou un `.dcm`), puis « Générer le
 rapport PDF ». Les objets produits sont visibles dans la console MinIO
-(`images/`, `reports/`) — à noter que l'aperçu de l'image et le lien du PDF
-côté navigateur nécessitent un ajustement décrit dans
-[Limites connues](#limites-connues).
+(`images/`, `reports/`). L'aperçu de l'image affiche en revanche « Image non
+affichable… » et le lien du PDF ne s'ouvre pas : les URLs présignées ne sont pas
+résolvables depuis le navigateur en configuration par défaut — cause et
+contournements dans [Limites connues](#limites-connues).
 
 Même essai en ligne de commande, sans passer par l'UI :
 
@@ -311,6 +317,24 @@ curl -F "file=@panoramique.jpg" http://localhost:8000/api/analyses
 `{"url": "…"}` contenant une URL présignée S3 valable **3600 s**, et non une
 redirection ni le binaire lui-même.
 
+**État du système** — `GET /api/health` interroge `GET /health` du service
+d'inférence avec un timeout de **3 s** ; toute erreur est absorbée et renvoie
+`inference_reachable: false`, `inference_mode: "unknown"`. Le backend est donc
+toujours `"status": "ok"` dès qu'il répond.
+
+**Versions de modèle** — `GET /api/model/versions`, plus récentes d'abord ;
+`metrics_json` est désérialisé dans le champ `metrics` :
+
+```json
+[
+  { "version": "yolov11-dentex-1.0.0", "dataset": "DENTEX",
+    "metrics": { "mAP50": 0.71 }, "notes": "", "created_at": "…" }
+]
+```
+
+La table n'étant alimentée par aucun code, cette route renvoie `[]` tant qu'on
+n'insère pas les lignes à la main (cf. [Limites connues](#limites-connues)).
+
 ### Codes d'erreur
 
 | Code | Cas |
@@ -505,28 +529,47 @@ vers le bas. Détail des conventions, des segments et des règles d'import :
 [frontend/README.md](frontend/README.md).
 
 - [`pages/`](frontend/pages/) — routeur Next.js uniquement. `index.jsx`
-  ré-exporte `views/home`, `_app.jsx` monte les providers et le CSS global.
+  ré-exporte `views/home`, `_app.jsx` monte `AppProvider` et le CSS global.
 - [`views/home`](frontend/src/views/home/) — page unique : compose l'en-tête,
   l'import et le viewer. Détient l'analyse courante, rien d'autre.
-- [`features/upload-analysis`](frontend/src/features/upload-analysis/) — input
-  fichier `accept=".dcm,image/*"`, état « Analyse en cours… », message d'erreur.
+- [`features/upload-analysis`](frontend/src/features/upload-analysis/) —
+  sélecteur de fichier `accept=".dcm,image/*"`, libellé « Analyse en cours… »
+  pendant l'appel, message d'erreur en cas d'échec. L'analyse produite est
+  remontée à la page ; la feature ne la conserve pas.
 - [`features/generate-report`](frontend/src/features/generate-report/) — bouton
-  de génération du PDF et lien vers le rapport produit.
+  « Générer le rapport PDF » puis lien « Ouvrir le rapport » vers l'URL
+  présignée renvoyée par l'API.
 - [`widgets/detection-viewer`](frontend/src/widgets/detection-viewer/) —
-  récupère l'URL présignée, dessine l'image dans un `<canvas>` à sa taille
-  native et superpose les boîtes (vert `#0F766E` pour `tooth`, rouge `#C0392B`
-  pour les anomalies) avec label, FDI et confiance. Le tracé est isolé dans
+  récupère l'URL présignée, précharge l'image et la dessine dans un `<canvas>`
+  à sa taille native, boîtes superposées (vert `#0F766E` pour `tooth`, rouge
+  `#C0392B` pour les anomalies) avec une légende `Dent · #11 · 94 %`. Trois
+  états dans
+  [`use-analysis-image.js`](frontend/src/widgets/detection-viewer/model/use-analysis-image.js) :
+  `loading`, `ready`, et `unavailable` — ce dernier affiche un message explicite
+  (« Image non affichable… ») au lieu d'un canvas vide lorsque l'URL présignée
+  n'est pas résolvable depuis le navigateur (cf.
+  [Limites connues](#limites-connues)). Le tracé est isolé dans
   `lib/draw-detections.js`, sans dépendance à React.
 - [`widgets/app-header`](frontend/src/widgets/app-header/) — titre et bandeau
-  d'état, avec l'avertissement « détections factices » en mode mock.
+  d'état. `/api/health` est interrogé **une seule fois, au montage** : le
+  bandeau ne se rafraîchit pas ensuite. Un backend injoignable retombe sur
+  « backend indisponible » sans bloquer l'UI, et le mode `mock` déclenche
+  l'avertissement « détections factices ».
 - [`entities/`](frontend/src/entities/) — `analysis`, `detection` et
-  `system-status` : appels API, normalisation DTO → modèle (le snake_case du
-  backend s'arrête ici) et UI de présentation.
+  `system-status` : appels API, normalisation DTO → modèle (le snake_case et les
+  champs `w`/`h` du backend s'arrêtent ici) et UI de présentation. Les libellés
+  français des classes (`Dent`, `Carie`, `Carie profonde`, `Lésion périapicale`,
+  `Dent incluse`) vivent dans `entities/detection` et suivent l'ordre déclaré
+  par [`inference/app/config.py`](inference/app/config.py) — à garder
+  synchronisés.
 - [`shared/`](frontend/src/shared/) — client axios unique
-  ([`api/client.js`](frontend/src/shared/api/client.js), base d'URL
-  `process.env.NEXT_PUBLIC_API_BASE || "/api"`), normalisation des erreurs en
-  `AppError`, hooks utilitaires et kit UI (`Button`, `Alert`, `Card`,
-  `FilePicker`).
+  ([`api/client.js`](frontend/src/shared/api/client.js)), dont la base d'URL
+  (`NEXT_PUBLIC_API_BASE`, défaut `/api`) et le timeout (**120 s**) viennent de
+  [`config/env.js`](frontend/src/shared/config/env.js) ; normalisation de toute
+  exception axios en `AppError { code, message }` avec un message français prêt
+  à afficher (`network`, `timeout`, `validation`, `not_found`, `server`) ; hook
+  `useAsyncAction` (`idle → pending → success | error`, qui ne rejette jamais)
+  et kit UI (`Button`, `Alert`, `Card`, `FilePicker`).
 - [`nginx.conf`](frontend/nginx.conf) — proxy `location /api/` →
   `http://backend:8000/api/`, `client_max_body_size 50m`, fallback SPA
   `try_files … /index.html`.
@@ -804,10 +847,12 @@ Cette configuration est calibrée pour le **développement local** et ne doit pa
   à partir de `S3_ENDPOINT=http://minio:9000`, un nom de service interne au
   réseau Docker : l'affichage de l'image dans le viewer et l'ouverture du PDF
   échouent depuis l'hôte. L'analyse elle-même (upload, inférence, persistance,
-  génération du PDF côté serveur) fonctionne. Contournements : ajouter
-  `127.0.0.1 minio` au fichier `hosts` de la machine, ou faire signer les URLs
-  avec une adresse publique (`http://localhost:9000`) tout en gardant
-  l'endpoint interne pour les appels serveur.
+  génération du PDF côté serveur) fonctionne, et le viewer **dégrade
+  proprement** — il affiche « Image non affichable… » au lieu d'un canvas vide.
+  Contournements : ajouter `127.0.0.1 minio` au fichier `hosts` de la machine,
+  ou faire signer les URLs avec une adresse publique
+  (`http://localhost:9000`) tout en gardant l'endpoint interne pour les appels
+  serveur.
 - **`VITE_API_BASE` dans [docker-compose.yml](docker-compose.yml)** est un
   reliquat de la migration Vite → Next.js : il n'a aucun effet. Il est de plus
   passé en `environment` (runtime du conteneur nginx) alors que Next.js inline
@@ -821,7 +866,18 @@ Cette configuration est calibrée pour le **développement local** et ne doit pa
   les affiche « running » avant que l'API réponde.
 - **Le PDF est écrit sans accents** (libellés `Detections proposees`, `Modele`,
   disclaimer) : les polices de base de ReportLab sont utilisées sans police
-  embarquée.
+  embarquée. Il reprend en outre les **noms de classes bruts en anglais**
+  (`tooth`, `deep_caries`…), là où l'UI affiche des libellés français — la table
+  de traduction n'existe que côté frontend
+  ([`entities/detection`](frontend/src/entities/detection/model/detection.js)).
+- **Bandeau d'état non rafraîchi** : `/api/health` n'est appelé qu'au montage de
+  la page. Un service qui tombe (ou qui revient) après le chargement n'est pas
+  reflété tant qu'on ne recharge pas.
+- **Timeout nginx à 60 s sur `/api/`** : [nginx.conf](frontend/nginx.conf) ne
+  fixe pas `proxy_read_timeout`, donc la valeur par défaut de 60 s s'applique.
+  Elle coïncide avec le timeout du client d'inférence : une analyse lente en
+  mode réel peut être coupée en `504` par le proxy avant que le backend
+  n'abandonne. Le client axios, lui, patiente 120 s.
 - **Couverture de tests quasi nulle** : un seul test unitaire, sur
   l'anonymisation.
 - **`Makefile`** : `up-gpu` n'est pas déclaré dans `.PHONY`, et `build`, `seed`,
@@ -858,9 +914,11 @@ Par ordre de valeur, en partant de l'état actuel :
 | Mode toujours `mock` après ajout des poids | Poids absents de `inference/weights/model.pt`, `ultralytics`/`torch` non décommentés, ou échec de chargement — chercher `échec du chargement du modèle` dans les logs. Un rebuild (`--build`) est requis après décommentage |
 | Erreur 500 à l'upload d'un DICOM | DICOM sans `pixel_array` exploitable (compression non supportée par pydicom) |
 | Erreur 500 à l'upload d'une image | Format non lisible par Pillow, ou fichier tronqué |
-| Image blanche dans le viewer / lien PDF mort | L'URL présignée pointe vers `http://minio:9000`, inconnu du navigateur — voir [Limites connues](#limites-connues) |
+| « Image non affichable… » dans le viewer / lien PDF mort | L'URL présignée pointe vers `http://minio:9000`, inconnu du navigateur — voir [Limites connues](#limites-connues) |
 | Upload refusé au-delà de ~50 Mo | Limite `client_max_body_size` dans [frontend/nginx.conf](frontend/nginx.conf) |
-| Timeout à l'analyse d'une grande image en mode réel | Le client d'inférence coupe à 60 s ([`inference_client.py`](backend/app/services/inference_client.py)) |
+| Timeout à l'analyse d'une grande image en mode réel | Le client d'inférence coupe à 60 s ([`inference_client.py`](backend/app/services/inference_client.py)), et nginx à 60 s également (`proxy_read_timeout` par défaut) |
+| `504 Gateway Time-out` sur `/api/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` dans [frontend/nginx.conf](frontend/nginx.conf) |
+| Bandeau d'état figé après redémarrage d'un service | `/api/health` n'est lu qu'au montage : recharger la page |
 | Ports déjà utilisés | Adapter les mappings dans [docker-compose.yml](docker-compose.yml) |
 | `make test` / `make migrate` échouent | Ils utilisent `docker compose exec` : la stack doit être démarrée |
 | Base incohérente après changement de schéma | `make clean` puis `make up` (⚠️ efface les volumes) |
