@@ -38,7 +38,7 @@ import {
   TooltipTrigger,
 } from "@/shared/ui";
 
-import { Canvas, Section, Specimen } from "./Section";
+import { Canvas, Code, Section, Specimen } from "./Section";
 
 const BUTTON_VARIANTS = ["default", "secondary", "outline", "ghost", "link", "destructive"];
 const BUTTON_SIZES = ["sm", "default", "lg", "icon"];
@@ -49,7 +49,13 @@ export function ComponentsPanel() {
     <div className="space-y-10">
       <Section
         title="Boutons"
-        description="Composant shadcn `button`. `default` porte l'action principale d'un écran — un seul à la fois. Les icônes se placent avant le libellé et sont dimensionnées automatiquement."
+        description={
+          <>
+            Composant shadcn <Code>button</Code>. <Code>default</Code> porte
+            l&apos;action principale d&apos;un écran — un seul à la fois. Les icônes
+            se placent avant le libellé et sont dimensionnées automatiquement.
+          </>
+        }
       >
         <Canvas>
           {BUTTON_VARIANTS.map((variant) => (
@@ -98,7 +104,13 @@ export function ComponentsPanel() {
 
       <Section
         title="Sélecteur de fichier"
-        description="Composant maison : shadcn n'en fournit pas. Un label stylé comme un bouton masque l'input, qui reste atteignable au clavier (`sr-only`, pas `display:none`)."
+        description={
+          <>
+            Composant maison : shadcn n&apos;en fournit pas. Un label stylé comme
+            un bouton masque l&apos;input, qui reste atteignable au clavier (
+            <Code>sr-only</Code>, pas <Code>display:none</Code>).
+          </>
+        }
       >
         <Canvas>
           <Specimen label="au repos">
@@ -120,7 +132,13 @@ export function ComponentsPanel() {
 
       <Section
         title="Badges"
-        description="Étiquettes d'état, jamais cliquables ici. `warning` et `success` sont des variantes ajoutées au composant shadcn pour les besoins du prototype."
+        description={
+          <>
+            Étiquettes d&apos;état, jamais cliquables ici. <Code>warning</Code> et{" "}
+            <Code>success</Code> sont des variantes ajoutées au composant shadcn
+            pour les besoins du prototype.
+          </>
+        }
       >
         <Canvas>
           {BADGE_VARIANTS.map((variant) => (
@@ -135,7 +153,13 @@ export function ComponentsPanel() {
 
       <Section
         title="Alertes"
-        description="Messages contextuels. `warning` signale une dégradation attendue (image non affichable), `destructive` un échec d'action."
+        description={
+          <>
+            Messages contextuels. <Code>warning</Code> signale une dégradation
+            attendue (image non affichable), <Code>destructive</Code> un échec
+            d&apos;action.
+          </>
+        }
       >
         <div className="grid gap-4 lg:grid-cols-2">
           <Alert>
@@ -174,7 +198,12 @@ export function ComponentsPanel() {
 
       <Section
         title="Cartes"
-        description="Conteneur de premier niveau. `CardAction` se place dans l'en-tête, aligné à droite du titre."
+        description={
+          <>
+            Conteneur de premier niveau. <Code>CardAction</Code> se place dans
+            l&apos;en-tête, aligné à droite du titre.
+          </>
+        }
       >
         <Card className="max-w-lg">
           <CardHeader>
@@ -258,7 +287,13 @@ export function ComponentsPanel() {
 
       <Section
         title="États d'attente"
-        description="`Skeleton` réserve la place du contenu à venir, `Progress` sert aux traitements dont on connaît l'avancement."
+        description={
+          <>
+            <Code>Skeleton</Code> réserve la place du contenu à venir,{" "}
+            <Code>Progress</Code> sert aux traitements dont on connaît
+            l&apos;avancement.
+          </>
+        }
       >
         <Canvas className="block space-y-4">
           <div className="flex items-center gap-4">

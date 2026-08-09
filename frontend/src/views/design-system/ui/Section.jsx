@@ -29,6 +29,15 @@ export function Canvas({ children, className }) {
   );
 }
 
+/** Référence à un identifiant du code, au fil d'une phrase. */
+export function Code({ children }) {
+  return (
+    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+      {children}
+    </code>
+  );
+}
+
 /** Étiquette d'un exemple : le nom de la variante montrée juste au-dessus. */
 export function Specimen({ label, children, className }) {
   return (

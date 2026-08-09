@@ -13,9 +13,13 @@ export function SystemStatusLine({ status, className }) {
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2 text-sm", className)}>
+      {/*
+        Repli défensif : une réponse 200 au corps inattendu (proxy mal câblé,
+        page d'erreur HTML) laisserait sinon le badge vide.
+      */}
       <Badge variant={status.isOnline ? "success" : "destructive"}>
         <Activity aria-hidden="true" />
-        Backend : {status.backendStatus}
+        Backend : {status.backendStatus || "inconnu"}
       </Badge>
 
       <Badge variant={isMock ? "warning" : "secondary"}>

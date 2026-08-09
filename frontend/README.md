@@ -1,7 +1,12 @@
 # Frontend — architecture
 
 Application Next.js 14 (pages router) en **export statique**, organisée selon
-**Feature-Sliced Design** (FSD 2.1).
+**Feature-Sliced Design** (FSD 2.1), habillée par **shadcn/ui** sur
+**Tailwind CSS v4**.
+
+> 🎨 Le design system est documenté **par l'application elle-même** :
+> [http://localhost:3000/design-system](http://localhost:3000/design-system).
+> La page rend les vrais composants — elle ne peut pas mentir sur leur apparence.
 
 ## Couches
 
@@ -26,7 +31,7 @@ shared       socle réutilisable, sans aucune connaissance du métier
 | Couche | Slices actuelles |
 |---|---|
 | `app` | `providers/`, `styles/` |
-| `views` | `home` |
+| `views` | `home`, `design-system` |
 | `widgets` | `app-header`, `detection-viewer` |
 | `features` | `upload-analysis`, `generate-report` |
 | `entities` | `analysis`, `detection`, `system-status` |
@@ -54,7 +59,7 @@ Chaque slice est découpée par **rôle technique**, pas par type de fichier :
 | `api/` | appels HTTP et mapping DTO → modèle |
 | `model/` | logique métier, hooks d'état, normalisation |
 | `lib/` | utilitaires purs propres à la slice |
-| `ui/` | composants React et leurs modules CSS |
+| `ui/` | composants React |
 | `index.js` | **API publique** de la slice |
 
 ## Règle d'import
@@ -84,6 +89,74 @@ droit d'utiliser. Deux cross-imports existent aujourd'hui :
 - `entities/detection/@x/analysis.js` → `normalizeDetection`
 - `entities/analysis/@x/system-status.js` → `InferenceMode`
 
+---
+
+## Design system
+
+### shadcn/ui dans la couche `shared`
+
+Les composants shadcn ne sont pas une dépendance npm : la CLI **copie leur code
+source** dans le dépôt. [components.json](components.json) les dirige vers la
+couche FSD plutôt que vers le `components/ui` par défaut :
+
+```json
+"aliases": { "ui": "@/shared/ui", "utils": "@/shared/lib/utils" }
+```
+
+Ajouter un composant :
+
+```bash
+npx shadcn@latest add dialog     # → src/shared/ui/dialog.jsx
+```
+
+Puis l'exporter depuis [`shared/ui/index.js`](src/shared/ui/index.js) — c'est
+l'API publique de la slice, seule porte d'entrée autorisée.
+
+> ⚠️ Ces fichiers **appartiennent au dépôt** et peuvent être modifiés, mais un
+> `add --overwrite` les réécrase. Toute retouche locale doit être signalée par
+> un commentaire dans le fichier. Deux existent aujourd'hui : les variantes
+> `warning` / `success` ajoutées à `alert.jsx` et `badge.jsx`, absentes de
+> shadcn qui ne fournit que `destructive`.
+
+`file-picker.jsx` est un composant **maison** (shadcn n'a pas d'équivalent) : il
+emprunte `buttonVariants` pour rester visuellement aligné sur `Button`.
+
+### Jetons
+
+Tout vit dans [`app/styles/globals.css`](src/app/styles/globals.css) — il n'y a
+plus de `tokens.css` séparé, c'est la convention shadcn :
+
+- `:root` et `.dark` définissent les variables en **OKLCH**, converties depuis
+  la charte historique (teal `#0F766E` / `#134E4A`) sans dérive de teinte ;
+- `@theme inline` les expose comme utilitaires Tailwind (`bg-primary`,
+  `text-warning`, `bg-detection-anomaly`…) ;
+- `--radius` est l'unique source des quatre rayons.
+
+Aux jetons shadcn standards s'ajoutent `warning`, `success`, et les couleurs
+métier `detection-normal` / `detection-anomaly`.
+
+> Les couleurs de détection sont **volontairement dupliquées** en hexadécimal
+> dans [`entities/detection`](src/entities/detection/model/detection.js) : le
+> canvas ne lit pas les variables CSS. Les deux doivent évoluer ensemble.
+
+### Thème sombre
+
+Les jetons `.dark` existent et la page design system permet de les prévisualiser,
+mais **l'application reste en clair** : les couleurs de tracé du canvas sont
+figées. Le hook `useThemePreview` retire donc la classe `dark` en quittant la
+page.
+
+### Styles
+
+Plus aucun CSS Module : toute la mise en forme passe par des classes Tailwind,
+et les valeurs viennent des jetons. Pas de style inline, pas de couleur brute
+dans une slice.
+
+Une classe Tailwind doit apparaître **littéralement** dans le source — une
+classe construite dynamiquement (`` `bg-${name}` ``) ne serait pas générée.
+C'est pourquoi le catalogue de la page design system stocke des chaînes de
+classes complètes.
+
 ## Conventions
 
 - **Frontière DTO / modèle.** Le backend parle snake_case (`created_at`,
@@ -92,10 +165,6 @@ droit d'utiliser. Deux cross-imports existent aujourd'hui :
 - **Erreurs normalisées.** `shared/api/app-error.js` convertit toute exception
   axios en `AppError { code, message }`, avec un message français prêt à
   afficher. Aucun composant ne manipule d'erreur axios.
-- **Styles.** CSS Modules colocalisés avec leur composant. Toutes les valeurs
-  (couleurs, espacements, rayons) viennent des jetons de
-  [`app/styles/tokens.css`](src/app/styles/tokens.css) — pas de valeur brute
-  dans une slice, pas de style inline.
 - **État asynchrone.** `shared/lib/use-async-action.js` fournit la machine
   `idle → pending → success | error` utilisée par les features.
 
@@ -113,6 +182,7 @@ La page `views/home` n'a rien à savoir de l'implémentation.
 ## Commandes
 
 ```bash
+npm install     # npm ci en CI et dans Docker (le lockfile fait foi)
 npm run dev     # http://localhost:3000, hot reload
 npm run build   # export statique dans out/
 ```

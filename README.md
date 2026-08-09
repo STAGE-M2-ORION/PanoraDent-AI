@@ -43,6 +43,7 @@ Feature-Sliced Design du client.
 - [Brancher le vrai modèle](#brancher-le-vrai-modèle)
 - [Environnement CPU / GPU](#environnement-cpu--gpu)
 - [Frontend](#frontend)
+- [Design system](#design-system)
 - [Développement local (hors Docker)](#développement-local-hors-docker)
 - [Tests et CI](#tests-et-ci)
 - [Structure du dépôt](#structure-du-dépôt)
@@ -72,6 +73,7 @@ inference, frontend). Une fois les services démarrés :
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
+| Design system | http://localhost:3000/design-system | — |
 | API (docs Swagger) | http://localhost:8000/docs | — |
 | API (schéma OpenAPI) | http://localhost:8000/openapi.json | — |
 | Service d'inférence | http://localhost:8001/health | — |
@@ -525,13 +527,19 @@ production : le build produit `out/`, servi tel quel par nginx.
 
 Le code est organisé en **Feature-Sliced Design** — couches `app` → `views` →
 `widgets` → `features` → `entities` → `shared`, les imports allant strictement
-vers le bas. Détail des conventions, des segments et des règles d'import :
-[frontend/README.md](frontend/README.md).
+vers le bas. L'habillage repose sur **shadcn/ui** (style new-york) et
+**Tailwind CSS v4**. Détail des conventions, des segments et des règles
+d'import : [frontend/README.md](frontend/README.md).
 
 - [`pages/`](frontend/pages/) — routeur Next.js uniquement. `index.jsx`
-  ré-exporte `views/home`, `_app.jsx` monte `AppProvider` et le CSS global.
+  ré-exporte `views/home`, `design-system.jsx` ré-exporte
+  `views/design-system`, `_app.jsx` monte `AppProvider` (qui porte le
+  `TooltipProvider` shadcn) et le CSS global.
 - [`views/home`](frontend/src/views/home/) — page unique : compose l'en-tête,
   l'import et le viewer. Détient l'analyse courante, rien d'autre.
+- [`views/design-system`](frontend/src/views/design-system/) — documentation
+  vivante du design system, servie sur `/design-system` (voir
+  [Design system](#design-system)).
 - [`features/upload-analysis`](frontend/src/features/upload-analysis/) —
   sélecteur de fichier `accept=".dcm,image/*"`, libellé « Analyse en cours… »
   pendant l'appel, message d'erreur en cas d'échec. L'analyse produite est
@@ -569,16 +577,56 @@ vers le bas. Détail des conventions, des segments et des règles d'import :
   exception axios en `AppError { code, message }` avec un message français prêt
   à afficher (`network`, `timeout`, `validation`, `not_found`, `server`) ; hook
   `useAsyncAction` (`idle → pending → success | error`, qui ne rejette jamais)
-  et kit UI (`Button`, `Alert`, `Card`, `FilePicker`).
+  et kit UI shadcn (`Button`, `Alert`, `Card`, `Badge`, `Table`, `Tabs`,
+  `FilePicker`…).
 - [`nginx.conf`](frontend/nginx.conf) — proxy `location /api/` →
-  `http://backend:8000/api/`, `client_max_body_size 50m`, fallback SPA
-  `try_files … /index.html`.
+  `http://backend:8000/api/`, `client_max_body_size 50m`, fallback
+  `try_files $uri $uri.html $uri/ /index.html`. Le `$uri.html` est
+  **indispensable** : l'export statique produit `design-system.html`, pas
+  `design-system/index.html`.
 
-Le style repose sur des **CSS Modules** colocalisés avec chaque composant, sur
-des jetons de design centralisés
-([`app/styles/tokens.css`](frontend/src/app/styles/tokens.css)) et sur un
-[`globals.css`](frontend/src/app/styles/globals.css) minimal importé par
-`pages/_app.jsx`. Aucun style inline, aucun framework CSS.
+---
+
+## Design system
+
+Le projet expose sa propre documentation de design à
+**http://localhost:3000/design-system** (lien « Design system » dans l'en-tête).
+La page rend les **vrais composants** de `shared/ui` et `entities/*` : elle ne
+peut pas diverger de l'application. Elle n'appelle aucune API — toutes les
+données affichées sont fictives.
+
+Trois onglets :
+
+| Onglet | Contenu |
+|---|---|
+| **Fondations** | Couleurs, typographie, rayons, espacements. Les valeurs OKLCH affichées sont **relues dans le navigateur**, pas recopiées |
+| **Composants** | Boutons, badges, alertes, cartes, formulaire, tableau, états d'attente, infobulle — chaque variante annotée de son nom |
+| **Métier** | Classes de détection, style d'annotation des boîtes, bandeau d'état, résumé d'analyse |
+
+Un sélecteur permet de prévisualiser le **thème sombre**. Les jetons `.dark`
+existent, mais l'application reste en clair : les couleurs de tracé du canvas
+sont figées en dur. La classe `dark` est donc retirée en quittant la page.
+
+### Socle technique
+
+Les composants shadcn ne sont **pas une dépendance npm** : la CLI copie leur
+code source dans le dépôt. [`components.json`](frontend/components.json) les
+dirige vers la couche FSD (`@/shared/ui`) au lieu du `components/ui` par défaut.
+
+```bash
+cd frontend && npx shadcn@latest add dialog   # → src/shared/ui/dialog.jsx
+```
+
+Les jetons vivent dans
+[`app/styles/globals.css`](frontend/src/app/styles/globals.css) : `:root` et
+`.dark` déclarent les variables en **OKLCH**, `@theme inline` les expose comme
+utilitaires Tailwind. La charte historique (teal `#0F766E` / `#134E4A`) a été
+convertie sans dérive de teinte. Deux variantes non standard ont été ajoutées à
+`alert.jsx` et `badge.jsx` — `warning` et `success` — signalées en commentaire
+dans les fichiers, car un `shadcn add --overwrite` les écraserait.
+
+Il n'y a plus aucun CSS Module ni fichier `tokens.css` : toute la mise en forme
+passe par des classes Tailwind alimentées par les jetons.
 
 ---
 
@@ -705,22 +753,28 @@ panoradent-ai/
 │   └── weights/                # y déposer model.pt (non versionné)
 │
 ├── frontend/                   # Next.js 14 (Feature-Sliced Design), export statique
-│   ├── Dockerfile              # build node → image nginx
-│   ├── README.md               # couches FSD, segments, règles d'import
+│   ├── Dockerfile              # build node (npm ci) → image nginx
+│   ├── .dockerignore           # exclut node_modules : binaires natifs par OS
+│   ├── README.md               # couches FSD, segments, design system
+│   ├── components.json         # config shadcn : composants → @/shared/ui
+│   ├── postcss.config.mjs      # Tailwind v4 en plugin PostCSS
 │   ├── next.config.mjs         # output: "export"
 │   ├── jsconfig.json           # alias @/* → src/*
-│   ├── package.json
+│   ├── package.json / package-lock.json
 │   ├── nginx.conf              # proxy /api → backend, upload jusqu'à 50 Mo
 │   ├── pages/                  # routeur Next : adaptateurs uniquement
-│   │   ├── _app.jsx            # providers + CSS global
-│   │   └── index.jsx           # ré-export de views/home
+│   │   ├── _app.jsx            # AppProvider + CSS global
+│   │   ├── index.jsx           # ré-export de views/home
+│   │   └── design-system.jsx   # ré-export de views/design-system
 │   └── src/
-│       ├── app/                # providers globaux, jetons de design, globals.css
-│       ├── views/home/         # page composée : header + upload + viewer
+│       ├── app/                # providers globaux, globals.css (jetons OKLCH)
+│       ├── views/
+│       │   ├── home/           # page composée : header + upload + viewer
+│       │   └── design-system/  # documentation vivante du design system
 │       ├── widgets/            # app-header, detection-viewer (canvas)
 │       ├── features/           # upload-analysis, generate-report
 │       ├── entities/           # analysis, detection, system-status
-│       └── shared/             # api (axios + AppError), config, lib, ui
+│       └── shared/             # api (axios + AppError), config, lib, ui (shadcn)
 │
 ├── .github/workflows/ci.yml    # tests backend + build frontend + build images
 └── docs/architecture.md
@@ -753,7 +807,19 @@ Python 3.11 :
 `ultralytics` et `torch` sont **commentés** — à activer pour le mode réel.
 
 **Frontend** ([`frontend/package.json`](frontend/package.json)) — Node 20 :
-`next` ^14.2.5, `react` / `react-dom` ^18.3.1, `axios` ^1.7.2.
+
+| Paquet | Rôle |
+|---|---|
+| `next` ^14.2.5 · `react` / `react-dom` ^18.3.1 | Application et export statique |
+| `axios` ^1.7.2 | Client HTTP unique |
+| `tailwindcss` ^4 · `@tailwindcss/postcss` | Moteur CSS (config dans le CSS, pas de `tailwind.config.js`) |
+| `radix-ui` | Primitives accessibles sous les composants shadcn |
+| `class-variance-authority` · `clsx` · `tailwind-merge` | Variantes de composants et fusion de classes (`cn`) |
+| `lucide-react` | Jeu d'icônes |
+| `tw-animate-css` | Animations utilisées par les composants shadcn |
+
+shadcn/ui n'apparaît pas dans les dépendances : son **code source est copié**
+dans [`src/shared/ui/`](frontend/src/shared/ui/) et versionné.
 
 ---
 
@@ -859,11 +925,12 @@ Cette configuration est calibrée pour le **développement local** et ne doit pa
   la valeur au **build** — le renommer en `NEXT_PUBLIC_API_BASE` ne suffirait
   donc pas, il faudrait un `build.args`. En l'état, le frontend retombe sur
   `/api`, qui est la valeur correcte derrière le proxy nginx.
-- **Build frontend non reproductible** : le [Dockerfile](frontend/Dockerfile)
-  copie `package.json` seul avant `npm install`, donc `package-lock.json` est
-  ignoré ; la CI utilise également `npm install` plutôt que `npm ci`.
 - **Pas de healthcheck backend ni frontend** dans Compose : `docker compose ps`
   les affiche « running » avant que l'API réponde.
+- **Thème sombre non appliqué à l'application** : les jetons `.dark` existent et
+  se prévisualisent sur `/design-system`, mais les couleurs de tracé du canvas
+  sont figées en clair dans `entities/detection`. Les brancher sur les variables
+  CSS est le prérequis à un vrai mode sombre.
 - **Le PDF est écrit sans accents** (libellés `Detections proposees`, `Modele`,
   disclaimer) : les polices de base de ReportLab sont utilisées sans police
   embarquée. Il reprend en outre les **noms de classes bruts en anglais**

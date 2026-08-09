@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/shared/ui";
 
-import { Canvas, Section } from "./Section";
+import { Canvas, Code, Section } from "./Section";
 
 const CLASSES = Object.values(DetectionLabel);
 
@@ -62,16 +62,18 @@ const OFFLINE_PREVIEW = {
 
 /** Boîtes schématiques, dans le style exact du canvas d'analyse. */
 function AnnotationPreview() {
+  // Espacement calé sur la largeur des légendes : elles ne doivent pas se
+  // chevaucher, comme dans le viewer réel.
   const boxes = [
-    { x: 40, y: 60, w: 46, h: 60, label: "Dent · #11 · 94 %", anomaly: false },
-    { x: 104, y: 56, w: 46, h: 64, label: "Dent · #12 · 91 %", anomaly: false },
-    { x: 168, y: 62, w: 46, h: 58, label: "Carie · #13 · 72 %", anomaly: true },
-    { x: 232, y: 58, w: 46, h: 62, label: "Dent · #14 · 88 %", anomaly: false },
+    { x: 24, y: 58, w: 70, h: 62, label: "Dent · #11 · 94 %", anomaly: false },
+    { x: 126, y: 54, w: 70, h: 66, label: "Dent · #12 · 91 %", anomaly: false },
+    { x: 228, y: 60, w: 70, h: 60, label: "Carie · #13 · 72 %", anomaly: true },
+    { x: 330, y: 56, w: 70, h: 64, label: "Dent · #14 · 88 %", anomaly: false },
   ];
 
   return (
     <svg
-      viewBox="0 0 340 170"
+      viewBox="0 0 424 150"
       className="w-full max-w-xl rounded-md border bg-muted"
       role="img"
       aria-label="Aperçu du style d'annotation : boîtes vertes pour les dents, rouges pour les anomalies"
@@ -92,7 +94,7 @@ function AnnotationPreview() {
               stroke={color}
               strokeWidth="2"
             />
-            <text x={box.x} y={box.y - 5} fill={color} fontSize="9">
+            <text x={box.x} y={box.y - 6} fill={color} fontSize="10">
               {box.label}
             </text>
           </g>
@@ -107,7 +109,14 @@ export function DomainPanel() {
     <div className="space-y-10">
       <Section
         title="Classes de détection"
-        description="Périmètre défini par `inference/app/config.py`. L'ordre fait foi : c'est l'index de classe renvoyé par le modèle. Toute évolution doit être répercutée dans `entities/detection`."
+        description={
+          <>
+            Périmètre défini par <Code>inference/app/config.py</Code>.
+            L&apos;ordre fait foi : c&apos;est l&apos;index de classe renvoyé par
+            le modèle. Toute évolution doit être répercutée dans{" "}
+            <Code>entities/detection</Code>.
+          </>
+        }
       >
         <div className="rounded-lg border bg-card">
           <Table>
@@ -149,9 +158,17 @@ export function DomainPanel() {
         <Alert variant="warning">
           <AlertTitle>Double source de vérité assumée</AlertTitle>
           <AlertDescription>
-            Ces hexadécimaux vivent dans `entities/detection`, en parallèle des
-            jetons `--detection-normal` / `--detection-anomaly`. Le canvas ne lit
-            pas les variables CSS : les deux doivent être modifiés ensemble.
+            {/*
+              `AlertDescription` est une grille : chaque enfant direct occupe
+              une ligne. Le texte enrichi doit donc tenir dans un seul <p>,
+              sinon chaque <Code> partirait à la ligne.
+            */}
+            <p>
+              Ces hexadécimaux vivent dans <Code>entities/detection</Code>, en
+              parallèle des jetons <Code>--detection-normal</Code> et{" "}
+              <Code>--detection-anomaly</Code>. Le canvas ne lit pas les
+              variables CSS : les deux doivent être modifiés ensemble.
+            </p>
           </AlertDescription>
         </Alert>
       </Section>
@@ -171,7 +188,12 @@ export function DomainPanel() {
 
       <Section
         title="Bandeau d'état"
-        description="Composant `SystemStatusLine`. Le mode mock doit rester visuellement impossible à confondre avec une inférence réelle."
+        description={
+          <>
+            Composant <Code>SystemStatusLine</Code>. Le mode mock doit rester
+            visuellement impossible à confondre avec une inférence réelle.
+          </>
+        }
       >
         <Canvas className="block space-y-4">
           <SystemStatusLine status={ONLINE_STATUS} />
@@ -184,7 +206,12 @@ export function DomainPanel() {
 
       <Section
         title="Résumé d'analyse"
-        description="Composant `AnalysisSummary`, affiché sous le titre du viewer."
+        description={
+          <>
+            Composant <Code>AnalysisSummary</Code>, affiché sous le titre du
+            viewer.
+          </>
+        }
       >
         <Canvas className="block space-y-4 text-sm text-muted-foreground">
           <AnalysisSummary analysis={MOCK_ANALYSIS} />

@@ -31,7 +31,7 @@ export const COLOR_GROUPS = [
   {
     title: "Statuts",
     description:
-      "`warning` et `success` sont des ajouts projet : shadcn ne fournit que `destructive`.",
+      "warning et success sont des ajouts projet : shadcn ne fournit que destructive.",
     swatches: [
       { token: "destructive", className: "bg-destructive text-destructive-foreground" },
       { token: "warning", className: "bg-warning text-warning-foreground" },
@@ -42,7 +42,7 @@ export const COLOR_GROUPS = [
   {
     title: "Métier — détections",
     description:
-      "Couleurs des boîtes tracées sur la panoramique. Répliquées en hexadécimal dans `entities/detection` : le canvas ne lit pas les variables CSS.",
+      "Couleurs des boîtes tracées sur la panoramique. Répliquées en hexadécimal dans entities/detection : le canvas ne lit pas les variables CSS.",
     swatches: [
       {
         token: "detection-normal",
