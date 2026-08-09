@@ -1,18 +1,22 @@
 import { pluralize } from "@/shared/lib";
+import { Badge } from "@/shared/ui";
 
 import { isMockAnalysis } from "../model/analysis";
-import styles from "./AnalysisSummary.module.css";
 
 /** Ligne de métadonnées d'une analyse : volume, modèle, mode d'inférence. */
 export function AnalysisSummary({ analysis }) {
   const count = analysis.detections?.length ?? 0;
 
   return (
-    <p className={styles.summary}>
-      {pluralize(count, "détection")} · modèle {analysis.modelVersion}{" "}
-      <span className={isMockAnalysis(analysis) ? styles.mock : styles.real}>
-        ({analysis.inferenceMode})
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>{pluralize(count, "détection")}</span>
+      <span aria-hidden="true">·</span>
+      <span>
+        modèle <code className="font-mono text-xs">{analysis.modelVersion}</code>
       </span>
-    </p>
+      <Badge variant={isMockAnalysis(analysis) ? "warning" : "secondary"}>
+        {analysis.inferenceMode}
+      </Badge>
+    </div>
   );
 }

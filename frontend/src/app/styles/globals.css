@@ -1,21 +1,152 @@
-@import "./tokens.css";
+@import "tailwindcss";
+@import "tw-animate-css";
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* Détection explicite des sources : la feuille vit dans src/app/styles/. */
+@source "../../";
+@source "../../../pages";
+
+@custom-variant dark (&:is(.dark *));
+
+/**
+ * Jetons de design — source unique de vérité.
+ *
+ * Contrat shadcn/ui : chaque couleur est une paire `X` / `X-foreground`, où le
+ * second est la couleur de texte lisible sur le premier. Les valeurs sont en
+ * OKLCH (espace perceptuellement uniforme), converties depuis la charte
+ * historique : teal #0F766E pour la marque, #C0392B pour les anomalies.
+ */
+:root {
+  --radius: 0.625rem;
+
+  /* Neutres */
+  --background: oklch(0.9842 0.0034 247.86);
+  --foreground: oklch(0.2781 0.0296 256.85);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2781 0.0296 256.85);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2781 0.0296 256.85);
+  --muted: oklch(0.968 0.004 247.86);
+  --muted-foreground: oklch(0.4461 0.0263 256.8);
+  --border: oklch(0.8957 0.0066 185.26);
+  --input: oklch(0.8957 0.0066 185.26);
+  --ring: oklch(0.5109 0.0861 186.39);
+
+  /* Marque */
+  --primary: oklch(0.3861 0.059 188.42);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9836 0.0142 180.72);
+  --secondary-foreground: oklch(0.3861 0.059 188.42);
+  --accent: oklch(0.9836 0.0142 180.72);
+  --accent-foreground: oklch(0.3861 0.059 188.42);
+
+  /* Statuts */
+  --destructive: oklch(0.5433 0.174 29.7);
+  --destructive-foreground: oklch(1 0 0);
+  --warning: oklch(0.5553 0.1455 49);
+  --warning-foreground: oklch(1 0 0);
+  --success: oklch(0.5273 0.1371 150.07);
+  --success-foreground: oklch(1 0 0);
+
+  /**
+   * Couleurs métier des détections. Répliquées en hexadécimal dans
+   * `entities/detection/model/detection.js` : le canvas ne lit pas les
+   * variables CSS. Toute évolution doit toucher les deux.
+   */
+  --detection-normal: oklch(0.5109 0.0861 186.39); /* #0F766E — dent saine */
+  --detection-anomaly: oklch(0.5433 0.174 29.7); /* #C0392B — anomalie */
+
+  --chart-1: oklch(0.5109 0.0861 186.39);
+  --chart-2: oklch(0.6002 0.1038 184.7);
+  --chart-3: oklch(0.5553 0.1455 49);
+  --chart-4: oklch(0.5433 0.174 29.7);
+  --chart-5: oklch(0.4461 0.0263 256.8);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  min-height: 100%;
-  background: var(--color-background);
-  color: var(--color-text);
-  font-family: var(--font-sans);
+.dark {
+  --background: oklch(0.2077 0.0198 254.1);
+  --foreground: oklch(0.9842 0.0034 247.86);
+  --card: oklch(0.2795 0.0368 260.03);
+  --card-foreground: oklch(0.9842 0.0034 247.86);
+  --popover: oklch(0.2795 0.0368 260.03);
+  --popover-foreground: oklch(0.9842 0.0034 247.86);
+  --muted: oklch(0.2795 0.0368 260.03);
+  --muted-foreground: oklch(0.7107 0.0351 256.79);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.6002 0.1038 184.7);
+
+  --primary: oklch(0.6002 0.1038 184.7);
+  --primary-foreground: oklch(0.2077 0.0198 254.1);
+  --secondary: oklch(1 0 0 / 8%);
+  --secondary-foreground: oklch(0.9842 0.0034 247.86);
+  --accent: oklch(1 0 0 / 8%);
+  --accent-foreground: oklch(0.9842 0.0034 247.86);
+
+  --destructive: oklch(0.6368 0.2078 25.33);
+  --destructive-foreground: oklch(0.2077 0.0198 254.1);
+  --warning: oklch(0.7686 0.1647 70.08);
+  --warning-foreground: oklch(0.2077 0.0198 254.1);
+  --success: oklch(0.7227 0.192 149.58);
+  --success-foreground: oklch(0.2077 0.0198 254.1);
+
+  --detection-normal: oklch(0.7845 0.1325 181.91);
+  --detection-anomaly: oklch(0.7106 0.1661 22.22);
+
+  --chart-1: oklch(0.7845 0.1325 181.91);
+  --chart-2: oklch(0.6002 0.1038 184.7);
+  --chart-3: oklch(0.7686 0.1647 70.08);
+  --chart-4: oklch(0.7106 0.1661 22.22);
+  --chart-5: oklch(0.7107 0.0351 256.79);
 }
 
-a {
-  color: var(--color-brand-700);
+/* Expose les jetons comme utilitaires Tailwind (`bg-primary`, `text-warning`…). */
+@theme inline {
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-detection-normal: var(--detection-normal);
+  --color-detection-anomaly: var(--detection-anomaly);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
 }

@@ -1,24 +1,46 @@
-import { Alert, Button } from "@/shared/ui";
+import { ExternalLink, FileDown, LoaderCircle, TriangleAlert } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle, Button } from "@/shared/ui";
 
 import { useGenerateReport } from "../model/use-generate-report";
-import styles from "./GenerateReportButton.module.css";
 
 export function GenerateReportButton({ analysisId }) {
   const { generate, reportUrl, isPending, error } = useGenerateReport(analysisId);
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.actions}>
-        <Button onClick={generate} isLoading={isPending} loadingLabel="Génération…">
-          Générer le rapport PDF
+    <div className="mt-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={generate} disabled={isPending}>
+          {isPending ? (
+            <>
+              <LoaderCircle className="animate-spin" aria-hidden="true" />
+              Génération…
+            </>
+          ) : (
+            <>
+              <FileDown aria-hidden="true" />
+              Générer le rapport PDF
+            </>
+          )}
         </Button>
+
         {reportUrl && (
-          <a className={styles.link} href={reportUrl} target="_blank" rel="noreferrer">
-            Ouvrir le rapport
-          </a>
+          <Button asChild variant="link">
+            <a href={reportUrl} target="_blank" rel="noreferrer">
+              Ouvrir le rapport
+              <ExternalLink aria-hidden="true" />
+            </a>
+          </Button>
         )}
       </div>
-      {error && <Alert tone="danger">Échec de la génération : {error.message}</Alert>}
+
+      {error && (
+        <Alert variant="destructive" className="mt-4">
+          <TriangleAlert aria-hidden="true" />
+          <AlertTitle>Échec de la génération</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

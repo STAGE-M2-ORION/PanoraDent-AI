@@ -1,12 +1,23 @@
+import { ImageOff } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { AnalysisSummary } from "@/entities/analysis";
 import { GenerateReportButton } from "@/features/generate-report";
-import { Alert, Card } from "@/shared/ui";
+import { cn } from "@/shared/lib";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Skeleton,
+} from "@/shared/ui";
 
 import { drawDetections } from "../lib/draw-detections";
 import { ImageStatus, useAnalysisImage } from "../model/use-analysis-image";
-import styles from "./DetectionViewer.module.css";
 
 export function DetectionViewer({ analysis }) {
   const canvasRef = useRef(null);
@@ -18,19 +29,44 @@ export function DetectionViewer({ analysis }) {
   }, [image, analysis.detections]);
 
   return (
-    <Card title="Détections proposées">
-      <AnalysisSummary analysis={analysis} />
+    <Card>
+      <CardHeader>
+        <CardTitle>Détections proposées</CardTitle>
+        <CardDescription>
+          <AnalysisSummary analysis={analysis} />
+        </CardDescription>
+      </CardHeader>
 
-      {status === ImageStatus.UNAVAILABLE ? (
-        <Alert tone="warning">
-          Image non affichable : l&apos;URL présignée pointe vers l&apos;hôte interne du
-          stockage objet. L&apos;analyse et le rapport PDF restent générés côté serveur.
-        </Alert>
-      ) : (
-        <canvas ref={canvasRef} className={styles.canvas} />
-      )}
+      <CardContent>
+        {status === ImageStatus.LOADING && (
+          <Skeleton className="aspect-2/1 w-full rounded-md" />
+        )}
 
-      <GenerateReportButton analysisId={analysis.id} />
+        {status === ImageStatus.UNAVAILABLE && (
+          <Alert variant="warning">
+            <ImageOff aria-hidden="true" />
+            <AlertTitle>Image non affichable</AlertTitle>
+            <AlertDescription>
+              L&apos;URL présignée pointe vers l&apos;hôte interne du stockage objet.
+              L&apos;analyse et le rapport PDF restent générés côté serveur.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/*
+          Le canvas reste monté en permanence : l'effet de dessin s'exécute dès
+          que l'image est prête, sans dépendre de l'ordre de rendu.
+        */}
+        <canvas
+          ref={canvasRef}
+          className={cn(
+            "block h-auto max-w-full rounded-md border bg-muted",
+            status !== ImageStatus.READY && "hidden"
+          )}
+        />
+
+        <GenerateReportButton analysisId={analysis.id} />
+      </CardContent>
     </Card>
   );
 }

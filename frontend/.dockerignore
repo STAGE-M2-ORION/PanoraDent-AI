@@ -1,0 +1,8 @@
+# Indispensable : `COPY . .` écraserait sinon les node_modules Linux du
+# conteneur par ceux de la machine hôte. Tailwind v4 (lightningcss,
+# @tailwindcss/oxide) et Next (swc) embarquent des binaires natifs par
+# plateforme — le build échouerait sur une image Linux.
+node_modules
+out
+.next
+npm-debug.log*
