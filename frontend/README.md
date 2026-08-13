@@ -103,23 +103,46 @@ couche FSD plutôt que vers le `components/ui` par défaut :
 "aliases": { "ui": "@/shared/ui", "utils": "@/shared/lib/utils" }
 ```
 
+La couche compte **55 composants** pour ~290 exports, couvrant l'essentiel du
+développement web : formulaires, tableaux, cartes, navigation, surcouches,
+retours utilisateur, graphiques.
+
 Ajouter un composant :
 
 ```bash
 npx shadcn@latest add dialog     # → src/shared/ui/dialog.jsx
+npm run ui:index                 # régénère l'API publique
 ```
 
-Puis l'exporter depuis [`shared/ui/index.js`](src/shared/ui/index.js) — c'est
-l'API publique de la slice, seule porte d'entrée autorisée.
+**`shared/ui/index.js` est généré**, jamais édité à la main :
+[`scripts/generate-ui-index.mjs`](scripts/generate-ui-index.mjs) lit les exports
+réels de chaque fichier et échoue si deux composants exportent le même nom. Un
+composant installé mais oublié dans le baril serait invisible pour le reste de
+l'application — le script supprime ce risque.
 
-> ⚠️ Ces fichiers **appartiennent au dépôt** et peuvent être modifiés, mais un
-> `add --overwrite` les réécrase. Toute retouche locale doit être signalée par
-> un commentaire dans le fichier. Deux existent aujourd'hui : les variantes
-> `warning` / `success` ajoutées à `alert.jsx` et `badge.jsx`, absentes de
-> shadcn qui ne fournit que `destructive`.
+#### Retouches locales
+
+Ces fichiers **appartiennent au dépôt** et peuvent être modifiés, mais un
+`add --overwrite` les réécrase. Toute retouche est donc signalée par un
+commentaire dans le fichier concerné :
+
+| Fichier | Retouche | Raison |
+|---|---|---|
+| `alert.jsx` | variantes `warning` et `success` | shadcn ne fournit que `destructive` |
+| `badge.jsx` | variantes `warning` et `success` | idem, pour les statuts d'exécution |
+| `skeleton.jsx` | `bg-accent` → `bg-muted` | l'accent est teinté de la marque ; un placeholder doit rester neutre |
+| `pagination.jsx` | libellés traduits | l'interface est en français |
 
 `file-picker.jsx` est un composant **maison** (shadcn n'a pas d'équivalent) : il
 emprunte `buttonVariants` pour rester visuellement aligné sur `Button`.
+
+#### Coût du baril
+
+`package.json` déclare `"sideEffects": ["*.css"]`. Sans cette ligne, webpack
+considère chaque module comme potentiellement à effet de bord et embarque les
+55 composants dès qu'une page importe un seul `Button` : le JS partagé passe de
+125 à 213 ko. Les feuilles CSS sont exclues de la déclaration — leur import
+**est** un effet de bord.
 
 ### Jetons
 

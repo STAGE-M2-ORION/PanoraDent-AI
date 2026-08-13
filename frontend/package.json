@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "ui:index": "node scripts/generate-ui-index.mjs src/shared/ui"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

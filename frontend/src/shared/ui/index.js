@@ -1,9 +1,9 @@
 /**
  * API publique du kit UI — socle shadcn/ui (style new-york).
  *
- * FICHIER GÉNÉRÉ à partir des exports réels de chaque composant.
- * Régénérer après un `npx shadcn@latest add <composant>` plutôt que
- * d'éditer à la main : voir frontend/README.md.
+ * FICHIER GÉNÉRÉ par `npm run ui:index` à partir des exports réels de chaque
+ * composant. Ne pas éditer à la main : relancer le script après un
+ * `npx shadcn@latest add <composant>`.
  */
 
 export { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./accordion";
