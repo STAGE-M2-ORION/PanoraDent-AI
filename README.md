@@ -595,12 +595,17 @@ La page rend les **vrais composants** de `shared/ui` et `entities/*` : elle ne
 peut pas diverger de l'application. Elle n'appelle aucune API — toutes les
 données affichées sont fictives.
 
-Trois onglets :
+**55 composants** répartis en huit onglets :
 
 | Onglet | Contenu |
 |---|---|
 | **Fondations** | Couleurs, typographie, rayons, espacements. Les valeurs OKLCH affichées sont **relues dans le navigateur**, pas recopiées |
-| **Composants** | Boutons, badges, alertes, cartes, formulaire, tableau, états d'attente, infobulle — chaque variante annotée de son nom |
+| **Base** | Boutons et groupes de boutons, badges, bascules, avatars, raccourcis clavier, proportions, séparateurs |
+| **Formulaires** | Champs, champs composés, listes de choix, cases et interrupteurs, curseur, code à usage unique, calendrier, sélecteur de fichier, et un **formulaire réellement validé** (react-hook-form + zod) |
+| **Données** | Tableau, cartes, listes d'éléments, graphique, accordéon, carrousel, zone défilante, panneaux redimensionnables |
+| **Navigation** | Fil d'Ariane, onglets, pagination, menus déroulant et contextuel, barre de menus, palette de commandes |
+| **Surcouches** | Dialogues, dialogue de confirmation destructive, panneaux latéraux, tiroir, infobulle, carte de survol, popover |
+| **Retours** | Alertes, notifications `sonner`, états d'attente, état vide |
 | **Métier** | Classes de détection, style d'annotation des boîtes, bandeau d'état, résumé d'analyse |
 
 Un sélecteur permet de prévisualiser le **thème sombre**. Les jetons `.dark`
@@ -614,19 +619,34 @@ code source dans le dépôt. [`components.json`](frontend/components.json) les
 dirige vers la couche FSD (`@/shared/ui`) au lieu du `components/ui` par défaut.
 
 ```bash
-cd frontend && npx shadcn@latest add dialog   # → src/shared/ui/dialog.jsx
+cd frontend
+npx shadcn@latest add dialog   # → src/shared/ui/dialog.jsx
+npm run ui:index               # régénère l'API publique de shared/ui
 ```
+
+`shared/ui/index.js` est **généré** par
+[`scripts/generate-ui-index.mjs`](frontend/scripts/generate-ui-index.mjs) à
+partir des exports réels : avec 55 composants et ~290 exports, tenir la liste à
+la main garantissait l'oubli silencieux d'un composant.
 
 Les jetons vivent dans
 [`app/styles/globals.css`](frontend/src/app/styles/globals.css) : `:root` et
 `.dark` déclarent les variables en **OKLCH**, `@theme inline` les expose comme
 utilitaires Tailwind. La charte historique (teal `#0F766E` / `#134E4A`) a été
-convertie sans dérive de teinte. Deux variantes non standard ont été ajoutées à
-`alert.jsx` et `badge.jsx` — `warning` et `success` — signalées en commentaire
-dans les fichiers, car un `shadcn add --overwrite` les écraserait.
+convertie sans dérive de teinte.
+
+Quatre fichiers shadcn portent une retouche locale, signalée en commentaire car
+un `add --overwrite` l'écraserait : variantes `warning` / `success` sur
+`alert.jsx` et `badge.jsx`, placeholder neutre sur `skeleton.jsx`, libellés
+français sur `pagination.jsx`.
 
 Il n'y a plus aucun CSS Module ni fichier `tokens.css` : toute la mise en forme
 passe par des classes Tailwind alimentées par les jetons.
+
+> `package.json` déclare `"sideEffects": ["*.css"]`. Sans cette ligne, le baril
+> d'exports embarque les 55 composants dans **chaque** page : le JS partagé
+> passe de 125 à 213 ko. Les CSS sont exclues — leur import est un vrai effet de
+> bord.
 
 ---
 
@@ -761,6 +781,8 @@ panoradent-ai/
 │   ├── next.config.mjs         # output: "export"
 │   ├── jsconfig.json           # alias @/* → src/*
 │   ├── package.json / package-lock.json
+│   ├── scripts/
+│   │   └── generate-ui-index.mjs   # génère l'API publique de shared/ui
 │   ├── nginx.conf              # proxy /api → backend, upload jusqu'à 50 Mo
 │   ├── pages/                  # routeur Next : adaptateurs uniquement
 │   │   ├── _app.jsx            # AppProvider + CSS global
@@ -774,7 +796,8 @@ panoradent-ai/
 │       ├── widgets/            # app-header, detection-viewer (canvas)
 │       ├── features/           # upload-analysis, generate-report
 │       ├── entities/           # analysis, detection, system-status
-│       └── shared/             # api (axios + AppError), config, lib, ui (shadcn)
+│       └── shared/             # api (axios + AppError), config, lib,
+│                               #   ui = 55 composants shadcn + file-picker
 │
 ├── .github/workflows/ci.yml    # tests backend + build frontend + build images
 └── docs/architecture.md
@@ -813,10 +836,20 @@ Python 3.11 :
 | `next` ^14.2.5 · `react` / `react-dom` ^18.3.1 | Application et export statique |
 | `axios` ^1.7.2 | Client HTTP unique |
 | `tailwindcss` ^4 · `@tailwindcss/postcss` | Moteur CSS (config dans le CSS, pas de `tailwind.config.js`) |
-| `radix-ui` | Primitives accessibles sous les composants shadcn |
+| `radix-ui` · `@base-ui/react` | Primitives accessibles sous les composants shadcn |
 | `class-variance-authority` · `clsx` · `tailwind-merge` | Variantes de composants et fusion de classes (`cn`) |
 | `lucide-react` | Jeu d'icônes |
 | `tw-animate-css` | Animations utilisées par les composants shadcn |
+| `react-hook-form` · `zod` · `@hookform/resolvers` | Formulaires et validation de schéma |
+| `recharts` | Graphiques (composant `chart`) |
+| `cmdk` · `vaul` · `embla-carousel-react` | Palette de commandes, tiroir, carrousel |
+| `react-day-picker` · `date-fns` | Calendrier et sélecteur de date |
+| `input-otp` · `react-resizable-panels` | Code à usage unique, panneaux redimensionnables |
+| `sonner` · `next-themes` | Notifications éphémères |
+
+Ces dépendances sont tirées par les composants shadcn installés. Elles ne
+pèsent que sur les pages qui les utilisent — en pratique `/design-system` (375 ko
+de premier chargement, contre 147 ko pour l'accueil).
 
 shadcn/ui n'apparaît pas dans les dépendances : son **code source est copié**
 dans [`src/shared/ui/`](frontend/src/shared/ui/) et versionné.

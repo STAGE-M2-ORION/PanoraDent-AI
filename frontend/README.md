@@ -5,8 +5,9 @@ Application Next.js 14 (pages router) en **export statique**, organisée selon
 **Tailwind CSS v4**.
 
 > 🎨 Le design system est documenté **par l'application elle-même** :
-> [http://localhost:3000/design-system](http://localhost:3000/design-system).
-> La page rend les vrais composants — elle ne peut pas mentir sur leur apparence.
+> [http://localhost:3000/design-system](http://localhost:3000/design-system) —
+> 55 composants répartis en huit onglets. La page rend les vrais composants,
+> elle ne peut donc pas mentir sur leur apparence.
 
 ## Couches
 
