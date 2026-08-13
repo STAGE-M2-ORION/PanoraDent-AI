@@ -7,7 +7,10 @@ function Skeleton({
   return (
     <div
       data-slot="skeleton"
-      className={cn("animate-pulse rounded-md bg-accent", className)}
+      // Modification projet : shadcn utilise `bg-accent`, teinté de la couleur
+      // de marque. Un placeholder doit rester neutre, sinon il se lit comme un
+      // bloc coloré volontaire — d'où `bg-muted`.
+      className={cn("animate-pulse rounded-md bg-muted", className)}
       {...props} />
   );
 }

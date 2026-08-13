@@ -4,9 +4,14 @@ import Link from "next/link";
 import { Badge, Button, Separator, Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui";
 
 import { useThemePreview } from "../lib/use-theme-preview";
-import { ComponentsPanel } from "./ComponentsPanel";
+import { BasePanel } from "./BasePanel";
+import { DataPanel } from "./DataPanel";
 import { DomainPanel } from "./DomainPanel";
+import { FeedbackPanel } from "./FeedbackPanel";
+import { FormsPanel } from "./FormsPanel";
 import { FoundationsPanel } from "./FoundationsPanel";
+import { NavigationPanel } from "./NavigationPanel";
+import { OverlaysPanel } from "./OverlaysPanel";
 
 /**
  * Référentiel visuel du projet : jetons, composants et conventions métier.
@@ -50,6 +55,7 @@ export function DesignSystemPage() {
           <Badge variant="outline">Tailwind v4</Badge>
           <Badge variant="outline">shadcn/ui — new-york</Badge>
           <Badge variant="outline">Feature-Sliced Design</Badge>
+          <Badge variant="secondary">55 composants</Badge>
           <Badge variant="warning">aperçu sombre non appliqué à l&apos;app</Badge>
         </div>
       </header>
@@ -57,20 +63,41 @@ export function DesignSystemPage() {
       <Separator className="mb-8" />
 
       <Tabs defaultValue="foundations">
-        <TabsList>
-          <TabsTrigger value="foundations">Fondations</TabsTrigger>
-          <TabsTrigger value="components">Composants</TabsTrigger>
-          <TabsTrigger value="domain">Métier</TabsTrigger>
-        </TabsList>
+        {/* La barre défile horizontalement plutôt que de se replier sur mobile. */}
+        <div className="-mx-6 overflow-x-auto px-6">
+          <TabsList className="w-max">
+            <TabsTrigger value="foundations">Fondations</TabsTrigger>
+            <TabsTrigger value="base">Base</TabsTrigger>
+            <TabsTrigger value="forms">Formulaires</TabsTrigger>
+            <TabsTrigger value="data">Données</TabsTrigger>
+            <TabsTrigger value="navigation">Navigation</TabsTrigger>
+            <TabsTrigger value="overlays">Surcouches</TabsTrigger>
+            <TabsTrigger value="feedback">Retours</TabsTrigger>
+            <TabsTrigger value="domain">Métier</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="foundations" className="pt-8">
           <FoundationsPanel themeRevision={isDark} />
         </TabsContent>
-
-        <TabsContent value="components" className="pt-8">
-          <ComponentsPanel />
+        <TabsContent value="base" className="pt-8">
+          <BasePanel />
         </TabsContent>
-
+        <TabsContent value="forms" className="pt-8">
+          <FormsPanel />
+        </TabsContent>
+        <TabsContent value="data" className="pt-8">
+          <DataPanel />
+        </TabsContent>
+        <TabsContent value="navigation" className="pt-8">
+          <NavigationPanel />
+        </TabsContent>
+        <TabsContent value="overlays" className="pt-8">
+          <OverlaysPanel />
+        </TabsContent>
+        <TabsContent value="feedback" className="pt-8">
+          <FeedbackPanel />
+        </TabsContent>
         <TabsContent value="domain" className="pt-8">
           <DomainPanel />
         </TabsContent>
