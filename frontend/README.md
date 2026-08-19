@@ -32,7 +32,7 @@ shared       socle réutilisable, sans aucune connaissance du métier
 | Couche | Slices actuelles |
 |---|---|
 | `app` | `providers/`, `styles/` |
-| `views` | `home`, `design-system` |
+| `views` | `landing`, `analysis`, `design-system` |
 | `widgets` | `app-header`, `detection-viewer` |
 | `features` | `upload-analysis`, `generate-report` |
 | `entities` | `analysis`, `detection`, `system-status` |
