@@ -42,6 +42,7 @@ docker compose up --build   # ou : make up
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
+| Poste d'analyse | http://localhost:3000/analyse | — |
 | Design system | http://localhost:3000/design-system | — |
 | API (Swagger) | http://localhost:8000/docs | — |
 | Service d'inférence | http://localhost:8001/health | — |
@@ -56,8 +57,9 @@ curl http://localhost:8000/api/health
 `Inférence : mock` dans le bandeau de l'application signifie que les détections
 affichées sont **factices**.
 
-**Premier essai** : importer n'importe quel JPG/PNG (ou `.dcm`), puis « Générer
-le rapport PDF ». Les objets produits sont visibles dans MinIO (`images/`,
+**Premier essai** : depuis la page d'accueil, suivre « Analyser une panoramique »
+(ou aller directement sur `/analyse`), importer n'importe quel JPG/PNG (ou
+`.dcm`), puis « Générer le rapport PDF ». Les objets produits sont visibles dans MinIO (`images/`,
 `reports/`). L'aperçu affiche en revanche « Image non affichable… » et le lien
 PDF ne s'ouvre pas : les URLs présignées ne sont pas résolvables depuis le
 navigateur en configuration par défaut — voir [Limites connues](#limites-connues).
@@ -295,6 +297,10 @@ organisé en **Feature-Sliced Design**, habillé par **shadcn/ui** sur Tailwind 
 Conventions, couches, règles d'import et fonctionnement du design system :
 **[frontend/README.md](frontend/README.md)**.
 
+Trois routes : `/` présente la plateforme (vitrine animée avec GSAP), `/analyse`
+est le poste de travail — import, détections, rapport —, `/design-system` le
+catalogue des composants.
+
 Le projet expose sa propre documentation de design à
 **http://localhost:3000/design-system** — **55 composants** en huit onglets
 (Fondations, Base, Formulaires, Données, Navigation, Surcouches, Retours,
@@ -394,9 +400,12 @@ panoradent-ai/
 `numpy` — `ultralytics` et `torch` commentés. Frontend : `next`, `react`,
 `axios`, `tailwindcss` v4, `radix-ui`/`@base-ui/react`, `lucide-react`, plus les
 paquets tirés par les composants shadcn (`react-hook-form`, `zod`, `recharts`,
-`cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `sonner`…). Ces
-derniers ne pèsent que sur les pages qui les utilisent — en pratique
-`/design-system` (375 ko de premier chargement, contre 147 ko pour l'accueil).
+`cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `sonner`…) et
+`gsap`/`@gsap/react` pour les animations de la vitrine. Ces derniers ne pèsent
+que sur les pages qui les utilisent — en pratique `/design-system` (375 ko de
+premier chargement, contre 147 ko pour le poste d'analyse). Ces deux mesures
+sont antérieures à la vitrine, qui charge GSAP sur `/` : à remesurer avec
+`npm run build`.
 
 ---
 

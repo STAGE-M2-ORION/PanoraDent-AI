@@ -46,10 +46,23 @@ Next.js. Les fichiers de `pages/` sont de simples adaptateurs :
 
 ```jsx
 // pages/index.jsx
-export { HomePage as default } from "@/views/home";
+export { LandingPage as default } from "@/views/landing";
 ```
 
 Aucune UI, aucun appel API, aucun état n'y vit.
+
+### Routes
+
+| Route | Slice | Rôle |
+|---|---|---|
+| `/` | `views/landing` | Vitrine : présentation de la plateforme, sans appel API hors bandeau d'état |
+| `/analyse` | `views/analysis` | Poste de travail : import, détections, rapport |
+| `/design-system` | `views/design-system` | Catalogue des composants |
+
+La racine a longtemps hébergé le poste d'analyse. Elle accueille désormais la
+vitrine : un visiteur doit pouvoir comprendre l'outil avant d'y déposer une
+image. Le poste de travail vit sur `/analyse`, et le titre de `AppHeader` y
+ramène à la vitrine.
 
 ## Segments
 
@@ -181,6 +194,41 @@ classe construite dynamiquement (`` `bg-${name}` ``) ne serait pas générée.
 C'est pourquoi le catalogue de la page design system stocke des chaînes de
 classes complètes.
 
+## Animations
+
+**GSAP** (`gsap` + `@gsap/react`) n'anime aujourd'hui que la vitrine. Le hook
+[`use-landing-reveal.js`](src/views/landing/lib/use-landing-reveal.js) concentre
+toute la logique ; les composants ne portent qu'un attribut déclaratif.
+
+| `data-reveal` | Effet |
+|---|---|
+| `hero` | enfants directs décalés au chargement |
+| `frame` | visuel d'en-tête, fondu et léger zoom |
+| `box` | boîtes de détection, apparition rebondie |
+| `scan` | ligne de balayage, boucle infinie |
+| `section` | l'élément monte en fondu au défilement |
+| `stagger` | enfants directs décalés au défilement |
+
+Quatre points structurants :
+
+- **`useGSAP` avec un `scope`.** Le hook reçoit la ref du conteneur de page :
+  les sélecteurs ne sortent jamais de la vitrine, et toutes les animations
+  créées sont révoquées au démontage. Sans `scope`, un `ScrollTrigger` survivrait
+  à la navigation vers `/analyse`.
+- **Import nommé obligatoire.** `import { gsap } from "gsap"`, jamais
+  `import gsap from "gsap"` : au prérendu, webpack résout la build CJS dont
+  l'export par défaut est l'espace de noms du module. `gsap.registerPlugin` y
+  est introuvable et `next build` échoue sur `Failed to collect page data`.
+- **Uniquement des `from`.** L'état final est celui du DOM rendu : sans
+  JavaScript, ou si GSAP échoue, la page reste entièrement lisible. La
+  contrepartie est un état initial non masqué avant hydratation.
+- **`prefers-reduced-motion` respecté.** `gsap.matchMedia()` court-circuite
+  l'ensemble ; le DOM statique fait alors déjà le bon rendu.
+
+Les plugins sont enregistrés au niveau module (`registerPlugin(useGSAP,
+ScrollTrigger)`) : jamais référencés autrement que par leur effet de bord, ils
+seraient sinon candidats à l'élagage.
+
 ## Conventions
 
 - **Frontière DTO / modèle.** Le backend parle snake_case (`created_at`,
@@ -201,7 +249,7 @@ Exemple, la revue praticien (route `PATCH` sur les détections) :
 3. Brancher la feature dans `widgets/detection-viewer`.
 4. Exporter chaque nouveauté par l'`index.js` de sa slice.
 
-La page `views/home` n'a rien à savoir de l'implémentation.
+La page `views/analysis` n'a rien à savoir de l'implémentation.
 
 ## Commandes
 
