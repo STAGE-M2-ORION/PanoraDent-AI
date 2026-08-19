@@ -5,10 +5,10 @@ import { AppHeader } from "@/widgets/app-header";
 import { DetectionViewer } from "@/widgets/detection-viewer";
 
 /**
- * Page unique : détient l'analyse courante et compose les blocs.
+ * Poste de travail : détient l'analyse courante et compose les blocs.
  * Aucune logique métier ni appel API à ce niveau.
  */
-export function HomePage() {
+export function AnalysisPage() {
   const [analysis, setAnalysis] = useState(null);
 
   return (
