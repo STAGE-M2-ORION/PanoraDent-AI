@@ -229,6 +229,10 @@ Les plugins sont enregistrés au niveau module (`registerPlugin(useGSAP,
 ScrollTrigger)`) : jamais référencés autrement que par leur effet de bord, ils
 seraient sinon candidats à l'élagage.
 
+**Coût** — GSAP, ScrollTrigger et le code des sections portent la vitrine à
+193 ko de premier chargement, contre 147 ko pour `/analyse`. La dépendance
+n'étant importée que par `views/landing`, le poste de travail n'en paie rien.
+
 ## Conventions
 
 - **Frontière DTO / modèle.** Le backend parle snake_case (`created_at`,

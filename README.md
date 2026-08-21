@@ -402,10 +402,17 @@ panoradent-ai/
 paquets tirés par les composants shadcn (`react-hook-form`, `zod`, `recharts`,
 `cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `sonner`…) et
 `gsap`/`@gsap/react` pour les animations de la vitrine. Ces derniers ne pèsent
-que sur les pages qui les utilisent — en pratique `/design-system` (375 ko de
-premier chargement, contre 147 ko pour le poste d'analyse). Ces deux mesures
-sont antérieures à la vitrine, qui charge GSAP sur `/` : à remesurer avec
-`npm run build`.
+que sur les pages qui les utilisent — premier chargement par route :
+
+| Route | Poids de la page | Premier chargement |
+|---|---|---|
+| `/` (vitrine) | 52,1 ko | **193 ko** |
+| `/analyse` | 6,4 ko | **147 ko** |
+| `/design-system` | 252 ko | **375 ko** |
+
+Le poste d'analyse, seule route réellement utilisée en séance, reste la plus
+légère. Les 46 ko qui séparent la vitrine du poste couvrent GSAP, ScrollTrigger
+et le code des sections.
 
 ---
 
