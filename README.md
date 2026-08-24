@@ -486,7 +486,6 @@ boîte de la dent (attendu).
   coupée en `504` avant que le backend n'abandonne. Le client axios patiente 120 s.
 - **PDF sans accents** (polices de base ReportLab) et **noms de classes bruts en
   anglais** — la table de traduction n'existe que côté frontend.
-- **Bandeau d'état non rafraîchi** : `/api/health` n'est lu qu'au montage.
 - **Thème sombre non appliqué à l'application** : les jetons `.dark` existent et
   se prévisualisent sur `/design-system`, mais les couleurs de tracé du canvas
   sont figées en clair dans `entities/detection`.
