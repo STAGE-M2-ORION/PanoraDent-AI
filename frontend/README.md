@@ -155,7 +155,7 @@ emprunte `buttonVariants` pour rester visuellement aligné sur `Button`.
 `package.json` déclare `"sideEffects": ["*.css"]`. Sans cette ligne, webpack
 considère chaque module comme potentiellement à effet de bord et embarque les
 55 composants dès qu'une page importe un seul `Button` : le JS partagé passe de
-125 à 213 ko. Les feuilles CSS sont exclues de la déclaration — leur import
+137 à 213 ko. Les feuilles CSS sont exclues de la déclaration — leur import
 **est** un effet de bord.
 
 ### Jetons

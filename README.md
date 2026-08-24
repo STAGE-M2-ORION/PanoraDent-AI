@@ -476,6 +476,11 @@ boîte de la dent (attendu).
   reliquat de la migration Vite → Next.js, sans effet. Le renommer ne suffirait
   pas : passé en `environment`, il faudrait un `build.args`. Le frontend retombe
   sur `/api`, qui est la bonne valeur derrière le proxy.
+- **`package.json` / `package-lock.json` à la racine du dépôt** déclarent
+  `gsap-animations-lionel`, installé hors du frontend et **importé nulle part**.
+  Le monorepo n'a pas de workspace npm : les dépendances du client vivent dans
+  [frontend/package.json](frontend/package.json), et le build Docker n'utilise
+  que celui-ci. Ces trois entrées (avec `node_modules/` racine) sont supprimables.
 - **Timeout nginx à 60 s sur `/api/`** (`proxy_read_timeout` non fixé), identique
   au timeout du client d'inférence : une analyse lente en mode réel peut être
   coupée en `504` avant que le backend n'abandonne. Le client axios patiente 120 s.
