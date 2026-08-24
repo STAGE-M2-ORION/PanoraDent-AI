@@ -45,4 +45,9 @@ base, mais ni route ni UI d'édition. Le PDF est donc un document non validé.
 ## Où brancher le vrai modèle
 Déposer `inference/weights/model.pt` (export YOLOv11), décommenter `ultralytics`
 et l'installation de `torch` dans `inference/Dockerfile`, puis rebuild.
-Le service passe automatiquement en mode `real`.
+Le service passe automatiquement en mode `real` — et retombe **silencieusement**
+en mock si les poids sont illisibles (vérifier `GET :8001/health`).
+
+## Pour aller plus loin
+[README.md](../README.md) — stack complète, API, variables, limites connues ·
+[frontend/README.md](../frontend/README.md) — Feature-Sliced Design et design system.
