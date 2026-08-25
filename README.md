@@ -520,7 +520,7 @@ boîte de la dent (attendu).
 | « Image non affichable… » / lien PDF mort | URL présignée vers `http://minio:9000` — voir [Limites connues](#limites-connues) |
 | Upload refusé > ~50 Mo | `client_max_body_size` dans [nginx.conf](frontend/nginx.conf) |
 | `504` sur `/api/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` |
-| Bandeau figé après redémarrage d'un service | `/api/health` n'est lu qu'au montage : recharger |
+| Bandeau figé après redémarrage d'un service | `/api/health` est relu toutes les 30 s (et au retour sur l'onglet) : patienter, ou recharger |
 | `make test` / `make migrate` échouent | Ils utilisent `docker compose exec` : la stack doit tourner |
 | Base incohérente après changement de schéma | `make clean` puis `make up` (⚠️ efface les volumes) |
 | Changement de `NEXT_PUBLIC_API_BASE` sans effet | Variable de build : rebuilder l'image frontend |
