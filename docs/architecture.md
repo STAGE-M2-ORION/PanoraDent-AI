@@ -49,5 +49,7 @@ Le service passe automatiquement en mode `real` — et retombe **silencieusement
 en mock si les poids sont illisibles (vérifier `GET :8001/health`).
 
 ## Pour aller plus loin
+[DOCUMENTATION.md](DOCUMENTATION.md) — référence complète : périmètre, exigences
+PRD confrontées au code, validation, conformité, traçabilité ·
 [README.md](../README.md) — stack complète, API, variables, limites connues ·
 [frontend/README.md](../frontend/README.md) — Feature-Sliced Design et design system.

@@ -23,7 +23,10 @@ inférence → persistance → rapport PDF) dès le premier jour.
 | **Prérequis** | Docker + Docker Compose v2, ~4 Go de disque. Aucun GPU requis |
 | **Démarrage** | `cp .env.example .env && docker compose up --build` |
 
-**Documentation** : ce fichier couvre la stack ;
+**Documentation** : [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) est la
+**référence complète de la plateforme** — périmètre, exigences du PRD confrontées
+à l'implémentation, méthodologie de validation, conformité, matrice de
+traçabilité. Ce fichier-ci couvre la stack et son exploitation ;
 [docs/architecture.md](docs/architecture.md) en donne la vue condensée ;
 [frontend/README.md](frontend/README.md) détaille le Feature-Sliced Design et le
 design system du client.
