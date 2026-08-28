@@ -7,7 +7,7 @@ Deux modes :
 """
 import os
 import random
-from . import config
+from . import config, fdi
 
 _model = None
 _mode = "mock"
@@ -21,9 +21,19 @@ def load_model():
             _model = YOLO(config.MODEL_WEIGHTS_PATH)
             _mode = "real"
         except Exception as exc:  # pragma: no cover
+            if config.MODEL_STRICT:
+                raise RuntimeError(
+                    f"MODEL_STRICT=1 : poids présents à {config.MODEL_WEIGHTS_PATH} "
+                    f"mais illisibles ({exc}). Refus de servir des détections factices."
+                ) from exc
             print(f"[inference] échec du chargement du modèle, bascule en mock : {exc}")
             _mode = "mock"
     else:
+        if config.MODEL_STRICT:
+            raise RuntimeError(
+                f"MODEL_STRICT=1 : aucun poids à {config.MODEL_WEIGHTS_PATH}. "
+                f"Déposer model.pt ou désactiver MODEL_STRICT."
+            )
         _mode = "mock"
     print(f"[inference] mode={_mode} version={config.MODEL_VERSION}")
 
@@ -66,7 +76,15 @@ def _mock_detections(width: int, height: int):
 def predict(image, width: int, height: int):
     """Retourne une liste de détections normalisées."""
     if _mode == "real" and _model is not None:
-        results = _model.predict(image, verbose=False)
+        # `imgsz` redimensionne en letterbox pour l'inférence ; ultralytics
+        # remet les boîtes à l'échelle de l'image d'origine, les coordonnées
+        # renvoyées sont donc bien en pixels source.
+        results = _model.predict(
+            image,
+            imgsz=config.MODEL_IMAGE_SIZE,
+            conf=config.MODEL_CONF_THRESHOLD,
+            verbose=False,
+        )
         dets = []
         for r in results:
             for box in r.boxes:
@@ -75,9 +93,9 @@ def predict(image, width: int, height: int):
                 x1, y1, x2, y2 = xyxy
                 dets.append({
                     "label": config.CLASSES[cls_id] if cls_id < len(config.CLASSES) else str(cls_id),
-                    "fdi": None,  # à mapper via une logique de numérotation dédiée
+                    "fdi": None,  # renseigné ci-dessous par déduction géométrique
                     "confidence": round(float(box.conf[0]), 2),
                     "bbox": [round(x1), round(y1), round(x2 - x1), round(y2 - y1)],
                 })
-        return dets
+        return fdi.assign_fdi(dets, width, height) if config.ASSIGN_FDI else dets
     return _mock_detections(width, height)

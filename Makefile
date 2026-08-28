@@ -15,8 +15,9 @@ logs:          ## Suit les logs
 migrate:       ## Applique les migrations de base
 	docker compose exec backend alembic upgrade head
 
-test:          ## Lance les tests backend
+test:          ## Lance les tests backend et inference
 	docker compose exec backend pytest -q
+	docker compose exec inference pytest -q
 
 clean:         ## Supprime conteneurs + volumes (DONNÉES PERDUES)
 	docker compose down -v

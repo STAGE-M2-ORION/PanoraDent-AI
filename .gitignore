@@ -22,6 +22,8 @@ dist/
 inference/weights/*.pt
 data/
 *.dcm
+runs/
+.venv-train/
 
 # Divers
 .DS_Store

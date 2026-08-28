@@ -28,6 +28,8 @@ inférence → persistance → rapport PDF) dès le premier jour.
 à l'implémentation, méthodologie de validation, conformité, matrice de
 traçabilité. Ce fichier-ci couvre la stack et son exploitation ;
 [docs/architecture.md](docs/architecture.md) en donne la vue condensée ;
+[training/README.md](training/README.md) détaille le pipeline d'entraînement,
+les datasets et la méthodologie de validation ;
 [frontend/README.md](frontend/README.md) détaille le Feature-Sliced Design et le
 design system du client.
 
@@ -103,6 +105,9 @@ Compose. Principes :
 - **Service d'inférence isolé** — joint uniquement en HTTP (`POST /infer`), sans
   accès ni à la base ni au stockage : il ne reçoit que des pixels. Remplaçable
   ou déployable sur une machine GPU distincte sans toucher au backend.
+- **Entraînement hors ligne** — le pipeline [`training/`](training/) n'est
+  embarqué dans aucun conteneur et ne tourne pas dans la stack. Le seul
+  artefact qui franchit la frontière est un fichier de poids `.pt`.
 - **Aucune donnée patient identifiante en base** — anonymisation à l'import,
   *avant* tout stockage.
 - **Mode mock de bout en bout** — pipeline testable avant tout entraînement.
@@ -161,6 +166,10 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | `minioadmin` | Stockage objet (= `MINIO_ROOT_*`) |
 | `S3_BUCKET` | `panoradent` | Bucket, créé à la volée |
 | `MODEL_VERSION` | `mock-0.0.0` | Version tracée dans chaque analyse |
+| `MODEL_STRICT` | `0` | `1` = le service d'inférence **refuse de démarrer** au lieu de retomber en mock. À activer dès qu'un modèle est branché |
+| `MODEL_IMAGE_SIZE` | `640` | Taille d'entrée du modèle — **doit être identique** au `--imgsz` de l'entraînement |
+| `MODEL_CONF_THRESHOLD` | `0.25` | Seuil de confiance en mode réel |
+| `ASSIGN_FDI` | `1` | Numérotation FDI déduite de la géométrie des boîtes |
 | `JWT_SECRET` | `change-me-in-prod` | **à changer** |
 
 **Écrites en dur dans [docker-compose.yml](docker-compose.yml)**, non
@@ -188,7 +197,7 @@ Routes préfixées par `/api`. Documentation interactive : http://localhost:8000
 | `GET` | `/api/analyses/{id}` | Détail + détections |
 | `GET` | `/api/analyses/{id}/image` | URL présignée (1 h) vers le PNG |
 | `POST` | `/api/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée |
-| `GET` | `/api/model/versions` | Versions de modèle + métriques (table jamais alimentée → `[]`) |
+| `GET` | `/api/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
 Les routes image et rapport renvoient `{"url": "…"}` — une URL présignée valable
 **3600 s**, pas une redirection ni le binaire.
@@ -252,6 +261,16 @@ toute implémentation qui le respecte est substituable sans toucher au backend.
 `deep_caries`, `periapical_lesion`, `impacted_tooth` — l'index renvoyé par YOLO
 est mappé sur cette liste, dans cet ordre.
 
+**Numérotation FDI** ([fdi.py](inference/app/fdi.py)) — le détecteur renvoie
+des boîtes et une classe, **jamais un numéro de dent**. Le FDI est donc déduit
+après l'inférence : `width / 2` sépare les côtés (l'image est vue *face au
+patient*, sa droite est à gauche des pixels), un 2-moyennes sur les ordonnées
+des boîtes situe le plan d'occlusion — qui n'est **pas** à mi-hauteur de l'image
+—, puis chaque dent reçoit sa position en s'éloignant de la médiane. Les
+anomalies **héritent** du numéro de la dent qu'elles recouvrent à plus de 50 % ;
+sans recouvrement, `fdi` reste `null` plutôt qu'inventé. Désactivable par
+`ASSIGN_FDI=0`.
+
 **Mode mock** ([model.py](inference/app/model.py)) : 6 à 12 boîtes `tooth`
 réparties sur l'arcade (confiance 0,80–0,99), plus jusqu'à 3 anomalies tirées au
 sort (0,55–0,90) qui **réutilisent la boîte exacte d'une dent** — la
@@ -261,24 +280,30 @@ les tests reproductibles.
 
 ### Brancher le vrai modèle
 
-1. Entraîner YOLOv11 sur DENTEX en respectant l'ordre des classes, exporter en `.pt`.
-2. Déposer le fichier dans [`inference/weights/model.pt`](inference/weights/)
-   (monté en lecture seule, `*.pt` exclus du dépôt).
+1. **Entraîner** — tout est dans [training/README.md](training/README.md). Le
+   pipeline vit dans [`training/`](training/) et tourne **hors de la stack**
+   (Colab ou machine GPU). `train.py` refuse de démarrer si l'ordre des classes
+   du dataset diverge de [config.py](inference/app/config.py).
+2. **Publier** — `python training/publish_model.py … --install` dépose les poids
+   dans [`inference/weights/model.pt`](inference/weights/) (monté en lecture
+   seule, `*.pt` exclus du dépôt) et écrit les métriques dans `model_versions`.
 3. Décommenter `ultralytics` dans [requirements.txt](inference/requirements.txt)
    et le bloc `torch` du [Dockerfile](inference/Dockerfile).
-4. Renseigner `MODEL_VERSION` dans `.env`.
+4. Renseigner `MODEL_VERSION`, `MODEL_STRICT=1` et `MODEL_IMAGE_SIZE` dans `.env`.
 5. `docker compose up --build` — le rebuild est obligatoire.
 
-**En cas d'échec de chargement, le service retombe silencieusement en mock**
-(message `échec du chargement du modèle` dans les logs). Vérifier :
+**`MODEL_STRICT=1` est le réglage qui compte.** Par défaut, des poids illisibles
+font retomber le service en mock **sans lever d'erreur** (message `échec du
+chargement du modèle` dans les logs) : on sert alors des détections factices en
+croyant servir un modèle. Avec `MODEL_STRICT=1`, le service refuse de démarrer.
 
 ```bash
 curl http://localhost:8001/health          # → {"mode":"real", ...}
 docker compose logs inference | grep mode=
 ```
 
-> En mode `real`, `fdi` est renvoyé à `null` : le mapping boîte → numérotation
-> dentaire reste à implémenter. Les PDF afficheront `FDI -`.
+> `MODEL_IMAGE_SIZE` doit être **identique** au `--imgsz` de l'entraînement. Une
+> divergence ne provoque aucune erreur : elle dégrade les détections en silence.
 
 ---
 
@@ -354,19 +379,28 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
 ## Tests et CI
 
 ```bash
-make test                  # docker compose exec backend pytest -q (stack démarrée)
-cd backend && pytest -q    # en local
+make test                    # backend + inférence (stack démarrée)
+cd backend   && pytest -q    # en local
+cd inference && pytest -q
 ```
 
-Un seul test aujourd'hui, sur l'anonymisation
+**Backend** — un seul test, sur l'anonymisation
 ([test_anonymize.py](backend/app/tests/test_anonymize.py)) : niveaux de gris,
-dimensions conservées, ré-encodage PNG sans EXIF. **Ni l'API, ni le stockage, ni
-l'inférence ne sont testés.**
+dimensions conservées, ré-encodage PNG sans EXIF. **Ni l'API ni le stockage ne
+sont testés.**
 
-La CI ([ci.yml](.github/workflows/ci.yml)) exécute trois jobs en parallèle sur
-`push` vers `main` et chaque pull request : `backend` (pytest), `frontend`
-(`npm ci` + build), `compose-build` (`docker compose build`). Aucun linter, pas
-de gate de couverture.
+**Inférence** — neuf tests sur la numérotation FDI
+([test_fdi.py](inference/app/tests/test_fdi.py)) : denture complète couvrant les
+quatre quadrants, convention droite patient / gauche image, héritage du numéro
+par les anomalies, plan d'occlusion déduit malgré un cadrage décentré, arcade
+unique, écrêtage à la huitième position. Ils n'exigent ni image ni modèle : la
+numérotation est purement géométrique.
+
+La CI ([ci.yml](.github/workflows/ci.yml)) exécute quatre jobs en parallèle sur
+`push` vers `main` et chaque pull request : `backend` (pytest), `inference`
+(pytest), `frontend` (`npm ci` + build), `compose-build` (`docker compose
+build`). Aucun linter, pas de gate de couverture. **Le pipeline
+[`training/`](training/) n'est pas couvert** : il exige torch et un GPU.
 
 ---
 
@@ -385,8 +419,14 @@ panoradent-ai/
 │       └── tests/
 ├── inference/                      # service IA isolé (mock ou réel)
 │   ├── Dockerfile                  # bloc torch commenté
-│   ├── app/                        # main.py, model.py, config.py
+│   ├── app/                        # main.py · model.py · config.py · fdi.py
+│   │   └── tests/                  # test_fdi.py
 │   └── weights/                    # y déposer model.pt (non versionné)
+├── training/                       # entraînement — HORS de la stack Docker
+│   ├── prepare_dataset.py          # COCO → YOLO, découpage par patient
+│   ├── train.py · evaluate.py      # ultralytics · métriques par classe
+│   ├── publish_model.py            # model_versions + dépôt des poids
+│   └── notebooks/                  # colab_panoradent.ipynb
 ├── frontend/                       # Next.js 14, FSD, shadcn/ui, export statique
 │   ├── Dockerfile · .dockerignore  # npm ci ; exclut node_modules (binaires natifs)
 │   ├── components.json             # config shadcn → @/shared/ui
@@ -394,13 +434,16 @@ panoradent-ai/
 │   ├── pages/                      # routeur Next : adaptateurs uniquement
 │   └── src/                        # app · views · widgets · features · entities · shared
 ├── .github/workflows/ci.yml
-└── docs/architecture.md
+└── docs/                           # architecture.md · DOCUMENTATION.md
 ```
 
 **Dépendances** — backend : `fastapi`, `sqlalchemy`, `alembic`, `pydantic`,
 `pydicom`, `pillow`, `numpy`, `boto3`, `reportlab`, `httpx`, `python-jose`
 (*provisionné, non utilisé*), `pytest`. Inférence : `fastapi`, `pillow`,
-`numpy` — `ultralytics` et `torch` commentés. Frontend : `next`, `react`,
+`numpy`, `pytest` — `ultralytics` et `torch` commentés. Entraînement
+([`training/requirements.txt`](training/requirements.txt), **jamais installé
+dans un conteneur**) : `ultralytics`, `torch`, `torchvision`, `sqlalchemy`.
+Frontend : `next`, `react`,
 `axios`, `tailwindcss` v4, `radix-ui`/`@base-ui/react`, `lucide-react`, plus les
 paquets tirés par les composants shadcn (`react-hook-form`, `zod`, `recharts`,
 `cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `sonner`…) et
@@ -460,12 +503,18 @@ Cette configuration vise le **développement local** :
 **Fonctionnel** — revue praticien non implémentée (colonnes `reviewed`/`source`
 présentes, aucune route ni UI d'édition) · pas d'authentification · pas de route
 `DELETE` · frontend mono-page, sans historique bien que `GET /api/analyses`
-existe · table `model_versions` jamais alimentée.
+existe · table `model_versions` alimentée uniquement par
+[`training/publish_model.py`](training/publish_model.py), sans page de
+restitution des métriques.
 
 **Modèle** — aucun modèle entraîné fourni, les détections sont **factices** et
-sans valeur diagnostique · `fdi` non renseigné en mode réel · bascule mock
-**silencieuse** en cas de poids illisibles · en mock, les anomalies partagent la
-boîte de la dent (attendu).
+sans valeur diagnostique · **aucun dataset obtenu à ce jour** : le pipeline
+[`training/`](training/) attend les données · `train.py` et `evaluate.py`
+exigent torch et un GPU, ils n'ont donc **pas encore été exécutés de bout en
+bout** · la bascule mock reste silencieuse tant que `MODEL_STRICT=1` n'est pas
+posé · en mock, les anomalies partagent la boîte de la dent (attendu) et le FDI
+affiché vient du générateur, **pas** de [fdi.py](inference/app/fdi.py) — seul le
+mode réel emprunte la déduction géométrique.
 
 **Infrastructure**
 
@@ -493,8 +542,9 @@ boîte de la dent (attendu).
   se prévisualisent sur `/design-system`, mais les couleurs de tracé du canvas
   sont figées en clair dans `entities/detection`.
 - **Pas de healthcheck backend ni frontend** dans Compose.
-- **Couverture de tests quasi nulle** · `Makefile` : `up-gpu` absent de `.PHONY`,
-  et `build`/`seed`/`fmt` déclarés sans cible.
+- **Couverture de tests faible** — anonymisation et numérotation FDI seulement ;
+  ni l'API, ni le stockage, ni le pipeline d'entraînement · `Makefile` :
+  `up-gpu` absent de `.PHONY`, et `build`/`seed`/`fmt` déclarés sans cible.
 
 ---
 
@@ -506,8 +556,12 @@ boîte de la dent (attendu).
    viewer. Le rapport devient un document validé.
 3. **Authentification** — protéger les routes, restreindre le CORS.
 4. **Historique dans l'UI** — `GET /api/analyses` est déjà disponible.
-5. **Modèle réel** — entraînement, mapping FDI, alimentation de `model_versions`.
-6. **Tests d'intégration** — le mock étant déterministe, un test bout-en-bout est
+5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
+   sont en place ; il manque **les données**. Lancer les demandes d'accès
+   (UFBA-425 immédiat, DENTEX et Tufts à délai) est le vrai chemin critique.
+6. **Page de performance** — `GET /api/model/versions` sert les métriques dès
+   qu'un modèle est publié ; l'UI de restitution reste à écrire.
+7. **Tests d'intégration** — le mock étant déterministe, un test bout-en-bout est
    peu coûteux.
 
 ---
@@ -518,7 +572,7 @@ boîte de la dent (attendu).
 |---|---|
 | Bandeau « backend indisponible » | Migrations en cours : `docker compose logs -f backend` |
 | `inference_reachable: false` | Conteneur `inference` crashé : `docker compose logs inference` |
-| Mode toujours `mock` après ajout des poids | Poids absents, `ultralytics`/`torch` non décommentés, ou échec de chargement (chercher `échec du chargement` dans les logs). Rebuild requis |
+| Mode toujours `mock` après ajout des poids | Poids absents, `ultralytics`/`torch` non décommentés, ou échec de chargement (chercher `échec du chargement` dans les logs). Rebuild requis. Poser `MODEL_STRICT=1` transforme cette bascule en erreur de démarrage |
 | Erreur 500 à l'upload | DICOM sans `pixel_array` exploitable, ou format illisible par Pillow |
 | « Image non affichable… » / lien PDF mort | URL présignée vers `http://minio:9000` — voir [Limites connues](#limites-connues) |
 | Upload refusé > ~50 Mo | `client_max_body_size` dans [nginx.conf](frontend/nginx.conf) |
@@ -542,7 +596,8 @@ make up / up-gpu / logs / migrate / test / down / clean
 docker compose up --build                          # = make up
 docker compose up -d frontend                      # recrée un seul service
 docker compose logs -f backend
-docker compose exec backend pytest -q              # = make test
+docker compose exec backend pytest -q              # tests backend
+docker compose exec inference pytest -q            # tests inférence (= make test)
 docker compose exec backend alembic upgrade head   # = make migrate
 docker compose exec db psql -U panoradent
 docker compose down -v                             # = make clean (DONNÉES PERDUES)

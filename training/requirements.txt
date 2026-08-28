@@ -1,0 +1,11 @@
+# Environnement d'ENTRAÎNEMENT — distinct du service d'inférence (PRD §12).
+# Python 3.11 requis : torch ne publie pas encore pour 3.14.
+ultralytics==8.2.0
+torch==2.3.1
+torchvision==0.18.1
+pyyaml==6.0.1
+pillow==10.3.0
+numpy==1.26.4
+# Alimentation de la table model_versions par publish_model.py.
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9

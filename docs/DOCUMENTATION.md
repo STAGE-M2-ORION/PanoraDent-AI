@@ -19,7 +19,7 @@ croise deux sources :
 | Source | Apporte |
 |---|---|
 | **PRD v1.0** — *Édition mémoire, périmètre recentré*, 30/07/2026, RAKOTOMALALA Tolotriniaina Lionel | le **quoi** et le **pourquoi** : périmètre, parcours, exigences, stratégie de données, méthodologie de validation, cadre réglementaire |
-| **Code du dépôt** — branche `main`, dernier commit `ab5df04` | le **comment** et surtout le **jusqu'où** : ce qui est réellement construit, testé, exécutable |
+| **Code du dépôt** — branche `main`, état du 27/08/2026 | le **comment** et surtout le **jusqu'où** : ce qui est réellement construit, testé, exécutable |
 
 Chaque exigence du PRD est donc présentée **avec son état d'implémentation**.
 C'est le cœur de valeur de ce document : il ne décrit pas un produit rêvé, il
@@ -49,8 +49,9 @@ Ce document est le point d'entrée. Il ne remplace pas :
 
 Les sections **1 à 6** décrivent le produit (issues du PRD, annotées de leur
 état). Les sections **7 à 9** décrivent le système tel qu'il est construit. La
-section **10** traite du cœur scientifique — données, modèle, validation — qui
-reste à produire. Les sections **11 à 17** couvrent conformité, exploitation,
+section **10** traite du cœur scientifique — données, modèle,
+validation. Le **pipeline** y est désormais construit ([`training/`](../training/)) ;
+les **données** et les **mesures** restent à produire. Les sections **11 à 17** couvrent conformité, exploitation,
 risques et pilotage. La section **18** est la matrice de traçabilité complète
 PRD → code, et sert de tableau de bord d'avancement.
 
@@ -95,8 +96,9 @@ chiffrée — est ce qui fait la solidité du projet.
 | | |
 |---|---|
 | **Chaîne applicative** | ✅ Fonctionnelle de bout en bout : import → anonymisation → stockage → inférence → persistance → rapport PDF |
-| **Modèle de détection** | ❌ Aucun modèle entraîné. Le service tourne en **mode mock** et renvoie des détections **factices** |
-| **Validation scientifique** | 🔬 Non démarrée — aucun dataset, entraînement ou métrique dans le dépôt |
+| **Modèle de détection** | ❌ Aucun modèle entraîné. Le service tourne en **mode mock** et renvoie des détections **factices**. En revanche le pipeline d'entraînement existe ([`training/`](../training/)) et attend les données |
+| **Numérotation FDI** | ✅ Déduite de la géométrie des boîtes ([`fdi.py`](../inference/app/fdi.py)), 9 tests. Ne dépend d'aucun modèle entraîné |
+| **Validation scientifique** | 🔬 Non démarrée — **aucun dataset obtenu**. Le protocole est outillé (découpage par patient, test gelé, métriques par classe), il n'a jamais été exécuté |
 | **Revue praticien** | ❌ Schéma de base prêt (`reviewed`, `source`), ni route ni interface |
 
 Autrement dit : **l'infrastructure est en avance sur la science.** Le squelette
@@ -108,7 +110,7 @@ semaine 11.
 
 | Objectif | État | Commentaire |
 |---|---|---|
-| Démontrer une détection **fiable et mesurée** (mAP, sensibilité, spécificité sur un test indépendant) | 🔬 | Aucune métrique produite. La table `model_versions` est prévue pour les accueillir, elle est vide |
+| Démontrer une détection **fiable et mesurée** (mAP, sensibilité, spécificité sur un test indépendant) | 🔬 | Aucune métrique produite : aucun dataset obtenu. [`evaluate.py`](../training/evaluate.py) calcule ces chiffres et [`publish_model.py`](../training/publish_model.py) les écrit dans `model_versions` — reste à les exécuter |
 | **Réduire le temps et la variabilité** d'interprétation | ⚠️ | La pré-lecture s'affiche, mais elle est factice tant qu'aucun modèle n'est branché |
 | Livrer un **produit de bout en bout** | ✅ | Import → inférence → affichage → PDF opérationnel |
 | Assurer **traçabilité et confidentialité** | ⚠️ | Anonymisation ✅, aucune donnée identifiante en base ✅, `model_version` tracée par analyse ✅ — journalisation d'audit ❌, chiffrement au repos non activé ❌ |
@@ -119,7 +121,9 @@ semaine 11.
 Resserré autour de ce que les données publiques permettent de démontrer
 honnêtement. Les cinq classes sont déclarées dans
 [`inference/app/config.py`](../inference/app/config.py) **dans cet ordre**, qui
-fait foi pour le mapping des indices YOLO :
+fait foi pour le mapping des indices YOLO, et que
+[`training/config.py`](../training/config.py) **lit directement** — il n'existe
+qu'une source de vérité, et `train.py` refuse de démarrer si le dataset en dévie :
 
 | # | Classe (code) | Libellé praticien | Rôle |
 |---|---|---|---|
@@ -180,13 +184,13 @@ Le code applique cette règle :
 | Élément du périmètre (PRD §3) | État | Où |
 |---|---|---|
 | Import DICOM / JPG / PNG avec anonymisation des métadonnées | ✅ | [`anonymize.py`](../backend/app/services/anonymize.py) |
-| Détection et **numérotation FDI** des dents | ⚠️ | Contrat prêt ; FDI produit en mock uniquement, `null` en mode réel |
+| Détection et **numérotation FDI** des dents | ⚠️ | Détection : modèle requis. Numérotation ✅ déduite de la géométrie par [`fdi.py`](../inference/app/fdi.py) |
 | Détection des 4 anomalies DENTEX | ⚠️ | Classes déclarées ; aucune détection réelle sans modèle |
 | Affichage des détections superposées (boîtes, libellés, confiance) | ✅ | Canvas HTML5, [`draw-detections.js`](../frontend/src/widgets/detection-viewer/lib/draw-detections.js) |
 | **Correction / validation manuelle** par le praticien | ❌ | Colonnes en base, aucune route ni UI |
 | Génération d'un rapport PDF annoté et anonymisé | ✅ | [`report.py`](../backend/app/services/report.py) |
 | Tableau de bord : historique, statut, métriques du modèle | ⚠️ | Statut ✅ · historique : API ✅ / UI ❌ · métriques ❌ |
-| Pipeline scientifique documenté | 🔬 | Absent du dépôt — voir §10 |
+| Pipeline scientifique documenté | ⚠️ | Pipeline **présent** ([`training/`](../training/), [README](../training/README.md)) et documenté ; jamais exécuté faute de données — voir §10 |
 
 ### 3.2 Hors périmètre (édition mémoire)
 
@@ -249,8 +253,11 @@ objet, seule la navigation manque.
 | 1 | Consulte la page de performance : métriques par classe, matrice de confusion, galerie d'échecs | ❌ page inexistante |
 | 2 | Télécharge le rapport d'évaluation et le protocole de validation | ❌ |
 
-`GET /api/model/versions` est en place et renverra ces métriques, mais la table
-`model_versions` **n'est jamais alimentée** : la route répond `[]`.
+`GET /api/model/versions` est en place et renverra ces métriques. La table
+`model_versions` n'est alimentée que par
+[`training/publish_model.py`](../training/publish_model.py), qui attend un modèle
+entraîné : la route répond `[]` aujourd'hui. La **page** de restitution, elle,
+reste entièrement à écrire.
 
 **C'est le parcours le plus important pour le jury, et le moins avancé.** Voir
 §10.3 pour la méthodologie qui doit l'alimenter.
@@ -266,7 +273,7 @@ objet, seule la navigation manque.
 | Accepter DICOM (`.dcm`) et images (JPG/PNG) | ✅ | Format détecté par l'extension **ou** la signature `DICM` à l'offset 128 — un `.dcm` renommé est reconnu |
 | **Anonymiser à l'import**, avant tout stockage | ✅ | 13 tags identifiants écrasés, puis seul le `pixel_array` est conservé. Les images non-DICOM perdent leur EXIF par ré-encodage PNG |
 | Conserver la donnée brute anonymisée, jamais modifiée | ⚠️ | Le PNG anonymisé est conservé et l'original **jamais écrit sur disque** — mais aucune route ne permet de *rejouer* une inférence sur une analyse existante |
-| **Normaliser** : niveaux de gris, redimensionnement cohérent avec l'entraînement | ⚠️ | Niveaux de gris ✅. Aucun redimensionnement : l'image part au modèle à sa taille native. À trancher lorsqu'un modèle réel sera branché (le prétraitement doit être **identique** à l'entraînement) |
+| **Normaliser** : niveaux de gris, redimensionnement cohérent avec l'entraînement | ⚠️ | Niveaux de gris ✅. `MODEL_IMAGE_SIZE` (défaut 640) fixe désormais le redimensionnement letterbox en mode réel et **doit valoir le `--imgsz` de l'entraînement** ; ultralytics remet les boîtes à l'échelle source. Aucun garde-fou ne vérifie cette égalité : une divergence dégrade les détections en silence |
 
 **Tags DICOM neutralisés** (liste dans
 [`anonymize.py`](../backend/app/services/anonymize.py)) :
@@ -286,11 +293,11 @@ objet, seule la navigation manque.
 
 | Exigence PRD | État | Implémentation |
 |---|---|---|
-| **Numérotation FDI** (quadrant + position) | ⚠️ | Champ `fdi` présent de bout en bout (inférence → base → API → canvas → PDF). Renseigné **en mock uniquement** ; en mode réel il vaut `null` — le mapping boîte → numérotation reste à écrire |
+| **Numérotation FDI** (quadrant + position) | ✅ | Déduite de la géométrie des boîtes par [`fdi.py`](../inference/app/fdi.py) : médiane verticale pour le côté (image vue face au patient), plan d'occlusion obtenu par 2-moyennes sur les ordonnées, position croissante depuis la médiane. 9 tests |
 | Détection des 4 anomalies | ⚠️ | Classes déclarées et transportées ; nécessite un modèle entraîné |
 | **Score de confiance affiché** | ✅ | Affiché en pourcentage dans le canvas, en décimal dans le PDF |
-| **Seuil de décision paramétrable** | ❌ | Aucun seuil, ni côté service ni côté UI : toutes les détections remontent |
-| Rattachement dent ↔ anomalie (« carie sur la 36 ») | ⚠️ | En mock, l'anomalie réutilise la boîte **et le FDI** de la dent tirée. Aucune logique de rattachement réelle |
+| **Seuil de décision paramétrable** | ⚠️ | `MODEL_CONF_THRESHOLD` (défaut 0,25) filtre en mode réel, côté service. **Aucun réglage côté UI**, et le mock ignore ce seuil |
+| Rattachement dent ↔ anomalie (« carie sur la 36 ») | ✅ | En mode réel, l'anomalie hérite du FDI de la dent qu'elle recouvre à plus de 50 % de son aire ([`fdi.py`](../inference/app/fdi.py)) ; sans recouvrement, `fdi` reste `null` plutôt qu'inventé. En mock, elle réutilise directement la boîte de la dent tirée |
 
 ### 5.3 Revue et correction — ❌ non implémenté
 
@@ -327,7 +334,7 @@ n'existe que côté frontend).
 |---|---|
 | Métriques par classe (mAP@0.5, mAP@0.5:0.95, précision, rappel) | ❌ |
 | Matrice de confusion, courbes PR, galerie d'exemples | ❌ |
-| Version du modèle et du jeu de données utilisés | ⚠️ `model_version` et `inference_mode` sont stockés **par analyse** ✅ ; la table `model_versions` (version, dataset, `metrics_json`, notes) existe mais n'est jamais alimentée |
+| Version du modèle et du jeu de données utilisés | ⚠️ `model_version` et `inference_mode` sont stockés **par analyse** ✅ ; la table `model_versions` (version, dataset, `metrics_json`, notes) est alimentée par [`publish_model.py`](../training/publish_model.py) — encore vide faute de modèle |
 
 C'est l'écart le plus coûteux au regard du PRD, qui désigne cette page comme le
 support du **parcours jury**.
@@ -344,11 +351,12 @@ support du **parcours jury**.
 | **CU-04** | Générer un rapport PDF annoté | Praticien | Produire un document exploitable et anonyme | ✅ |
 | **CU-05** | Consulter l'historique des analyses | Praticien | Retrouver un examen antérieur | ⚠️ API ✅ / UI ❌ |
 | **CU-06** | Inspecter les performances du modèle | Porteur / jury | Évaluer objectivement la qualité de l'IA | ❌ |
-| **CU-07** | Entraîner / rejouer une évaluation | Porteur | Produire des métriques reproductibles | 🔬 aucun pipeline d'entraînement dans le dépôt |
+| **CU-07** | Entraîner / rejouer une évaluation | Porteur | Produire des métriques reproductibles | ⚠️ pipeline présent ([`training/`](../training/)), jamais exécuté — aucune donnée |
 
-**Lecture** : 2 cas sur 7 pleinement couverts, 2 partiels, 3 absents. Les trois
-absents (CU-03, CU-06, CU-07) sont précisément ceux qui portent la valeur
-**scientifique et clinique** — la conclusion de §1.1 sous une autre forme.
+**Lecture** : 2 cas sur 7 pleinement couverts, 3 partiels, 2 absents. CU-07 est
+passé de absent à partiel : l'outillage existe, les données manquent. CU-03 et
+CU-06 restent absents — ce sont eux qui portent la valeur **clinique** et la
+**restitution au jury**.
 
 ---
 
@@ -431,7 +439,7 @@ maintient la séparation entre l'image (stockage objet) et son index (base).
 | Exigence | État |
 |---|---|
 | Chaque analyse enregistre la version du modèle | ✅ `analyses.model_version` + `analyses.inference_mode` |
-| Chaque analyse enregistre la version du jeu de données d'entraînement | ❌ colonne prévue dans `model_versions.dataset`, table non alimentée |
+| Chaque analyse enregistre la version du jeu de données d'entraînement | ⚠️ `model_versions.dataset` est renseignée par `publish_model.py --dataset`, mais le lien `analyses` → `model_versions` passe par la **chaîne de caractères** `model_version`, sans clé étrangère |
 | Une détection est toujours reliée au modèle qui l'a produite | ✅ via son analyse |
 | Les corrections du praticien sont horodatées et conservées | ❌ colonnes `reviewed`/`source` présentes, sans horodatage ni écriture |
 
@@ -452,7 +460,7 @@ par FastAPI : **http://localhost:8000/docs**.
 | `GET` | `/api/analyses/{id}` | Détail + détections | `AnalysisOut` |
 | `GET` | `/api/analyses/{id}/image` | URL présignée (1 h) vers le PNG anonymisé | `{url}` |
 | `POST` | `/api/analyses/{id}/report` | Génère le PDF, le stocke, renvoie une URL présignée | `{url}` |
-| `GET` | `/api/model/versions` | Versions de modèle + métriques | `[]` (table jamais alimentée) |
+| `GET` | `/api/model/versions` | Versions de modèle + métriques | `[]` tant qu'aucun modèle n'a été publié par `training/publish_model.py` |
 
 Les routes image et rapport renvoient **une URL présignée** valable 3600 s — pas
 une redirection, pas le binaire.
@@ -504,7 +512,9 @@ POST /infer   ← multipart, champ `file` (PNG niveaux de gris)
   coordonnées normalisées, pas de format `xyxy`) ;
 - `label` doit appartenir à la liste des cinq classes (§1.3) ;
 - `confidence` est un flottant 0–1, arrondi à 2 décimales ;
-- `fdi` est un entier FDI ou `null`.
+- `fdi` est un entier FDI ou `null` — en mode réel il est **déduit** de la géométrie
+  des boîtes par [`fdi.py`](../inference/app/fdi.py), jamais prédit par le modèle ;
+  `null` signifie « aucune dent ne porte cette anomalie », pas « inconnu ».
 
 Le modèle est chargé **une seule fois** au `startup` du service.
 
@@ -547,6 +557,8 @@ Alembic ([`0001_initial`](../backend/alembic/versions/0001_initial.py)).
 | `dataset` | `String` | jeu et découpage utilisés |
 | `metrics_json` | `Text` | mAP par classe, précision, rappel |
 | `notes` | `Text` | |
+
+> Écrite par [`training/publish_model.py`](../training/publish_model.py) (`INSERT … ON CONFLICT (version) DO UPDATE`) : republier une même version **écrase** ses métriques.
 
 > **Aucune de ces tables ne contient de donnée identifiante patient** : ni nom,
 > ni identifiant, ni date de naissance, ni date d'examen. C'est une propriété du
@@ -691,10 +703,23 @@ même pipeline sert les deux tâches. Deux architectures restent ouvertes
 | **Gestion du déséquilibre des classes** | Les caries sont bien plus fréquentes que les dents incluses : rapporter **par classe**, jamais une moyenne globale seule |
 | **Analyse qualitative des échecs** | Galerie des faux positifs / faux négatifs typiques — indispensable à un mémoire honnête |
 
+**Ce que `training/` implémente déjà** — le protocole ci-dessus est outillé, il
+n'attend que les données :
+
+| Exigence | Outil |
+|---|---|
+| Découpage sans fuite | [`prepare_dataset.py`](../training/prepare_dataset.py) découpe **par patient**, jamais par image |
+| Test gelé et reproductible | `split.json` consigne graine, ratios et affectation patient par patient — le découpage est rejouable *et prouvable* |
+| Métriques par classe | [`evaluate.py`](../training/evaluate.py) : mAP@0.5, mAP@0.5:0.95, précision, rappel, par classe |
+| Sensibilité / spécificité | Calculées **au niveau image** — la spécificité n'existe pas en détection pure (aucun « vrai négatif » sur une boîte jamais proposée) ; elle retrouve un sens sur la question clinique : *ce cliché porte-t-il au moins une carie ?* |
+| Déséquilibre des classes | `prepare_dataset.py` affiche la distribution par classe et par partition |
+| Analyse qualitative des échecs | ❌ galerie FP/FN non outillée |
+
 **Où ces résultats atterrissent dans la plateforme** : la table
 `model_versions` (§8.3) est conçue pour les accueillir — `version`, `dataset`,
-`metrics_json`, `notes` — et `GET /api/model/versions` les expose déjà. Il
-manque l'alimentation et la page de restitution (PRD §5.5).
+`metrics_json`, `notes` — et `GET /api/model/versions` les expose déjà.
+[`publish_model.py`](../training/publish_model.py) écrit dedans. Il manque les
+**mesures** et la **page de restitution** (PRD §5.5).
 
 ### 10.4 Le mode mock — et pourquoi il existe
 
@@ -717,23 +742,30 @@ critique du travail scientifique.
 
 ### 10.5 Brancher le vrai modèle
 
-1. Entraîner YOLOv11 sur DENTEX **en respectant l'ordre des classes** de
-   [`config.py`](../inference/app/config.py), exporter en `.pt`.
-2. Déposer le fichier dans `inference/weights/model.pt` (monté en lecture seule,
-   `*.pt` exclus du dépôt par `.gitignore`).
+1. **Entraîner** — [`training/`](../training/), voir
+   [training/README.md](../training/README.md). L'ordre des classes est vérifié
+   automatiquement : `train.py` **refuse de démarrer** si le `data.yaml` dévie de
+   [`config.py`](../inference/app/config.py).
+2. **Publier** — `python training/publish_model.py … --install` dépose les poids
+   dans `inference/weights/model.pt` (monté en lecture seule, `*.pt` exclus du
+   dépôt par `.gitignore`) et écrit les métriques dans `model_versions`.
 3. Décommenter `ultralytics` dans
    [`inference/requirements.txt`](../inference/requirements.txt) **et** le bloc
    `torch` du [`Dockerfile`](../inference/Dockerfile).
-4. Renseigner `MODEL_VERSION` dans `.env`.
+4. Renseigner `MODEL_VERSION`, **`MODEL_STRICT=1`** et `MODEL_IMAGE_SIZE` dans
+   `.env`.
 5. `docker compose up --build` — **le rebuild est obligatoire.**
 
-> ⚠️ **En cas d'échec de chargement, le service retombe silencieusement en
-> mock** (message `échec du chargement du modèle` dans les logs). Toujours
-> vérifier : `curl http://localhost:8001/health` doit répondre `"mode":"real"`.
+> ⚠️ **Sans `MODEL_STRICT=1`, un échec de chargement fait retomber le service en
+> mock sans erreur** (message `échec du chargement du modèle` dans les logs) : on
+> mesure alors du bruit en croyant mesurer un modèle. Avec `MODEL_STRICT=1`, le
+> service refuse de démarrer. Toujours vérifier :
+> `curl http://localhost:8001/health` doit répondre `"mode":"real"`.
 
-**Deux travaux restent à faire côté service** en mode réel :
-le **mapping boîte → numérotation FDI** (aujourd'hui `fdi: null`) et le
-**prétraitement identique à l'entraînement** (§5.1).
+**Ce qui reste à faire côté service** en mode réel : le **prétraitement
+identique à l'entraînement** (§5.1) — `MODEL_IMAGE_SIZE` existe, mais rien ne
+vérifie qu'il correspond au `--imgsz` employé. La numérotation FDI, elle, n'est
+plus un manque : [`fdi.py`](../inference/app/fdi.py) la déduit de la géométrie.
 
 ---
 
@@ -795,11 +827,11 @@ La configuration actuelle vise le **développement local**. Liste bloquante :
 | Exigence PRD §10 | Cible | État constaté |
 |---|---|---|
 | **Performance d'inférence** | Quelques secondes sur GPU, dégradation acceptable sur CPU | ⚠️ mock quasi instantané ; jamais mesuré avec un vrai modèle. Timeouts en place : axios 120 s, client d'inférence 60 s, nginx 60 s implicite |
-| **Qualité du modèle** | Métriques par classe rapportées, objectif chiffré fixé et publié | ❌ aucune métrique — décision PRD §14.1 non tranchée |
+| **Qualité du modèle** | Métriques par classe rapportées, objectif chiffré fixé et publié | ⚠️ aucune métrique produite, mais [`evaluate.py`](../training/evaluate.py) les calcule par classe — décision PRD §14.1 toujours non tranchée |
 | **Fiabilité** | Aucune analyse perdue ; toute erreur d'inférence tracée et rejouable | ❌ une inférence en échec renvoie `500` et **rien n'est persisté** ; aucune reprise, aucune trace |
 | **Confidentialité** | Aucune donnée identifiante stockée ; anonymisation vérifiée | ⚠️ garanti par le schéma ✅ et testé unitairement ✅ — sauf pixels incrustés |
-| **Traçabilité** | Chaque détection reliée à une version de modèle et de dataset | ⚠️ modèle ✅, dataset ❌ |
-| **Reproductibilité** | Entraînement et évaluation rejouables (graines, versions, données figées) | ⚠️ mock déterministe ✅, images Docker et lockfiles ✅ ; entraînement inexistant ❌ |
+| **Traçabilité** | Chaque détection reliée à une version de modèle et de dataset | ⚠️ modèle ✅, dataset : colonne alimentable par `publish_model.py`, reliée par chaîne de caractères et non par clé étrangère |
+| **Reproductibilité** | Entraînement et évaluation rejouables (graines, versions, données figées) | ⚠️ mock déterministe ✅, images Docker et lockfiles ✅, découpage à graine fixe tracé dans `split.json` ✅, `run.json` consigne hyperparamètres et empreinte git ✅ — jamais exécuté ❌ |
 | **Accessibilité** | Application web responsive desktop + mobile | ✅ Tailwind responsive, `aria-hidden` sur les icônes décoratives |
 | **Maintenabilité** | Service IA isolé, remplaçable sans toucher à l'application | ✅ contrat HTTP stable (§8.2) |
 
@@ -809,13 +841,13 @@ La configuration actuelle vise le **développement local**. Liste bloquante :
 |---|---|---|
 | Frontend | React | ✅ Next.js 14 / React 18, FSD, shadcn/ui, Tailwind v4 |
 | Backend / API | FastAPI (Python) | ✅ FastAPI 0.111 |
-| Modèle de détection | YOLOv11 sous PyTorch | ⚠️ contrat prêt, `ultralytics` et `torch` **commentés** |
+| Modèle de détection | YOLOv11 sous PyTorch | ⚠️ contrat prêt, pipeline d'entraînement écrit ([`training/`](../training/)) ; `ultralytics` et `torch` restent **commentés** côté service |
 | Base de données | PostgreSQL | ✅ PostgreSQL 16 + SQLAlchemy 2 + Alembic |
 | Stockage objet | Stockage chiffré | ⚠️ MinIO (S3-compatible), chiffrement non activé |
 | Conteneurisation | Docker | ✅ Docker Compose, override GPU |
-| Intégration continue | GitHub Actions | ✅ 3 jobs (voir §13.3) |
+| Intégration continue | GitHub Actions | ✅ 4 jobs (voir §13.3) |
 | Génération PDF | Bibliothèque côté backend | ✅ ReportLab |
-| Suivi des expériences | Journalisation des runs | ❌ aucun outil ; `model_versions` prévue mais vide |
+| Suivi des expériences | Journalisation des runs | ⚠️ `run.json` par entraînement et `model_versions` en base ; aucun outil dédié (MLflow, W&B) |
 
 **Ce qui a été retiré volontairement** (PRD §11) : n8n et les intégrations
 OpenAI / Supabase / Drive / Gmail du cahier des charges initial. Le code n'en
@@ -856,39 +888,57 @@ aucun effet.
 
 ### 13.3 Intégration continue
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — trois jobs en
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) — quatre jobs en
 parallèle sur `push` vers `main` et sur chaque pull request :
 
 | Job | Contenu |
 |---|---|
 | `backend` | `pip install -r requirements.txt` puis `pytest -q` |
+| `inference` | `pip install -r requirements.txt` puis `pytest -q` |
 | `frontend` | `npm ci` puis `npm run build` |
 | `compose-build` | `docker compose build` — vérifie que les trois images se construisent |
 
-**Aucun linter, aucune porte de couverture.**
+**Aucun linter, aucune porte de couverture.** Le pipeline
+[`training/`](../training/) n'est pas couvert : il exige torch et un GPU.
 
 ### 13.4 Tests
 
 ```bash
-make test                  # docker compose exec backend pytest -q (stack démarrée)
-cd backend && pytest -q    # en local
+make test                    # backend + inférence (stack démarrée)
+cd backend   && pytest -q    # en local
+cd inference && pytest -q
 ```
 
-**Un seul test aujourd'hui**, sur l'anonymisation
+**Backend — un seul test**, sur l'anonymisation
 ([`test_anonymize.py`](../backend/app/tests/test_anonymize.py)) : niveaux de
 gris, dimensions conservées, ré-encodage PNG sans EXIF. Il couvre précisément
 l'exigence de confidentialité la plus sensible — c'est le bon test à avoir si
 l'on n'en a qu'un.
 
-**Ni l'API, ni le stockage, ni l'inférence ne sont testés.** Le mock étant
-déterministe, un test bout-en-bout serait peu coûteux à écrire (voir §16).
+**Inférence — neuf tests** sur la numérotation FDI
+([`test_fdi.py`](../inference/app/tests/test_fdi.py)) : denture complète couvrant
+les quatre quadrants, convention droite patient / gauche image, héritage du
+numéro par les anomalies, plan d'occlusion déduit malgré un cadrage décentré,
+arcade unique, écrêtage à la huitième position. Ils n'exigent ni image ni modèle :
+la numérotation est purement géométrique.
+
+**Ni l'API, ni le stockage, ni le pipeline d'entraînement ne sont testés.** Le
+mock étant déterministe, un test bout-en-bout serait peu coûteux à écrire
+(voir §16).
 
 ### 13.5 Séparation entraînement / service
 
-Principe du PRD §12, respecté par construction : **l'entraînement est un
-processus hors ligne**. Seul le modèle figé (poids versionnés) est déployé pour
-l'inférence, monté en lecture seule dans le conteneur. Aucun code
-d'entraînement ne vit dans le service qui sert les prédictions.
+Principe du PRD §12, respecté par construction et désormais **matérialisé** par
+[`training/`](../training/) : **l'entraînement est un processus hors ligne**. Ce
+dossier n'est embarqué dans aucun conteneur, n'apparaît dans aucun `Dockerfile`
+et ne tourne pas dans la stack — il s'exécute sur Colab ou sur une machine GPU.
+Seul le modèle figé (poids versionnés) est déployé pour l'inférence, monté en
+lecture seule dans le conteneur. Aucun code d'entraînement ne vit dans le
+service qui sert les prédictions.
+
+Conséquence pratique : les imports d'`ultralytics` sont **tardifs** dans
+`train.py` et `evaluate.py`, si bien que leurs garde-fous (ordre des classes,
+cohérence des métriques) restent vérifiables sans torch ni GPU.
 
 ---
 
@@ -900,15 +950,27 @@ d'entraînement ne vit dans le service qui sert les prédictions.
   Le PDF est donc un document **non validé**.
 - **Pas d'authentification** ; aucune route `DELETE`.
 - **Pas d'historique dans l'UI** bien que `GET /api/analyses` existe.
-- **Table `model_versions` jamais alimentée** → page de performance impossible.
+- **Table `model_versions` vide** — alimentable par
+  [`publish_model.py`](../training/publish_model.py), mais la **page** de
+  performance reste à écrire.
 
 ### Modèle
 
 - **Aucun modèle entraîné** : les détections sont **factices** et sans valeur
   diagnostique.
-- **`fdi` non renseigné en mode réel** — mapping à écrire.
-- **Bascule mock silencieuse** si les poids sont illisibles.
-- **Aucun seuil de confiance** paramétrable.
+- **Aucun dataset obtenu** : le pipeline [`training/`](../training/) est écrit
+  mais **n'a jamais tourné de bout en bout** — `train.py` et `evaluate.py`
+  exigent torch et un GPU, indisponibles sur la machine de développement.
+- **Bascule mock silencieuse** si les poids sont illisibles — sauf à poser
+  `MODEL_STRICT=1`, qui la transforme en refus de démarrage.
+- **Seuil de confiance côté service uniquement** (`MODEL_CONF_THRESHOLD`),
+  non réglable depuis l'UI et ignoré en mock.
+- **Le FDI du mock ne vient pas de [`fdi.py`](../inference/app/fdi.py)** : le
+  générateur produit ses propres numéros, incohérents avec l'arcade. Seul le
+  mode réel emprunte la déduction géométrique.
+- **Structure DENTEX non vérifiée** — la correspondance des catégories
+  (`class_map.dentex.json`) est une hypothèse ; les catégories non reconnues
+  sont signalées, jamais perdues en silence.
 
 ### Infrastructure
 
@@ -928,8 +990,10 @@ d'entraînement ne vit dans le service qui sert les prédictions.
 - **Thème sombre non appliqué** à l'application (jetons `.dark` prévisualisables
   sur `/design-system`, couleurs de tracé du canvas figées en clair).
 - **Pas de healthcheck** backend ni frontend dans Compose.
-- **Couverture de tests quasi nulle** ; `Makefile` : `up-gpu` absent de
-  `.PHONY`, cibles `build` / `seed` / `fmt` déclarées sans corps.
+- **Couverture de tests faible** — anonymisation et numérotation FDI seulement ;
+  ni l'API, ni le stockage, ni le pipeline d'entraînement ; `Makefile` :
+  `up-gpu` absent de `.PHONY`, cibles `build` / `seed` / `fmt` déclarées sans
+  corps.
 
 ---
 
@@ -942,7 +1006,7 @@ d'entraînement ne vit dans le service qui sert les prédictions.
 | Données annotées insuffisantes pour une classe | Critique | Socle DENTEX validé tôt ; métriques par classe ; réduire le périmètre si une classe est trop pauvre | 🔬 **non engagée** — accès datasets non démarré |
 | Accès aux datasets retardé (Tufts, DENTEX) | Élevé | Démarrer sur UFBA-425 ; lancer les demandes dès la semaine 1 | 🔬 **non engagée** — risque le plus urgent |
 | Périmètre trop ambitieux pour 12 semaines | Critique | Recentrage acté ; kystes/fractures en perspectives ; n8n retiré | ✅ **tenu** — le code ne contient rien de hors périmètre |
-| Validation faible ou non reproductible | Critique | Découpage sans fuite, test gelé, métriques chiffrées, rédaction au fil de l'eau | 🔬 non engagée |
+| Validation faible ou non reproductible | Critique | Découpage sans fuite, test gelé, métriques chiffrées, rédaction au fil de l'eau | ⚠️ **outillée, non exécutée** — `prepare_dataset.py` et `evaluate.py` implémentent le protocole ; aucune donnée pour le lancer |
 | Sur-ingénierie de l'application | Moyen | UI minimale ; règle « est-ce que ça renforce la preuve ? » | ⚠️ **point de vigilance** — le design system (55 composants, 375 ko) et la vitrine animée dépassent le strict nécessaire à la preuve |
 | Fuite de données de santé | Élevé | Anonymisation, chiffrement, séparation image/index, datasets publics | ⚠️ anonymisation ✅, chiffrement ❌, pixels incrustés ❌ |
 | Confusion aide au diagnostic / diagnostic | Élevé | Signalements non affirmatifs, mentions prototype, praticien décideur | ✅ **tenu** partout |
@@ -967,7 +1031,8 @@ Elles ne figurent pas au PRD mais engagent la suite :
 |---|---|
 | **Contrat d'inférence `bbox = [x, y, w, h]` en pixels** | Tout modèle branché doit convertir depuis `xyxy` ou des coordonnées normalisées |
 | **Ordre des cinq classes figé** | L'indice YOLO est mappé positionnellement : l'entraînement **doit** respecter cet ordre |
-| **Image envoyée au modèle à sa taille native, en niveaux de gris PNG** | Le prétraitement d'entraînement doit être aligné, ou un redimensionnement ajouté (§5.1) |
+| **Image redimensionnée à `MODEL_IMAGE_SIZE`** (640) en mode réel, native en mock | Le `--imgsz` d'entraînement doit valoir la même chose ; rien ne le vérifie (§5.1) |
+| **Numérotation FDI déduite, jamais apprise** | Un modèle qui prédirait des numéros de dents verrait sa sortie ignorée : `fdi.py` recalcule tout à partir des boîtes |
 | **Une analyse = une inférence, synchrone** | Pas de file d'attente ; une inférence longue tient la requête HTTP ouverte |
 | **Échec d'inférence = `500`, rien n'est persisté** | Contredit l'exigence de fiabilité « aucune analyse perdue » (§12) |
 
@@ -991,8 +1056,8 @@ Elles ne figurent pas au PRD mais engagent la suite :
 
 | Période | Jalons | Avancement |
 |---|---|---|
-| **Sem. 1–2** | État de l'art · demandes d'accès datasets · démarrage UFBA-425 · préparation et découpage des données | 🔬 **non démarré — chemin critique** |
-| **Sem. 3–6** | Modèle IA : détection/numérotation, puis anomalies · premières évaluations | 🔬 non démarré |
+| **Sem. 1–2** | État de l'art · demandes d'accès datasets · démarrage UFBA-425 · préparation et découpage des données | ⚠️ **outillage prêt ([`prepare_dataset.py`](../training/prepare_dataset.py)), demandes d'accès non lancées — chemin critique** |
+| **Sem. 3–6** | Modèle IA : détection/numérotation, puis anomalies · premières évaluations | ⚠️ pipeline écrit ([`train.py`](../training/train.py), [`evaluate.py`](../training/evaluate.py)), entraînement non démarré |
 | **Sem. 7–9** | Application : backend et frontend, chaîne de bout en bout | ✅ **fait, et en avance** |
 | **Sem. 10–11** | Validation rigoureuse : test gelé, métriques par classe, analyse des échecs | 🔬 non démarré |
 | **Sem. 12** | Finalisation du mémoire · soutenance · jeu de démonstration | 🔬 à venir |
@@ -1019,7 +1084,9 @@ Classées par rapport valeur/coût, en cohérence avec la règle d'arbitrage :
    CU-06, le parcours du jury.
 5. **Test d'intégration bout-en-bout** — le mock étant déterministe, le coût est
    faible et la régression couverte est large.
-6. **Modèle réel** : entraînement, mapping FDI, seuil de confiance paramétrable.
+6. **Entraîner et publier un modèle** — l'outillage est en place
+   ([`training/`](../training/)) ; il n'attend que les données. La numérotation
+   FDI et le seuil de confiance sont déjà faits.
 
 ---
 
@@ -1029,7 +1096,7 @@ Classées par rapport valeur/coût, en cohérence avec la règle d'arbitrage :
 |---|---|
 | Application web (frontend React + backend FastAPI) : import, inférence, revue, rapport PDF | ⚠️ **tout sauf la revue** |
 | Service d'inférence IA (YOLOv11 / PyTorch) et poids versionnés | ⚠️ service ✅, modèle ❌ |
-| Pipeline de données documenté (préparation, découpage sans fuite, entraînement) | 🔬 à produire |
+| Pipeline de données documenté (préparation, découpage sans fuite, entraînement) | ⚠️ **écrit** ([`training/`](../training/) + [README](../training/README.md)), jamais exécuté |
 | Rapport d'évaluation chiffré (métriques par classe, matrice de confusion, analyse des échecs) | 🔬 à produire |
 | Documentation technique et guide d'utilisation | ✅ ce document, [README.md](../README.md), [architecture.md](architecture.md), [frontend/README.md](../frontend/README.md) |
 | Mémoire, rédigé au fil de l'eau | 🔬 en cours |
@@ -1044,15 +1111,15 @@ Vue de synthèse. Chaque ligne renvoie à la section détaillée.
 |---|---|---|---|---|
 | §3 | Import DICOM / JPG / PNG | ✅ | `services/anonymize.py` | 5.1 |
 | §3 / §9.1 | Anonymisation avant tout stockage | ✅ | 13 tags + ré-encodage PNG, testé | 5.1 |
-| §3 / §5.2 | Numérotation FDI | ⚠️ | champ transporté, produit en mock seul | 5.2 |
+| §3 / §5.2 | Numérotation FDI | ✅ | `inference/app/fdi.py`, 9 tests | 5.2 |
 | §3 / §5.2 | 4 classes d'anomalies | ⚠️ | `inference/app/config.py` | 1.3 |
-| §3 / §5.2 | Seuil de décision paramétrable | ❌ | — | 5.2 |
+| §3 / §5.2 | Seuil de décision paramétrable | ⚠️ | `MODEL_CONF_THRESHOLD`, service seulement | 5.2 |
 | §3 | Affichage superposé des détections | ✅ | `widgets/detection-viewer` | 4 |
 | §3 / §5.3 | Correction / validation manuelle | ❌ | colonnes `reviewed`, `source` seules | 5.3 |
 | §3 / §5.4 | Rapport PDF annoté et anonymisé | ✅ | `services/report.py` | 5.4 |
 | §3 | Tableau de bord : historique | ⚠️ | `GET /api/analyses` sans UI | 4 |
 | §3 / §5.5 | Page de performance du modèle | ❌ | `model_versions` vide | 5.5 |
-| §3 | Pipeline scientifique documenté | 🔬 | absent du dépôt | 10 |
+| §3 | Pipeline scientifique documenté | ⚠️ | `training/`, jamais exécuté | 10 |
 | §7.1 | Frontend React | ✅ | Next.js 14 / FSD | 9 |
 | §7.1 | Backend FastAPI orchestrateur | ✅ | `backend/app` | 8.1 |
 | §7.1 | Service d'inférence **isolé** | ✅ | contrat HTTP, aucun accès base/stockage | 7.2 |

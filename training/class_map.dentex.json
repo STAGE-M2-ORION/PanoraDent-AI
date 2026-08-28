@@ -1,0 +1,8 @@
+{
+  "_commentaire": "Correspondance categories source -> CLASSES de inference/app/config.py. A VERIFIER a la reception des donnees : les libelles exacts de DENTEX n'ont pas pu etre controles, aucun jeu n'etait disponible. Les cles inconnues sont signalees par prepare_dataset.py, jamais ignorees en silence. Les cles commencant par _ sont des commentaires.",
+  "Tooth": "tooth",
+  "Caries": "caries",
+  "Deep Caries": "deep_caries",
+  "Periapical Lesion": "periapical_lesion",
+  "Impacted": "impacted_tooth"
+}

@@ -10,17 +10,20 @@ Monorepo orchestré par Docker Compose. Cinq services, conformes au PRD §7.
                  ┌──────▼──────┐      ┌──────────────┐
                  │   backend   │─────▶│  inference   │ (PyTorch/YOLO, 8001)
                  │  (FastAPI)  │      │  isolé       │
-                 └───┬─────┬───┘      └──────────────┘
-                     │     │
-          ┌──────────▼─┐ ┌─▼───────────┐
-          │ PostgreSQL │ │   MinIO     │ (stockage objet S3)
-          │ métadonnées│ │ images+PDF  │
-          └────────────┘ └─────────────┘
+                 └───┬─────┬───┘      └──────▲───────┘
+                     │     │                 │ model.pt
+          ┌──────────▼─┐ ┌─▼───────────┐  ┌──┴──────────┐
+          │ PostgreSQL │ │   MinIO     │  │  training/  │ hors ligne
+          │ métadonnées│ │ images+PDF  │  │ (Colab/GPU) │ hors stack
+          └────────────┘ └─────────────┘  └─────────────┘
 ```
 
 ## Principes
 - **Service d'inférence isolé** : joint uniquement en HTTP (`POST /infer`), sans accès
   base ni stockage — remplaçable sans toucher au backend (traçabilité modèle).
+- **Entraînement hors ligne** : [`training/`](../training/) n'est embarqué dans aucun
+  conteneur et ne tourne pas dans la stack. Le seul artefact qui franchit la
+  frontière est un fichier de poids `.pt` (PRD §12).
 - **Aucune donnée identifiante en base** : anonymisation à l'import, *avant* tout
   stockage. Images et PDF ne sortent du stockage objet que par URL présignée (1 h) ;
   le chiffrement au repos reste à activer (cf. README, « Avant toute mise en production »).
@@ -42,14 +45,29 @@ base, mais ni route ni UI d'édition. Le PDF est donc un document non validé.
 | `/analyse` | Poste de travail : import, détections, rapport |
 | `/design-system` | Catalogue des composants |
 
+## Numérotation FDI
+Le détecteur renvoie des boîtes et une classe, **jamais un numéro de dent** : le FDI
+est une propriété géométrique, déduite après l'inférence par
+[`inference/app/fdi.py`](../inference/app/fdi.py) — médiane verticale de l'image pour
+le côté, plan d'occlusion déduit des boîtes par 2-moyennes pour le maxillaire /
+mandibule, puis position croissante depuis la médiane. Les anomalies héritent du
+numéro de la dent qu'elles recouvrent.
+
 ## Où brancher le vrai modèle
-Déposer `inference/weights/model.pt` (export YOLOv11), décommenter `ultralytics`
-et l'installation de `torch` dans `inference/Dockerfile`, puis rebuild.
-Le service passe automatiquement en mode `real` — et retombe **silencieusement**
-en mock si les poids sont illisibles (vérifier `GET :8001/health`).
+Entraîner via [`training/`](../training/) (voir [training/README.md](../training/README.md)),
+puis `python training/publish_model.py … --install` : les poids sont déposés dans
+`inference/weights/model.pt` et les métriques écrites dans `model_versions`.
+Décommenter `ultralytics` dans `inference/requirements.txt` et l'installation de
+`torch` dans `inference/Dockerfile`, puis rebuild.
+
+**Poser `MODEL_STRICT=1`** : sans cette variable, des poids illisibles font retomber
+le service en mode mock **silencieusement**, et l'on sert des détections factices en
+croyant servir un modèle. Vérifier `GET :8001/health` → `"mode":"real"`.
 
 ## Pour aller plus loin
 [DOCUMENTATION.md](DOCUMENTATION.md) — référence complète : périmètre, exigences
 PRD confrontées au code, validation, conformité, traçabilité ·
 [README.md](../README.md) — stack complète, API, variables, limites connues ·
+[training/README.md](../training/README.md) — pipeline d'entraînement, datasets,
+méthodologie de validation ·
 [frontend/README.md](../frontend/README.md) — Feature-Sliced Design et design system.
