@@ -32,10 +32,10 @@ shared       socle réutilisable, sans aucune connaissance du métier
 | Couche | Slices actuelles |
 |---|---|
 | `app` | `providers/`, `styles/` |
-| `views` | `landing`, `analysis`, `design-system` |
-| `widgets` | `app-header`, `detection-viewer` |
-| `features` | `upload-analysis`, `generate-report` |
-| `entities` | `analysis`, `detection`, `system-status` |
+| `views` | `landing`, `analysis`, `login`, `admin`, `design-system` |
+| `widgets` | `app-header`, `detection-viewer`, `users-panel`, `roles-panel` |
+| `features` | `upload-analysis`, `generate-report`, `sign-in`, `sign-out`, `manage-users`, `manage-roles` |
+| `entities` | `analysis`, `detection`, `system-status`, `session`, `user`, `role` |
 | `shared` | `api`, `config`, `lib`, `ui` |
 
 ### Pourquoi `views` et pas `pages`
@@ -56,7 +56,9 @@ Aucune UI, aucun appel API, aucun état n'y vit.
 | Route | Slice | Rôle |
 |---|---|---|
 | `/` | `views/landing` | Vitrine : présentation de la plateforme, sans appel API hors bandeau d'état |
-| `/analyse` | `views/analysis` | Poste de travail : import, détections, rapport |
+| `/login` | `views/login` | Connexion |
+| `/analyse` | `views/analysis` | Poste de travail : import, détections, rapport (session requise) |
+| `/admin` | `views/admin` | Utilisateurs et rôles (`user:manage` / `role:manage`) |
 | `/design-system` | `views/design-system` | Catalogue des composants |
 
 La racine a longtemps hébergé le poste d'analyse. Elle accueille désormais la
@@ -269,3 +271,17 @@ En `next dev`, il n'y a pas de proxy nginx : pointer l'API vers le backend.
 NEXT_PUBLIC_API_BASE=http://localhost:8000/api npm run dev
 # PowerShell : $env:NEXT_PUBLIC_API_BASE="http://localhost:8000/api"; npm run dev
 ```
+
+## Authentification côté client
+
+- **Jetons** ([`shared/api/auth-tokens.js`](src/shared/api/auth-tokens.js)) : jeton d'accès
+  **en mémoire**, jeton de rafraîchissement en `sessionStorage` (un export statique ne peut
+  pas poser de cookie `httpOnly`). Choix et limites : voir le README racine.
+- **Client HTTP** ([`shared/api/client.js`](src/shared/api/client.js)) : ajoute
+  `Authorization: Bearer …` ; sur `401`, **un seul** `POST /auth/refresh` partagé entre les
+  requêtes concurrentes (le serveur fait tourner les jetons), puis rejeu de la requête ; en
+  cas d'échec, session vidée. `skipAuth: true` exclut login/refresh de ce mécanisme.
+- **Session** (`entities/session`) : `SessionProvider` (monté dans `app/providers`),
+  `useCurrentUser()` → `{ status, user, login, logout, can, canAny }`, `RequireAuth` (garde de
+  route : redirige vers `/login?next=…`, ou affiche un refus si la permission manque).
+  Les gardes et les boutons masqués ne sont qu'ergonomiques : **le backend fait foi**.

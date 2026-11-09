@@ -37,7 +37,7 @@ design system du client.
 
 ## Démarrage rapide
 
-Ports libres attendus : `3000`, `8000`, `8001`, `5432`, `9000`, `9001`.
+Ports libres attendus : `3000`, `8000`, `8001`, `5432` (ou `DB_PORT`), `9000`, `9001`.
 
 ```bash
 cp .env.example .env        # ajuster si besoin
@@ -47,7 +47,9 @@ docker compose up --build   # ou : make up
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
-| Poste d'analyse | http://localhost:3000/analyse | — |
+| Connexion | http://localhost:3000/login | `ADMIN_EMAIL` / `ADMIN_PASSWORD` du `.env` (voir [Authentification](#authentification-et-rôles)) |
+| Poste d'analyse | http://localhost:3000/analyse | session requise |
+| Administration | http://localhost:3000/admin | rôle avec `user:manage` / `role:manage` |
 | Design system | http://localhost:3000/design-system | — |
 | API (Swagger) | http://localhost:8000/docs | — |
 | Service d'inférence | http://localhost:8001/health | — |
@@ -62,7 +64,9 @@ curl http://localhost:8000/api/health
 `Inférence : mock` dans le bandeau de l'application signifie que les détections
 affichées sont **factices**.
 
-**Premier essai** : depuis la page d'accueil, suivre « Analyser une panoramique »
+**Premier essai** : se connecter sur `/login` avec `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+(mot de passe généré s'il est vide : `docker compose logs backend | grep seed_auth`),
+puis depuis la page d'accueil suivre « Analyser une panoramique »
 (ou aller directement sur `/analyse`), importer n'importe quel JPG/PNG (ou
 `.dcm`), puis « Générer le rapport PDF ». Les objets produits sont visibles dans MinIO (`images/`,
 `reports/`). L'aperçu affiche en revanche « Image non affichable… » et le lien
@@ -72,8 +76,10 @@ navigateur en configuration par défaut — voir [Limites connues](#limites-conn
 En ligne de commande :
 
 ```bash
-curl -F "file=@panoramique.jpg" http://localhost:8000/api/analyses
-curl -X POST http://localhost:8000/api/analyses/<id>/report
+TOKEN=$(curl -s -d "username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
+  http://localhost:8000/api/auth/login | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+curl -H "Authorization: Bearer $TOKEN" -F "file=@panoramique.jpg" http://localhost:8000/api/analyses
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8000/api/analyses/<id>/report
 ```
 
 Les migrations sont appliquées **automatiquement** au démarrage du backend
@@ -144,7 +150,7 @@ Compose. Principes :
 | `backend` | `./backend` (python:3.11-slim) | `8000` | *aucun* |
 | `inference` | `./inference` (python:3.11-slim) | `8001` | `/health`, 10 s, 5 essais |
 | `db` | `postgres:16-alpine` | `5432` | `pg_isready`, 5 s, 10 essais |
-| `minio` | `minio/minio:latest` | `9000`, `9001` | `mc ready local`, 5 s, 10 essais |
+| `minio` | `pgsty/minio:latest` | `9000`, `9001` | `mc ready local`, 5 s, 10 essais |
 
 **Ordre de démarrage** : `backend` attend `db` et `minio` *healthy*, mais
 seulement le **lancement** de `inference` (`service_started`) — il peut donc
@@ -170,7 +176,13 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `MODEL_IMAGE_SIZE` | `640` | Taille d'entrée du modèle — **doit être identique** au `--imgsz` de l'entraînement |
 | `MODEL_CONF_THRESHOLD` | `0.25` | Seuil de confiance en mode réel |
 | `ASSIGN_FDI` | `1` | Numérotation FDI déduite de la géométrie des boîtes |
-| `JWT_SECRET` | `change-me-in-prod` | **à changer** |
+| `APP_ENV` | `development` | `production` : le backend **refuse de démarrer** si `JWT_SECRET` est la valeur par défaut ou fait moins de 32 caractères |
+| `JWT_SECRET` | `change-me-in-prod` | **Obligatoire hors développement** : secret long et aléatoire (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@example.com` / *(vide)* | Administrateur initial, créé seulement s'il n'existe aucun admin actif. Mot de passe vide = généré et affiché **une seule fois** dans les logs |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` | `15` / `7` | Durée de vie des jetons |
+| `MAX_FAILED_LOGINS` / `LOCKOUT_MINUTES` | `5` / `15` | Verrouillage du compte après trop d'échecs |
+| `ALLOWED_ORIGINS` | `["http://localhost:3000"]` | Origines CORS, **au format JSON**. Sans effet derrière nginx (même origine) ; utile avec `next dev` |
+| `DB_PORT` | `5432` | Port PostgreSQL publié sur l'hôte (`5433` si un PostgreSQL local occupe déjà 5432) |
 
 **Écrites en dur dans [docker-compose.yml](docker-compose.yml)**, non
 surchargeables : `DATABASE_URL`, `S3_ENDPOINT` (`http://minio:9000`),
@@ -188,6 +200,11 @@ aucun effet.
 ## API backend
 
 Routes préfixées par `/api`. Documentation interactive : http://localhost:8000/docs.
+
+**Toutes les routes exigent un jeton** (`Authorization: Bearer …`) et la permission
+indiquée, sauf `GET /api/health`, `POST /api/auth/login` et `POST /api/auth/refresh`.
+Sans jeton : `401` ; jeton valide mais permission absente : `403`.
+Authentification, comptes et rôles : voir [Authentification et rôles](#authentification-et-rôles).
 
 | Méthode | Route | Description |
 |---|---|---|
@@ -223,6 +240,70 @@ Schémas : [`backend/app/schemas.py`](backend/app/schemas.py).
 
 ---
 
+## Authentification et rôles
+
+Prototype de recherche : l'authentification protège l'accès aux analyses, elle ne
+fait **pas** de cette plateforme un dispositif médical certifié. **Pas
+d'inscription publique** : les comptes sont créés par un administrateur.
+2FA, SSO et journal d'audit sont des travaux futurs.
+
+**Premier démarrage.** Après `alembic upgrade head`, le backend lance
+`python -m app.seed_auth` (idempotent) : il insère les permissions, crée les trois
+rôles système et, **s'il n'existe aucun admin actif**, l'administrateur initial
+(`ADMIN_EMAIL`, `ADMIN_PASSWORD`). Sans `ADMIN_PASSWORD`, un mot de passe aléatoire
+est affiché une seule fois :
+
+```bash
+docker compose logs backend | grep seed_auth
+```
+
+**Modèle.** Une *permission* est une capacité atomique `ressource:action`. Un *rôle*
+est un ensemble de permissions ; un utilisateur a **exactement un rôle**.
+
+| Permission | Route(s) protégée(s) |
+|---|---|
+| `analysis:create` | `POST /api/analyses` |
+| `analysis:read` | `GET /api/analyses`, `/{id}`, `/{id}/image` |
+| `analysis:delete`, `detection:review` | *définies, aucune route pour l'instant* |
+| `report:generate` | `POST /api/analyses/{id}/report` |
+| `model:read` | `GET /api/model/versions` |
+| `user:manage` | `/api/users` (liste, création, modification, suppression) |
+| `role:manage` | `/api/permissions`, `/api/roles` (écriture) — la lecture de `GET /api/roles` est aussi ouverte à `user:manage` pour attribuer un rôle |
+
+| Rôle système | Permissions |
+|---|---|
+| `admin` | toutes (resynchronisées à chaque démarrage) |
+| `practitioner` | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
+| `viewer` | `analysis:read`, `model:read` |
+
+Les rôles système ne se suppriment ni ne se renomment. Seuls `practitioner` et
+`viewer` sont modifiables, et le seed ne réécrit jamais leurs permissions une fois
+créés. Un administrateur peut créer des rôles sur mesure depuis `/admin`.
+
+**Endpoints.** `POST /api/auth/login` (formulaire OAuth2 : `username` = email),
+`POST /api/auth/refresh`, `POST /api/auth/logout` (204, révoque toutes les sessions),
+`GET /api/auth/me`, `POST /api/auth/me/password` ; `GET|POST /api/users`,
+`GET|PATCH|DELETE /api/users/{id}` ; `GET /api/permissions`,
+`GET|POST /api/roles`, `GET|PATCH|DELETE /api/roles/{id}`.
+
+**Règles de sécurité implémentées**
+- Mots de passe : bcrypt direct avec pré-hachage SHA-256 (pas de limite de 72 octets, pas de passlib).
+- Jeton d'accès court (15 min) ; jeton de rafraîchissement (7 j) **à rotation** : chaque usage le révoque et en émet un neuf. La réutilisation d'un jeton déjà tourné coupe toutes les sessions du compte.
+- Message d'échec **uniforme** (« Identifiants invalides ») : on ne révèle pas si un email existe.
+- Verrouillage : après `MAX_FAILED_LOGINS` échecs, `423` pendant `LOCKOUT_MINUTES`.
+- Désactiver un compte ou changer son mot de passe révoque ses sessions immédiatement.
+- Garde-fou **dernier administrateur** : impossible de supprimer, désactiver ou rétrograder le dernier compte actif capable de gérer utilisateurs *et* rôles (`400`) ; on ne peut pas supprimer son propre compte.
+- CORS restreint à `ALLOWED_ORIGINS` ; secret JWT par défaut refusé quand `APP_ENV=production`.
+
+**Stockage des jetons côté navigateur.** Le frontend est un export statique sans couche
+serveur : il ne peut pas poser de cookie `httpOnly`. Le jeton d'accès reste **en
+mémoire**, le jeton de rafraîchissement en **`sessionStorage`** (propre à l'onglet,
+effacé à sa fermeture). Un XSS pourrait lire ce dernier ; migrer vers des cookies
+`httpOnly; Secure; SameSite=Strict` posés par le backend est l'évolution prévue
+avant toute mise en production.
+
+---
+
 ## Modèle de données
 
 [`backend/app/models.py`](backend/app/models.py) (SQLAlchemy 2.0), migré par
@@ -235,9 +316,15 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   `false`), `source` (`model` | `human`). Relation en
   `cascade="all, delete-orphan"`.
 - **`model_versions`** — `version` (unique), `dataset`, `metrics_json`, `notes`.
+- **Authentification** (migration `0002_auth`) : `permissions` (`code` unique), `roles`
+  (`name` unique, `is_system`), `role_permissions` (N-N), `users` (`email` unique en
+  minuscules, `hashed_password`, `role_id`, `failed_attempts`, `locked_until`),
+  `refresh_tokens` (`jti` unique, `revoked`, `expires_at`).
 
-> Aucune de ces tables ne contient de donnée identifiante patient : ni nom, ni
-> identifiant, ni date de naissance, ni date d'examen.
+> Les tables d'analyse ne contiennent aucune donnée identifiante patient : ni nom,
+> ni identifiant, ni date de naissance, ni date d'examen. Les tables
+> d'authentification ne décrivent que les comptes des utilisateurs de la plateforme
+> (praticiens, administrateurs), jamais des patients.
 
 ---
 
@@ -325,9 +412,10 @@ organisé en **Feature-Sliced Design**, habillé par **shadcn/ui** sur Tailwind 
 Conventions, couches, règles d'import et fonctionnement du design system :
 **[frontend/README.md](frontend/README.md)**.
 
-Trois routes : `/` présente la plateforme (vitrine animée avec GSAP), `/analyse`
-est le poste de travail — import, détections, rapport —, `/design-system` le
-catalogue des composants.
+Cinq routes : `/` présente la plateforme (vitrine animée avec GSAP), `/login` est
+la connexion, `/analyse` le poste de travail — import, détections, rapport —
+(session requise), `/admin` la gestion des comptes et des rôles, `/design-system`
+le catalogue des composants.
 
 Le projet expose sa propre documentation de design à
 **http://localhost:3000/design-system** — **55 composants** en huit onglets
@@ -438,8 +526,8 @@ panoradent-ai/
 ```
 
 **Dépendances** — backend : `fastapi`, `sqlalchemy`, `alembic`, `pydantic`,
-`pydicom`, `pillow`, `numpy`, `boto3`, `reportlab`, `httpx`, `python-jose`
-(*provisionné, non utilisé*), `pytest`. Inférence : `fastapi`, `pillow`,
+`pydicom`, `pillow`, `numpy`, `boto3`, `reportlab`, `httpx`, `python-jose`,
+`bcrypt`, `email-validator`, `pytest`. Inférence : `fastapi`, `pillow`,
 `numpy`, `pytest` — `ultralytics` et `torch` commentés. Entraînement
 ([`training/requirements.txt`](training/requirements.txt), **jamais installé
 dans un conteneur**) : `ultralytics`, `torch`, `torchvision`, `sqlalchemy`.
@@ -485,23 +573,25 @@ et le code des sections.
 
 Cette configuration vise le **développement local** :
 
-- [ ] Restreindre le CORS (actuellement `allow_origins=["*"]`).
-- [ ] Changer `JWT_SECRET`, `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`.
+- [x] CORS restreint à `ALLOWED_ORIGINS` (plus de `*`).
+- [ ] Définir `APP_ENV=production` et un `JWT_SECRET` aléatoire (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`, `ADMIN_PASSWORD`.
 - [ ] Ne plus exposer `5432`, `9000`, `9001`, `8001` sur l'hôte.
 - [ ] Activer HTTPS (terminaison TLS devant nginx).
-- [ ] Ajouter authentification et contrôle d'accès (dépendances JWT présentes,
-      protection des routes à écrire).
+- [x] Authentification JWT et contrôle d'accès par rôles (RBAC) — voir plus haut.
+- [ ] Jetons en cookies `httpOnly; Secure; SameSite` (aujourd'hui : accès en mémoire,
+      rafraîchissement en `sessionStorage`).
+- [ ] 2FA / SSO, journal d'audit des connexions et des actions (travaux futurs).
 - [ ] Traiter les annotations incrustées dans les pixels.
 - [ ] Héberger dans l'UE (RGPD), chiffrement au repos côté S3.
 - [ ] Journalisation d'audit, rétention, sauvegardes.
-- [ ] Épingler les images de base (`minio/minio:latest` n'est pas reproductible).
+- [ ] Épingler les images de base (`pgsty/minio:latest` n'est pas reproductible).
 
 ---
 
 ## Limites connues
 
 **Fonctionnel** — revue praticien non implémentée (colonnes `reviewed`/`source`
-présentes, aucune route ni UI d'édition) · pas d'authentification · pas de route
+présentes, aucune route ni UI d'édition) · permissions `detection:review` et `analysis:delete` définies mais sans route correspondante · pas de route
 `DELETE` · frontend mono-page, sans historique bien que `GET /api/analyses`
 existe · table `model_versions` alimentée uniquement par
 [`training/publish_model.py`](training/publish_model.py), sans page de
@@ -554,7 +644,7 @@ mode réel emprunte la déduction géométrique.
    endpoint interne et endpoint public de signature. Débloque la démonstration.
 2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
    viewer. Le rapport devient un document validé.
-3. **Authentification** — protéger les routes, restreindre le CORS.
+3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (JWT + RBAC) ; reste 2FA/SSO, audit, cookies `httpOnly`.
 4. **Historique dans l'UI** — `GET /api/analyses` est déjà disponible.
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès

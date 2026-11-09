@@ -29,7 +29,8 @@ Monorepo orchestré par Docker Compose. Cinq services, conformes au PRD §7.
   le chiffrement au repos reste à activer (cf. README, « Avant toute mise en production »).
 - **Mode mock** : la chaîne complète tourne avant tout entraînement.
 - **CPU par défaut**, GPU via `docker-compose.gpu.yml`.
-- **Migrations au démarrage** : `alembic upgrade head` dans le `CMD` du backend.
+- **Migrations et amorçage au démarrage** : `alembic upgrade head` puis `python -m app.seed_auth` (idempotent) dans le `CMD` du backend.
+- **Authentification JWT + RBAC** : toutes les routes métier exigent un jeton et une permission (`analysis:create`, `report:generate`…). Comptes créés par un administrateur uniquement. Détails dans le [README](../README.md#authentification-et-rôles).
 
 ## Flux d'une analyse
 1. Import → 2. Anonymisation (DICOM/EXIF) → 3. Stockage image → 4. Inférence →
@@ -42,7 +43,9 @@ base, mais ni route ni UI d'édition. Le PDF est donc un document non validé.
 | Route | Rôle |
 |---|---|
 | `/` | Vitrine : présentation de la plateforme (animée avec GSAP) |
-| `/analyse` | Poste de travail : import, détections, rapport |
+| `/login` | Connexion (email + mot de passe) |
+| `/analyse` | Poste de travail : import, détections, rapport (session requise) |
+| `/admin` | Comptes et rôles (`user:manage` / `role:manage`) |
 | `/design-system` | Catalogue des composants |
 
 ## Numérotation FDI
