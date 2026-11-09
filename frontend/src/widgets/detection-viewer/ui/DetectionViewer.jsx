@@ -19,7 +19,7 @@ import {
 import { drawDetections } from "../lib/draw-detections";
 import { ImageStatus, useAnalysisImage } from "../model/use-analysis-image";
 
-export function DetectionViewer({ analysis }) {
+export function DetectionViewer({ analysis, canGenerateReport = true }) {
   const canvasRef = useRef(null);
   const { image, status } = useAnalysisImage(analysis.id);
 
@@ -65,7 +65,7 @@ export function DetectionViewer({ analysis }) {
           )}
         />
 
-        <GenerateReportButton analysisId={analysis.id} />
+        {canGenerateReport && <GenerateReportButton analysisId={analysis.id} />}
       </CardContent>
     </Card>
   );

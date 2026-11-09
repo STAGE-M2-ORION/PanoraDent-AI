@@ -1,11 +1,14 @@
-import { Palette, ScanLine } from "lucide-react";
+import { Palette, ScanLine, Users } from "lucide-react";
 import Link from "next/link";
 
+import { useCurrentUser } from "@/entities/session";
 import { SystemStatusLine, useSystemStatus } from "@/entities/system-status";
-import { Button } from "@/shared/ui";
+import { SignOutButton } from "@/features/sign-out";
+import { Badge, Button } from "@/shared/ui";
 
 export function AppHeader() {
   const status = useSystemStatus();
+  const { user, canAny } = useCurrentUser();
 
   return (
     <header className="mb-8 border-b-2 border-primary/70 pb-4">
@@ -26,12 +29,33 @@ export function AppHeader() {
           </p>
         </div>
 
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/design-system">
-            <Palette aria-hidden="true" />
-            Design system
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {user && (
+            <span className="flex items-center gap-2 text-sm" data-testid="current-user">
+              <span className="text-muted-foreground">{user.email}</span>
+              <Badge variant="secondary">{user.role}</Badge>
+            </span>
+          )}
+
+          {/* Visible seulement pour qui peut gérer comptes ou rôles. */}
+          {canAny(["user:manage", "role:manage"]) && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/admin">
+                <Users aria-hidden="true" />
+                Administration
+              </Link>
+            </Button>
+          )}
+
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/design-system">
+              <Palette aria-hidden="true" />
+              Design system
+            </Link>
+          </Button>
+
+          {user && <SignOutButton />}
+        </div>
       </div>
 
       <SystemStatusLine status={status} className="mt-4" />
