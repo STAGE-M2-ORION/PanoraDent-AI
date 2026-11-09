@@ -1,4 +1,7 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_JWT_SECRET = "change-me-in-prod"
 
 
 class Settings(BaseSettings):
@@ -10,9 +13,34 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "panoradent"
     inference_url: str = "http://inference:8001"
-    jwt_secret: str = "change-me-in-prod"
+
+    # --- Authentification -------------------------------------------------
+    # `development` tolère le secret par défaut ; `production` le refuse au
+    # démarrage (voir `_check_production_secret`).
+    app_env: str = "development"
+    jwt_secret: str = DEFAULT_JWT_SECRET
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+    max_failed_logins: int = 5
+    lockout_minutes: int = 15
+    # Coût bcrypt. 12 est un défaut raisonnable ; les tests le baissent.
+    bcrypt_rounds: int = 12
+    # Origines autorisées pour le CORS. Variable d'environnement au format
+    # JSON : ALLOWED_ORIGINS='["http://localhost:3000"]'.
+    allowed_origins: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _check_production_secret(self):
+        if self.app_env.lower() == "production":
+            if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 32:
+                raise ValueError(
+                    "JWT_SECRET doit être défini (32 caractères minimum, aléatoire) "
+                    "quand APP_ENV=production."
+                )
+        return self
 
 
 settings = Settings()
