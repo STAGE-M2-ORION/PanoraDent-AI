@@ -3,8 +3,10 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
+from ..auth_deps import require_permission
 from ..database import get_db
 from ..models import Analysis, Detection
+from ..permissions import ANALYSIS_CREATE, ANALYSIS_READ, REPORT_GENERATE
 from ..schemas import AnalysisOut, AnalysisSummary
 from ..services import anonymize, storage, inference_client, report as report_svc
 from PIL import Image
@@ -14,7 +16,11 @@ router = APIRouter(prefix="/analyses", tags=["analyses"])
 
 
 @router.post("", response_model=AnalysisOut)
-async def create_analysis(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def create_analysis(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _=Depends(require_permission(ANALYSIS_CREATE)),
+):
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "Fichier vide")
@@ -52,7 +58,9 @@ async def create_analysis(file: UploadFile = File(...), db: Session = Depends(ge
 
 
 @router.get("", response_model=list[AnalysisSummary])
-def list_analyses(db: Session = Depends(get_db)):
+def list_analyses(
+    db: Session = Depends(get_db), _=Depends(require_permission(ANALYSIS_READ))
+):
     rows = db.execute(select(Analysis).order_by(Analysis.created_at.desc())).scalars().all()
     return [
         AnalysisSummary(
@@ -63,7 +71,11 @@ def list_analyses(db: Session = Depends(get_db)):
 
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)
-def get_analysis(analysis_id: str, db: Session = Depends(get_db)):
+def get_analysis(
+    analysis_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission(ANALYSIS_READ)),
+):
     a = db.get(Analysis, analysis_id)
     if not a:
         raise HTTPException(404, "Analyse introuvable")
@@ -71,7 +83,11 @@ def get_analysis(analysis_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{analysis_id}/image")
-def get_image_url(analysis_id: str, db: Session = Depends(get_db)):
+def get_image_url(
+    analysis_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission(ANALYSIS_READ)),
+):
     a = db.get(Analysis, analysis_id)
     if not a:
         raise HTTPException(404, "Analyse introuvable")
@@ -79,7 +95,11 @@ def get_image_url(analysis_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{analysis_id}/report")
-def build_report(analysis_id: str, db: Session = Depends(get_db)):
+def build_report(
+    analysis_id: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_permission(REPORT_GENERATE)),
+):
     a = db.get(Analysis, analysis_id)
     if not a:
         raise HTTPException(404, "Analyse introuvable")
