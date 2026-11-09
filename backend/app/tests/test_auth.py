@@ -304,3 +304,13 @@ def test_tokens_have_expected_claims_and_types():
         pass
     else:
         raise AssertionError("un refresh ne doit pas être accepté comme access")
+
+
+def test_user_manager_can_list_roles_but_not_edit_them(client, admin_headers, make_user):
+    custom = client.post("/api/roles", headers=admin_headers, json={"name": "hr", "permissions": ["user:manage"]}).json()
+    client.post("/api/users", headers=admin_headers, json={
+        "email": "hr@panoradent.test.dev", "password": "password-123", "role_id": custom["id"]})
+    h = bearer(login(client, "hr@panoradent.test.dev", "password-123").json()["access_token"])
+    assert client.get("/api/roles", headers=h).status_code == 200
+    assert client.post("/api/roles", headers=h, json={"name": "x"}).status_code == 403
+    assert client.get("/api/permissions", headers=h).status_code == 403

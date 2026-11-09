@@ -44,3 +44,15 @@ def require_permission(code: str):
         return user
 
     return dependency
+
+
+def require_any_permission(*codes: str):
+    """Comme `require_permission`, mais une seule des permissions suffit."""
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if not any(user.has_permission(c) for c in codes):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, f"Permission requise : {' ou '.join(codes)}"
+            )
+        return user
+
+    return dependency

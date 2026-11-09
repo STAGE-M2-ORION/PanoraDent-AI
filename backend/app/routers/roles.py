@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth_deps import require_permission
+from ..auth_deps import require_any_permission, require_permission
 from ..auth_models import Permission, Role, User
 from ..auth_schemas import PermissionOut, RoleCreate, RoleOut, RoleUpdate
 from ..database import get_db
-from ..permissions import ROLE_MANAGE
+from ..permissions import ROLE_MANAGE, USER_MANAGE
 from ..services import auth_service
 
 router = APIRouter(tags=["roles"])
@@ -29,8 +29,10 @@ def list_permissions(
 
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(
-    _: User = Depends(require_permission(ROLE_MANAGE)), db: Session = Depends(get_db)
+    _: User = Depends(require_any_permission(ROLE_MANAGE, USER_MANAGE)),
+    db: Session = Depends(get_db),
 ):
+    """Lecture ouverte aussi à `user:manage` : nécessaire pour attribuer un rôle."""
     roles = db.scalars(select(Role).order_by(Role.is_system.desc(), Role.name)).all()
     return [RoleOut.from_role(r) for r in roles]
 
