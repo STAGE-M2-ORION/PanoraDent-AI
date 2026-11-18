@@ -10,18 +10,40 @@ export const DetectionLabel = {
   IMPACTED_TOOTH: "impacted_tooth",
 };
 
-const LABEL_TEXT = {
-  [DetectionLabel.TOOTH]: "Dent",
-  [DetectionLabel.CARIES]: "Carie",
-  [DetectionLabel.DEEP_CARIES]: "Carie profonde",
-  [DetectionLabel.PERIAPICAL_LESION]: "Lésion périapicale",
-  [DetectionLabel.IMPACTED_TOOTH]: "Dent incluse",
+/**
+ * Présentation de chaque classe (palette Okabe-Ito, lisible par les
+ * daltoniens). La couleur n'est jamais seule : nom et abréviation l'accompagnent.
+ * `cls` est la classe CSS de la pastille (`.det-*`, cf. `detection.css`).
+ */
+export const DETECTION_TYPES = {
+  [DetectionLabel.TOOTH]: { label: "Dent (numéro FDI)", short: "Dent", abbr: "FDI", cls: "det-tooth", color: "#56B4E9" },
+  [DetectionLabel.CARIES]: { label: "Carie", short: "Carie", abbr: "C", cls: "det-caries", color: "#F0E442" },
+  [DetectionLabel.DEEP_CARIES]: { label: "Carie profonde", short: "Carie profonde", abbr: "CP", cls: "det-deep", color: "#D55E00" },
+  [DetectionLabel.PERIAPICAL_LESION]: { label: "Lésion péri-apicale", short: "Lésion péri-apicale", abbr: "LPA", cls: "det-periapical", color: "#CC79A7" },
+  [DetectionLabel.IMPACTED_TOOTH]: { label: "Dent incluse", short: "Dent incluse", abbr: "DI", cls: "det-impacted", color: "#009E73" },
 };
 
-/** Couleurs de tracé — dupliquées en dur dans le canvas, pas de variable CSS ici. */
-export const DetectionColor = {
-  NORMAL: "#0F766E",
-  ANOMALY: "#C0392B",
+/** Les quatre anomalies, dans l'ordre d'affichage de la maquette. */
+export const ANOMALY_LABELS = [
+  DetectionLabel.CARIES,
+  DetectionLabel.DEEP_CARIES,
+  DetectionLabel.PERIAPICAL_LESION,
+  DetectionLabel.IMPACTED_TOOTH,
+];
+
+/** Statut de relecture d'une détection. */
+export const ReviewStatus = {
+  PENDING: "pending",
+  VALIDATED: "validated",
+  CORRECTED: "corrected",
+  ADDED: "added",
+};
+
+export const REVIEW_STATUS = {
+  [ReviewStatus.PENDING]: { label: "Non revue", tone: undefined },
+  [ReviewStatus.VALIDATED]: { label: "Validée", tone: "success" },
+  [ReviewStatus.CORRECTED]: { label: "Corrigée", tone: "info" },
+  [ReviewStatus.ADDED]: { label: "Ajoutée par le praticien", tone: "primary" },
 };
 
 /** Toute classe autre que `tooth` est une anomalie à signaler au praticien. */
@@ -29,26 +51,28 @@ export function isAnomaly(label) {
   return label !== DetectionLabel.TOOTH;
 }
 
+export function detectionType(label) {
+  return DETECTION_TYPES[label] ?? { label, short: label, abbr: "?", cls: "", color: "#94A3B8" };
+}
+
 export function detectionLabelText(label) {
-  return LABEL_TEXT[label] ?? label;
+  return detectionType(label).label;
 }
 
-export function detectionColor(label) {
-  return isAnomaly(label) ? DetectionColor.ANOMALY : DetectionColor.NORMAL;
-}
-
-/** DTO backend (snake_case, `w`/`h`) → modèle applicatif. */
+/** DTO backend (snake_case, `w`/`h`, confiance 0-1) → modèle applicatif. */
 export function normalizeDetection(dto) {
+  const fromUser = dto.source === "human" || dto.source === "user";
   return {
     id: dto.id,
     label: dto.label,
     fdi: dto.fdi ?? null,
-    confidence: dto.confidence,
+    // Confiance en pourcentage entier ; null pour un ajout du praticien.
+    confidence: fromUser ? null : Math.round((dto.confidence ?? 0) * 100),
     x: dto.x,
     y: dto.y,
     width: dto.w,
     height: dto.h,
-    reviewed: Boolean(dto.reviewed),
-    source: dto.source,
+    source: fromUser ? "user" : "ai",
+    status: fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
   };
 }

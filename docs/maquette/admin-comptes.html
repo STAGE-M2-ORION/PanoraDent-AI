@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Comptes · Administration · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .filters { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(160px, 1fr); gap: var(--space-3); align-items: end; }
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .lock-note { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .tip { position: fixed; z-index: 200; max-width: 300px; padding: var(--space-2) var(--space-3); background: var(--color-ink); color: var(--color-surface); border-radius: var(--radius-md); font-size: var(--text-sm); box-shadow: var(--shadow-lg); pointer-events: none; display: none; }
+  .tip[data-show="true"] { display: block; }
+  .check-row { display: flex; align-items: flex-start; gap: var(--space-3); min-height: 44px; font-size: var(--text-sm); }
+  .check-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--color-primary); flex: none; }
+  .modal-form { display: grid; gap: var(--space-4); }
+  .count { font-size: var(--text-sm); color: var(--color-muted); }
+  @media (max-width: 760px) { .filters { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="admin-comptes" data-allow="admin">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><p class="crumbs">Administration</p><h1>Comptes</h1></div>
+    </header>
+    <main class="page">
+
+      <div class="state-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="normal">Normal</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="blocked">Tentative bloquée (dernier administrateur)</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="empty">Aucun résultat</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="dup">Erreur de champ à la création</button>
+      </div>
+
+      <div class="page-head">
+        <div>
+          <h2>Comptes</h2>
+          <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes.</p>
+        </div>
+        <button class="btn btn-primary" type="button" id="btn-create"><i data-icon="plus"></i>Créer un compte</button>
+      </div>
+
+      <div id="feedback" aria-live="polite" style="display:grid;gap:var(--space-3)"></div>
+
+      <div class="alert alert-info" role="note">
+        <i data-icon="info"></i>
+        <div><strong>Protection du dernier administrateur</strong>Il doit toujours rester au moins un compte administrateur actif. Le compte « Administrateur » ne peut donc être ni désactivé ni supprimé tant qu’un autre administrateur n’existe pas.</div>
+      </div>
+
+      <section class="card card-pad" aria-label="Recherche et filtres" style="display:grid;gap:var(--space-4)">
+        <div class="filters">
+          <div class="field"><label class="label" for="q">Rechercher un compte</label><input class="input" id="q" type="search" placeholder="Nom ou e-mail"></div>
+          <div class="field"><label class="label" for="f-role">Rôle</label>
+            <select class="select" id="f-role"><option value="">Tous les rôles</option><option>Administrateur</option><option>Praticien</option><option>Lecteur</option><option>Assistant de recherche</option></select></div>
+          <div class="field"><label class="label" for="f-status">Statut</label>
+            <select class="select" id="f-status"><option value="">Tous les statuts</option><option value="actif">Actif</option><option value="desactive">Désactivé</option><option value="verrouille">Verrouillé temporairement</option></select></div>
+        </div>
+        <p class="count" id="count" aria-live="polite"></p>
+      </section>
+
+      <div class="table-wrap">
+        <table class="table stack">
+          <caption class="sr-only">Liste des comptes</caption>
+          <thead><tr><th scope="col">Nom et e-mail</th><th scope="col">Rôle</th><th scope="col">Statut</th><th scope="col">Connexion</th><th scope="col" class="w">Dernière connexion</th><th scope="col">Actions</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="card card-pad" hidden style="text-align:center">
+        <p><strong>Aucun compte ne correspond à votre recherche.</strong></p>
+        <p class="muted">Modifiez les filtres ou effacez la recherche.</p>
+      </div>
+      <p><span class="maq-note">valeurs fictives · aucun mot de passe n’est affiché ni saisi par l’administrateur</span></p>
+    </main>
+  </div>
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+
+<!-- Modale : créer -->
+<div class="modal-backdrop" id="m-create" role="dialog" aria-modal="true" aria-labelledby="m-create-t">
+  <form class="modal" id="f-create" novalidate>
+    <h2 id="m-create-t">Créer un compte</h2>
+    <div class="modal-form">
+      <div class="alert alert-info"><i data-icon="info"></i><div>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes.</div></div>
+      <div class="field"><label class="label" for="c-name">Nom</label><input class="input" id="c-name" name="name" autocomplete="off" required></div>
+      <div class="field"><label class="label" for="c-mail">E-mail professionnel</label><input class="input" id="c-mail" name="mail" type="email" autocomplete="off" required aria-describedby="c-mail-err"><p class="error-text" id="c-mail-err" hidden></p></div>
+      <div class="field"><label class="label" for="c-role">Rôle</label>
+        <select class="select" id="c-role"><option>Administrateur</option><option>Praticien</option><option selected>Lecteur</option><optgroup label="Rôles personnalisés"><option>Assistant de recherche</option></optgroup></select></div>
+      <label class="check-row" for="c-invite"><input type="checkbox" id="c-invite" checked><span>Envoyer un lien d’activation par e-mail<span class="hint" style="display:block">La personne choisit elle-même son mot de passe ; vous ne le voyez jamais.</span></span></label>
+      <label class="check-row" for="c-google"><input type="checkbox" id="c-google" checked><span>Autoriser la connexion avec Google<span class="hint" style="display:block">Seulement si l’adresse Google est exactement l’e-mail ci-dessus. Aucun compte n’est créé par Google.</span></span></label>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" type="button" data-close-modal>Annuler</button><button class="btn btn-primary" type="submit">Créer le compte</button></div>
+  </form>
+</div>
+
+<!-- Modale : modifier -->
+<div class="modal-backdrop" id="m-edit" role="dialog" aria-modal="true" aria-labelledby="m-edit-t">
+  <form class="modal" id="f-edit" novalidate>
+    <h2 id="m-edit-t">Modifier le compte</h2>
+    <div class="modal-form">
+      <div class="field"><label class="label" for="e-name">Nom</label><input class="input" id="e-name" autocomplete="off" required></div>
+      <div class="field"><label class="label" for="e-mail">E-mail professionnel</label><input class="input" id="e-mail" type="email" autocomplete="off" required aria-describedby="e-mail-err"><p class="error-text" id="e-mail-err" hidden></p></div>
+      <div class="field"><label class="label" for="e-role">Rôle</label>
+        <select class="select" id="e-role" aria-describedby="e-role-hint"><option>Administrateur</option><option>Praticien</option><option>Lecteur</option><optgroup label="Rôles personnalisés"><option>Assistant de recherche</option></optgroup></select>
+        <p class="hint" id="e-role-hint" hidden>Le rôle du dernier administrateur ne peut pas être changé.</p></div>
+    </div>
+    <div class="modal-actions"><button class="btn btn-secondary" type="button" data-close-modal>Annuler</button><button class="btn btn-primary" type="submit">Enregistrer</button></div>
+  </form>
+</div>
+
+<!-- Modale : supprimer -->
+<div class="modal-backdrop" id="m-delete" role="alertdialog" aria-modal="true" aria-labelledby="m-delete-t" aria-describedby="m-delete-d">
+  <form class="modal" id="f-delete">
+    <h2 id="m-delete-t">Supprimer le compte ?</h2>
+    <p id="m-delete-d">Vous allez supprimer le compte <strong id="d-name"></strong>. Cette action est définitive et sera inscrite au journal d’audit.</p>
+    <label class="check-row" for="d-ok"><input type="checkbox" id="d-ok"><span>Je confirme la suppression de ce compte.</span></label>
+    <div class="modal-actions"><button class="btn btn-secondary" type="button" data-close-modal>Annuler</button><button class="btn btn-danger" type="submit" id="d-go" disabled>Supprimer définitivement</button></div>
+  </form>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var rowsEl = document.getElementById("rows");
+  if (!rowsEl) return; // rôle non autorisé : écran 403
+  var ic = function (n) { return window.PD.icon(n); };
+  var D = window.DEMO;
+  var LAST = "Il est impossible de désactiver ou supprimer ce compte : c’est le dernier compte administrateur. Créez ou désignez un autre administrateur d’abord.";
+  var TIP = "Impossible : c’est le dernier compte administrateur. Créez ou désignez un autre administrateur d’abord.";
+  var accounts = [
+    { id: 1, name: "Administrateur", mail: "admin@demo.panoradent.test", role: "Administrateur", status: "actif", last: D.fmt(D.daysAgo(0)) + " · 08:12" },
+    { id: 2, name: "Dr Rakoto", mail: "rakoto@demo.panoradent.test", role: "Praticien", status: "actif", last: D.fmt(D.daysAgo(0)) + " · 09:12" },
+    { id: 3, name: "Dr Andria", mail: "andria@demo.panoradent.test", role: "Praticien", status: "actif", last: D.fmt(D.daysAgo(1)) + " · 17:28" },
+    { id: 4, name: "Dr Fara", mail: "fara@demo.panoradent.test", role: "Praticien", status: "verrouille", last: D.fmt(D.daysAgo(2)) + " · 16:40" },
+    { id: 5, name: "Lecteur", mail: "lecteur@demo.panoradent.test", role: "Lecteur", status: "actif", last: D.fmt(D.daysAgo(2)) + " · 08:30" },
+    { id: 6, name: "Lecteur 2", mail: "lecteur2@demo.panoradent.test", role: "Lecteur", status: "desactive", last: D.fmt(D.daysAgo(40)) + " · 10:05" }
+  ];
+  var GOOGLE = { 1: false, 2: true, 3: true, 4: true, 5: false, 6: false };
+  accounts.forEach(function (a) { a.google = !!GOOGLE[a.id]; });
+  function methods(a) { return '<span class="methods"><span class="method" title="Connexion par e-mail">' + ic("mail") + '<span class="sr-only">E-mail</span></span>' + (a.google ? '<span class="method" title="Connexion avec Google autorisée">' + PD.GOOGLE_G.replace('class="g-logo"', 'style="width:16px;height:16px"') + '<span class="sr-only">Google</span></span>' : "") + "</span>"; }
+  var nextId = 7, current = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+
+  function activeAdmins() { return accounts.filter(function (a) { return a.role === "Administrateur" && a.status === "actif"; }); }
+  function isLast(a) { return a.role === "Administrateur" && a.status === "actif" && activeAdmins().length === 1; }
+  function badge(s) {
+    if (s === "actif") return '<span class="badge badge-success badge-dot">Actif</span>';
+    if (s === "desactive") return '<span class="badge">Désactivé</span>';
+    return '<span class="badge badge-warning">' + ic("lock").replace("<svg ", '<svg style="width:13px;height:13px" ') + 'Verrouillé</span>';
+  }
+  function roleBadge(r) { return '<span class="badge ' + (r === "Administrateur" ? "badge-primary" : r === "Praticien" ? "badge-info" : "") + '">' + esc(r) + "</span>"; }
+
+  // "16/11/2026 · 08:12" -> jour, puis heure en petit
+  function dt(v) { var p = String(v).split(" · "); return '<span class="dt"><span class="d">' + p[0] + "</span>" + (p[1] ? '<span class="t">' + p[1] + "</span>" : "") + "</span>"; }
+  function render() {
+    var q = $("q").value.trim().toLowerCase(), fr = $("f-role").value, fs = $("f-status").value;
+    var list = accounts.filter(function (a) {
+      return (!q || (a.name + " " + a.mail).toLowerCase().indexOf(q) > -1) && (!fr || a.role === fr) && (!fs || a.status === fs);
+    });
+    rowsEl.innerHTML = list.map(function (a) {
+      var last = isLast(a), n = esc(a.name);
+      var lockInfo = a.status === "verrouille" ? '<span class="sub">5 échecs de connexion · déverrouillage automatique dans 12 min</span>' : "";
+      var tipAttr = last ? ' aria-disabled="true" data-tip="' + TIP + '" title="' + TIP + '" aria-describedby="last-admin-desc"' : "";
+      var tg = a.status === "desactive"
+        ? '<button class="icon-act" type="button" data-act="toggle" data-id="' + a.id + '" title="Réactiver le compte" aria-label="Réactiver ' + n + '">' + ic("unlock") + "</button>"
+        : '<button class="icon-act" type="button" data-act="toggle" data-id="' + a.id + '" title="Désactiver le compte" aria-label="Désactiver ' + n + '"' + tipAttr + ">" + ic("lock") + "</button>";
+      var del = '<button class="icon-act danger" type="button" data-act="delete" data-id="' + a.id + '" title="Supprimer le compte" aria-label="Supprimer ' + n + '"' + tipAttr + ">" + ic("trash") + "</button>";
+      var unlock = a.status === "verrouille" ? '<button class="btn btn-secondary btn-sm" type="button" data-act="unlock" data-id="' + a.id + '" aria-label="Déverrouiller ' + n + '">' + ic("unlock") + "Déverrouiller</button>" : "";
+      var ini = a.name.split(/\s+/).map(function (w) { return w[0]; }).join("").slice(0, 2).toUpperCase();
+      return '<tr><th scope="row"><div class="person"><span class="av" aria-hidden="true">' + ini + "</span><div><strong>" + n + '</strong><span class="sub" title="' + esc(a.mail) + '">' + esc(a.mail) + "</span>" + (last ? '<span class="sub">Dernier administrateur</span>' : "") + "</div></div></th>" +
+        '<td data-label="Rôle">' + roleBadge(a.role) + '</td><td data-label="Statut"><div class="cell-col">' + badge(a.status) + lockInfo + unlock + '</div></td><td data-label="Connexion" class="nowrap">' + methods(a) + '</td><td data-label="Dernière connexion">' + dt(a.last) + "</td>" +
+        '<td class="td-actions"><div class="row-actions">' +
+        '<button class="icon-act" type="button" data-act="edit" data-id="' + a.id + '" title="Modifier le compte" aria-label="Modifier ' + n + '">' + ic("edit") + "</button>" + tg + del + "</div></td></tr>";
+    }).join("") + '<tr hidden><td colspan="6"><span id="last-admin-desc" class="sr-only">' + TIP + "</span></td></tr>";
+    $("empty").hidden = list.length > 0;
+    $("count").textContent = list.length + " compte" + (list.length > 1 ? "s" : "") + " affiché" + (list.length > 1 ? "s" : "") + " sur " + accounts.length + ".";
+  }
+
+  function feedback(kind, title, text) {
+    $("feedback").innerHTML = '<div class="alert alert-' + kind + '" role="' + (kind === "danger" ? "alert" : "status") + '">' + ic(kind === "success" ? "check" : kind === "danger" ? "alert" : "info") + "<div><strong>" + title + "</strong>" + text + "</div></div>";
+  }
+  function find(id) { return accounts.filter(function (a) { return a.id == id; })[0]; }
+  function open(id) { var m = $(id); m.dataset.open = "true"; var f = m.querySelector("input,select,button"); f && f.focus(); }
+  function close(id) { $(id).dataset.open = "false"; }
+  function mailTaken(mail, except) { return accounts.some(function (a) { return a.id !== except && a.mail.toLowerCase() === mail.toLowerCase(); }); }
+  function setErr(input, err, msg) {
+    err.hidden = !msg; err.textContent = msg || "";
+    if (msg) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid");
+  }
+
+  rowsEl.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]"); if (!b) return;
+    var a = find(b.dataset.id), act = b.dataset.act;
+    if (b.getAttribute("aria-disabled") === "true") {
+      feedback("danger", "Action refusée", "Impossible : c’est le dernier compte administrateur. Créez ou désignez un autre administrateur d’abord.");
+      return;
+    }
+    if (act === "edit") {
+      current = a; $("e-name").value = a.name; $("e-mail").value = a.mail; $("e-role").value = a.role;
+      var l = isLast(a); $("e-role").disabled = l; $("e-role-hint").hidden = !l;
+      setErr($("e-mail"), $("e-mail-err"), ""); open("m-edit");
+    } else if (act === "delete") {
+      current = a; $("d-name").textContent = a.name; $("d-ok").checked = false; $("d-go").disabled = true; open("m-delete");
+    } else if (act === "toggle") {
+      var off = a.status !== "desactive"; a.status = off ? "desactive" : "actif"; render();
+      feedback("success", off ? "Compte désactivé" : "Compte réactivé", esc(a.name) + (off ? " ne peut plus se connecter." : " peut de nouveau se connecter.") + " L’action est inscrite au journal d’audit.");
+    } else if (act === "unlock") {
+      a.status = "actif"; render(); feedback("success", "Compte déverrouillé", esc(a.name) + " peut se reconnecter immédiatement.");
+    }
+  });
+
+  // Info-bulle partagée (survol et focus)
+  var tip = $("tip");
+  function showTip(el) {
+    tip.textContent = el.dataset.tip; tip.dataset.show = "true";
+    var r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    var top = r.top - h - 8; if (top < 8) top = r.bottom + 8;
+    tip.style.left = left + "px"; tip.style.top = top + "px";
+  }
+  function hideTip() { tip.dataset.show = "false"; }
+  document.addEventListener("mouseover", function (e) { var t = e.target.closest("[data-tip]"); if (t) showTip(t); });
+  document.addEventListener("mouseout", function (e) { if (e.target.closest("[data-tip]")) hideTip(); });
+  document.addEventListener("focusin", function (e) { var t = e.target.closest("[data-tip]"); if (t) showTip(t); });
+  document.addEventListener("focusout", hideTip);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hideTip(); });
+
+  ["q", "f-role", "f-status"].forEach(function (i) { $(i).addEventListener("input", render); });
+
+  $("btn-create").addEventListener("click", function () {
+    $("f-create").reset(); setErr($("c-mail"), $("c-mail-err"), ""); open("m-create");
+  });
+  $("f-create").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var name = $("c-name").value.trim(), mail = $("c-mail").value.trim(), ok = true;
+    if (!name) { $("c-name").setAttribute("aria-invalid", "true"); ok = false; } else $("c-name").removeAttribute("aria-invalid");
+    if (!mail || mail.indexOf("@") < 1) { setErr($("c-mail"), $("c-mail-err"), "Saisissez une adresse e-mail valide."); ok = false; }
+    else if (mailTaken(mail, 0)) { setErr($("c-mail"), $("c-mail-err"), "Cette adresse est déjà utilisée par un compte."); ok = false; }
+    else setErr($("c-mail"), $("c-mail-err"), "");
+    if (!ok) { (name ? $("c-mail") : $("c-name")).focus(); return; }
+    accounts.push({ id: nextId++, name: name, mail: mail, role: $("c-role").value, status: "actif", last: "Jamais connecté", google: $("c-google").checked });
+    close("m-create"); render();
+    feedback("success", "Compte créé", esc(name) + " a été créé." + ($("c-invite").checked ? " Un lien d’activation a été envoyé par e-mail." : ""));
+  });
+  $("f-edit").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var mail = $("e-mail").value.trim();
+    if (!mail || mail.indexOf("@") < 1) { setErr($("e-mail"), $("e-mail-err"), "Saisissez une adresse e-mail valide."); return; }
+    if (mailTaken(mail, current.id)) { setErr($("e-mail"), $("e-mail-err"), "Cette adresse est déjà utilisée par un compte."); return; }
+    current.name = $("e-name").value.trim() || current.name; current.mail = mail; if (!$("e-role").disabled) current.role = $("e-role").value;
+    close("m-edit"); render(); feedback("success", "Compte modifié", esc(current.name) + " a été mis à jour.");
+  });
+  $("d-ok").addEventListener("change", function () { $("d-go").disabled = !$("d-ok").checked; });
+  $("f-delete").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (isLast(current)) { close("m-delete"); feedback("danger", "Action refusée", LAST); return; }
+    accounts = accounts.filter(function (a) { return a.id !== current.id; });
+    close("m-delete"); render(); feedback("success", "Compte supprimé", esc(current.name) + " a été supprimé.");
+  });
+
+  // États de la maquette
+  document.querySelectorAll("[data-state]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var s = b.dataset.state; $("feedback").innerHTML = ""; $("q").value = ""; $("f-role").value = ""; $("f-status").value = "";
+      if (s === "empty") { $("q").value = "zzz"; }
+      render();
+      if (s === "blocked") { feedback("danger", "Action refusée", "Impossible : c’est le dernier compte administrateur. Créez ou désignez un autre administrateur d’abord."); }
+      if (s === "dup") { $("f-create").reset(); $("c-name").value = "Dr Nouveau"; $("c-mail").value = "rakoto@demo.panoradent.test"; setErr($("c-mail"), $("c-mail-err"), "Cette adresse est déjà utilisée par un compte."); open("m-create"); }
+    });
+  });
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PanoraDent AI · Maquette</title>
+<link rel="stylesheet" href="theme.css">
+<script src="app.js" defer></script>
+<style>
+  .wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-12) var(--space-6) var(--space-16); display: grid; gap: var(--space-10); }
+  .top { display: grid; gap: var(--space-4); }
+  .top h1 { font-size: var(--text-3xl); letter-spacing: var(--tracking-display); }
+  .top p { color: var(--color-muted); max-width: 70ch; }
+  .grp h2 { font-size: var(--text-lg); margin-bottom: var(--space-4); display: flex; gap: var(--space-3); align-items: center; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--space-3); }
+  .scr { display: grid; gap: 6px; padding: var(--space-5); text-decoration: none; color: var(--color-ink); transition: border-color var(--duration-fast); }
+  .scr:hover { border-color: var(--color-primary); color: var(--color-ink); }
+  .scr b { font-weight: 600; }
+  .scr span { font-size: var(--text-sm); color: var(--color-muted); }
+  .scr.star { border-color: var(--color-primary); background: var(--color-primary-soft); }
+  .roles { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="proto-banner" role="note"><span><strong>Maquette</strong> · écrans fixes et navigables · toutes les données sont fictives · image de radiographie simulée</span></div>
+<main class="wrap">
+  <div class="top">
+    <span id="lg"></span>
+    <h1>Maquette haute fidélité</h1>
+    <p>Prototype navigable de la vitrine et de l'application connectée. Aucune donnée réelle : l'analyse n° 0042, l'identifiant anonyme 7F3A, les comptes et les chiffres sont fictifs ; la radiographie est un dessin vectoriel. Chaque écran a, si besoin, un sélecteur « États de la maquette » et un sélecteur « Profil de démo » (praticien, administrateur, lecteur), qui n'existent pas dans le produit.</p>
+    <div class="roles">
+      <a class="btn btn-primary" href="analyse.html?role=praticien">Ouvrir la page d'analyse</a>
+      <a class="btn btn-secondary" href="accueil.html">Ouvrir la vitrine</a>
+    </div>
+  </div>
+
+  <section class="grp"><h2>Parcours de démonstration (soutenance)</h2>
+    <div class="cards">
+      <a class="card scr" href="accueil.html"><b>1 · Vitrine</b><span>Promesse, fonctionnement, détections, sécurité, fiabilité.</span></a>
+      <a class="card scr" href="connexion.html"><b>2 · Connexion</b><span>Erreur neutre, compte verrouillé, session expirée.</span></a>
+      <a class="card scr" href="nouvelle-analyse.html?role=praticien"><b>3 · Nouvelle analyse</b><span>Import, anonymisation, analyse en cours.</span></a>
+      <a class="card scr star" href="analyse.html?role=praticien"><b>4 · Analyse et assistant</b><span>Visionneuse, détections, seuil, odontogramme, revue, assistant.</span></a>
+      <a class="card scr" href="compte-rendu.html?role=praticien"><b>5 · Compte rendu</b><span>Aperçu PDF anonymisé, en-tête du cabinet.</span></a>
+      <a class="card scr" href="historique.html?role=praticien"><b>6 · Historique</b><span>Recherche, filtres, suppression confirmée.</span></a>
+    </div>
+  </section>
+
+  <section class="grp"><h2>Application · praticien</h2>
+    <div class="cards">
+      <a class="card scr" href="tableau-de-bord.html?role=praticien"><b>Tableau de bord</b><span>Analyses à relire, dernières analyses.</span></a>
+      <a class="card scr" href="performance.html?role=praticien"><b>Performance du modèle</b><span>Mesures « à renseigner », valeurs d'exemple fictives, limites.</span></a>
+      <a class="card scr" href="profil.html?role=praticien"><b>Profil et mot de passe</b><span>Règles affichées, sessions.</span></a>
+      <a class="card scr" href="mot-de-passe.html"><b>Mot de passe oublié</b><span>Demande, nouveau mot de passe, lien expiré.</span></a>
+    </div>
+  </section>
+
+  <section class="grp"><h2>Application · lecteur (lecture seule)</h2>
+    <div class="cards">
+      <a class="card scr" href="tableau-de-bord.html?role=lecteur"><b>Tableau de bord du lecteur</b><span>Consultation seule.</span></a>
+      <a class="card scr" href="historique.html?role=lecteur"><b>Historique en lecture seule</b><span>Aucune action de modification.</span></a>
+      <a class="card scr" href="analyse.html?role=lecteur"><b>Analyse en lecture seule</b><span>Détections et assistant, sans revue.</span></a>
+      <a class="card scr" href="nouvelle-analyse.html?role=lecteur"><b>Accès refusé (403)</b><span>Le lecteur tente de créer une analyse.</span></a>
+    </div>
+  </section>
+
+  <section class="grp"><h2>Application · administrateur</h2>
+    <div class="cards">
+      <a class="card scr" href="tableau-de-bord.html?role=admin"><b>Tableau de bord agrégé</b><span>Volumétrie et répartition, données anonymes.</span></a>
+      <a class="card scr" href="admin-comptes.html?role=admin"><b>Comptes</b><span>Création, désactivation, dernier administrateur protégé.</span></a>
+      <a class="card scr" href="admin-roles.html?role=admin"><b>Rôles et permissions</b><span>Matrice, rôle personnalisé.</span></a>
+      <a class="card scr" href="admin-audit.html?role=admin"><b>Journal d'audit</b><span>Connexions et actions sensibles.</span></a>
+      <a class="card scr" href="admin-supervision.html?role=admin"><b>Supervision</b><span>État des services, dernière vérification.</span></a>
+    </div>
+  </section>
+
+  <section class="grp"><h2>États transversaux et pages légales</h2>
+    <div class="cards">
+      <a class="card scr" href="etats.html?role=praticien"><b>Catalogue des états</b><span>Vide, chargement, erreur, suppression, 403, session expirée.</span></a>
+      <a class="card scr" href="connexion.html?etat=expiree"><b>Session expirée</b><span>Retour à la connexion.</span></a>
+      <a class="card scr" href="mentions.html"><b>Mentions légales</b><span>Champs à renseigner.</span></a>
+      <a class="card scr" href="icones.html"><b>Planche d’icônes</b><span>Le jeu d’icônes duotone et celles dessinées pour le projet.</span></a>
+    </div>
+  </section>
+</main>
+<script>document.addEventListener("DOMContentLoaded", () => { document.getElementById("lg").innerHTML = PD.logo("accueil.html"); });</script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tableau de bord · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<script src="charts.js" defer></script>
+<style>
+  .list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .list li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+  .list li:last-child { border-bottom: 0; }
+  .list .who { display: grid; gap: 2px; min-width: 0; }
+  .list .who span { font-size: var(--text-sm); color: var(--color-muted); }
+  .rowl { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+  .dets { display: inline-flex; gap: 4px; align-items: center; }
+  .svc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+  .svc li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--text-sm); }
+  .svc svg { width: 18px; height: 18px; color: var(--color-muted); flex: none; }
+  .svc .badge { margin-left: auto; }
+  .ro { display: inline-flex; align-items: center; gap: 6px; }
+  .ro svg { width: 14px; height: 14px; }
+  @media (max-width: 480px) { .svc { grid-template-columns: 1fr; } .list li .btn { width: 100%; } }
+</style>
+</head>
+<body data-page="tableau-de-bord" data-allow="admin praticien lecteur">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><p class="crumbs">Application</p><h1>Tableau de bord</h1></div>
+    </header>
+    <main class="page">
+      <div class="dash" id="dash"></div>
+    </main>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var D = window.DEMO, role = PD.role, U = D.users[role] || D.users.praticien;
+  var M = PDC.months(12);
+  // Semaines ISO (12 dernières)
+  function isoWeek(d) { var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); var day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day); var y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y) / 864e5 + 1) / 7); }
+  var W = []; for (var i = 11; i >= 0; i--) { var d = new Date(); d.setDate(d.getDate() - 7 * i); W.push("S" + isoWeek(d)); }
+
+  // ------------------------------------------------------------------
+  // Configuration par profil (toutes les valeurs sont fictives)
+  // ------------------------------------------------------------------
+  var TYPES_ITEMS = [
+    { k: "caries", abbr: "C", value: 38, detail: "28" },
+    { k: "deep", abbr: "CP", value: 27, detail: "20" },
+    { k: "periapical", abbr: "LPA", value: 21, detail: "15" },
+    { k: "impacted", abbr: "DI", value: 14, detail: "10" }
+  ].map(function (t) { return { name: D.TYPES[t.k].label, abbr: t.abbr, cls: D.TYPES[t.k].cls, value: t.value, detail: t.detail }; });
+
+  var CONF = {
+    praticien: {
+      hello: "Bonjour, " + U.name,
+      lead: "Voici votre activité de relecture. Le modèle propose, vous décidez.",
+      cta: true,
+      kpis: [
+        { label: "Analyses ce mois-ci", value: 17, ring: 81, ringText: "17 analyses, pour un maximum de 21 en un mois sur l’année", delta: "+13 % vs mois dernier", dir: "up", good: true, href: "historique.html" },
+        { label: "À relire", value: 2, ring: 12, ringText: "2 analyses à relire sur 17 ce mois-ci", delta: "+1 depuis hier", dir: "up", good: false, tone: "warning", href: "analyse.html" },
+        { label: "Détections relues", value: 54, ring: 74, ringText: "54 détections relues sur 73", delta: "+9 cette semaine", dir: "up", good: true, tone: "navy" },
+        { label: "Durée moyenne de relecture", value: "6 min 40", ring: 67, ringText: "6 min 40 par analyse sur 30 jours ; la plus longue moyenne mensuelle était de 10 min", delta: "−1 min vs mois dernier", dir: "down", good: true }
+      ],
+      line: { title: "Analyses par mois", sub: "Analyses que vous avez lancées", series: [
+        { name: "12 derniers mois", role: "accent", values: [9, 11, 8, 12, 14, 13, 10, 16, 14, 21, 15, 17] },
+        { name: "Année précédente", role: "context", values: [6, 7, 7, 9, 8, 10, 9, 11, 10, 12, 13, 12] }],
+        summary: "Hausse régulière : 17 analyses ce mois-ci contre 12 il y a un an, avec un pic à 21 il y a deux mois." },
+      gauge: { title: "Détections relues", sub: "Part des détections sur lesquelles vous avez décidé", value: 74, caption: "54 détections relues sur 73 ; les 19 autres attendent votre décision.", icon: "check" },
+      prog: { title: "Détections par type", sub: "Répartition sur 12 mois (73 détections)", items: TYPES_ITEMS },
+      bars: { title: "Analyses relues par semaine", sub: "Relectures terminées, 12 dernières semaines", name: "Analyses relues", trendName: "Moyenne sur 3 semaines", values: [3, 4, 2, 5, 4, 6, 3, 5, 4, 7, 5, 4], labels: W,
+        summary: "Entre 2 et 7 relectures par semaine, 4 cette semaine." }
+    },
+    lecteur: {
+      hello: "Bonjour",
+      lead: "Vous consultez les analyses clôturées et leurs comptes rendus, en lecture seule.",
+      readonly: true,
+      kpis: [
+        { label: "Analyses clôturées ce mois-ci", value: 9, ring: 64, ringText: "9 analyses clôturées, pour un maximum de 14 en un mois", delta: "+2 vs mois dernier", dir: "up", good: true, href: "historique.html" },
+        { label: "Comptes rendus disponibles", value: 12, ring: 100, ringText: "Tous les comptes rendus des analyses clôturées sont disponibles", delta: "Tous à jour", dir: "flat", tone: "navy", href: "compte-rendu.html" },
+        { label: "Consultées sur 30 jours", value: 21, ring: 58, ringText: "21 consultations sur 36 analyses clôturées", delta: "+5 vs 30 jours précédents", dir: "up" },
+        { label: "Détections relues", value: "74 %", ring: 74, ringText: "74 % des détections ont été relues par un praticien", delta: "Moyenne du cabinet", dir: "flat" }
+      ],
+      line: { title: "Analyses clôturées par mois", sub: "Analyses relues et clôturées par les praticiens", series: [
+        { name: "12 derniers mois", role: "accent", values: [5, 7, 6, 8, 9, 9, 7, 11, 10, 14, 7, 9] },
+        { name: "Année précédente", role: "context", values: [3, 4, 5, 6, 5, 7, 6, 8, 7, 9, 9, 8] }],
+        summary: "Entre 5 et 14 analyses clôturées par mois, 9 ce mois-ci." },
+      gauge: { title: "Détections relues", sub: "Part des détections relues par un praticien", value: 74, caption: "Moyenne du cabinet sur 12 mois.", icon: "check" },
+      prog: { title: "Détections par type", sub: "Répartition sur 12 mois (73 détections)", items: TYPES_ITEMS },
+      bars: { title: "Comptes rendus par semaine", sub: "Comptes rendus générés, 12 dernières semaines", name: "Comptes rendus", trendName: "Moyenne sur 3 semaines", values: [2, 3, 1, 4, 3, 4, 2, 3, 3, 5, 3, 2], labels: W,
+        summary: "Entre 1 et 5 comptes rendus par semaine, 2 cette semaine." }
+    },
+    admin: {
+      hello: "Bonjour, administrateur",
+      lead: "Données agrégées et anonymes : aucune image ni identifiant de patient n’est affiché ici.",
+      admin: true,
+      kpis: [
+        { label: "Comptes actifs", value: 6, ring: 75, ringText: "6 comptes actifs sur 8 créés", delta: "+1 ce mois-ci", dir: "up", good: true, href: "admin-comptes.html" },
+        { label: "Demandes d’accès", value: 2, ring: 25, ringText: "2 demandes en attente de traitement", delta: "En attente", dir: "flat", tone: "warning", href: "admin-comptes.html" },
+        { label: "Connexions cette semaine", value: 41, ring: 82, ringText: "41 connexions, pour un maximum de 50 en une semaine", delta: "+8 % vs semaine dernière", dir: "up", good: true, tone: "navy", href: "admin-audit.html" },
+        { label: "Échecs de connexion", value: 3, ring: 7, ringText: "3 échecs sur 44 tentatives cette semaine", delta: "−2 vs semaine dernière", dir: "down", good: true, href: "admin-audit.html" }
+      ],
+      line: { title: "Connexions par mois", sub: "Toutes les connexions réussies", series: [
+        { name: "12 derniers mois", role: "accent", values: [92, 104, 98, 121, 117, 130, 96, 142, 151, 168, 159, 174] },
+        { name: "Année précédente", role: "context", values: [60, 66, 71, 80, 77, 85, 70, 92, 98, 104, 110, 118] }],
+        summary: "Les connexions augmentent : 174 ce mois-ci contre 118 il y a un an." },
+      gauge: { title: "Double vérification", sub: "Comptes ayant activé la vérification en deux étapes", value: 67, caption: "4 comptes sur 6. Rappel à envoyer aux 2 autres.", icon: "shield" },
+      prog: { title: "Relectures par praticien", sub: "Détections relues sur détections reçues, 30 jours", items: [
+        { name: "Dr Rakoto", value: 82, detail: "45/55" }, { name: "Dr Andria", value: 64, detail: "29/45" },
+        { name: "Dr Hery", value: 45, detail: "18/40" }, { name: "Dr Voahangy", value: 30, detail: "6/20" }] },
+      bars: { title: "Nouveaux comptes par mois", sub: "Comptes créés par l’administrateur", name: "Comptes créés", trendName: "Moyenne sur 3 mois", values: [0, 1, 0, 2, 0, 1, 0, 0, 1, 1, 0, 1], labels: M.labels, year: M.year,
+        summary: "Entre 0 et 2 comptes créés par mois ; 1 ce mois-ci." }
+    }
+  };
+  var C = CONF[role] || CONF.praticien;
+
+  // ------------------------------------------------------------------
+  // Construction de la page
+  // ------------------------------------------------------------------
+  var dash = document.getElementById("dash");
+  var esc = function (s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+  dash.innerHTML =
+    '<div class="dash-head">' +
+      '<div class="dash-hello"><h2>' + esc(C.hello) + '</h2><p>' + esc(C.lead) + '</p>' +
+        (C.readonly ? '<p><span class="badge badge-info ro">' + PD.icon("eye") + 'Accès en lecture seule</span></p>' : '') + '</div>' +
+      '<div class="dash-tools">' +
+        '<label class="sr-only" for="periode">Période des graphiques</label>' +
+        '<select class="tool" id="periode"><option value="12">12 derniers mois</option><option value="6">6 derniers mois</option><option value="3">3 derniers mois</option></select>' +
+        '<form class="dash-search" role="search" action="historique.html"><label class="sr-only" for="q">Rechercher une analyse</label>' + PD.icon("search") +
+          '<input class="tool" id="q" name="q" type="search" placeholder="Rechercher un ID (ex. 7F3A)" autocomplete="off"></form>' +
+        '</div>' +
+    '</div>' +
+    '<div class="dash-sec-h"><h3>Vue d’ensemble</h3>' +
+      (C.cta ? '<a class="btn btn-primary" href="' + PD.withRole("nouvelle-analyse.html") + '">' + PD.icon("plus") + 'Nouvelle analyse</a>' : '') + '</div>' +
+    '<section class="kpi-row" id="kpis" aria-label="Indicateurs clés (valeurs fictives)"></section>' +
+    '<div class="dash-grid" id="charts"></div>' +
+    '<div class="dash-grid" id="lists"></div>';
+
+  var kpis = document.getElementById("kpis");
+  C.kpis.forEach(function (k) { if (k.href) k.href = PD.withRole(k.href); PDC.kpi(kpis, k); });
+
+  function card(parent, span, title, sub, opts) {
+    opts = opts || {};
+    var s = document.createElement("section");
+    s.className = "dcard " + span + (opts.signature ? " signature" : "");
+    var id = "c-" + Math.random().toString(36).slice(2, 8);
+    s.setAttribute("aria-labelledby", id);
+    s.innerHTML = '<div class="dcard-h"><div><h3 id="' + id + '">' + esc(title) + '</h3><p>' + esc(sub) + ' · <span class="fict">données fictives</span></p></div>' +
+      (opts.exp === false ? '' : '<button type="button" class="icon-btn" aria-label="Exporter les données de « ' + esc(title) + ' » en CSV">' + PD.icon("download") + '</button>') + '</div>';
+    var body = document.createElement("div"); s.appendChild(body);
+    parent.appendChild(s);
+    return { body: body, exp: s.querySelector(".dcard-h .icon-btn") };
+  }
+
+  // Le filtre de période, au-dessus de tout, re-trace tous les graphiques
+  function renderCharts(n) {
+    var host = document.getElementById("charts"); host.innerHTML = "";
+    var sl = function (a) { return a.slice(a.length - n); };
+    var c1 = card(host, "span-8", C.line.title, C.line.sub);
+    PDC.line({ host: c1.body, exportBtn: c1.exp, title: C.line.title, labels: sl(M.labels), year: sl(M.year), summary: C.line.summary,
+      series: C.line.series.map(function (s) { return { name: s.name, role: s.role, values: sl(s.values) }; }) });
+    var c2 = card(host, "span-4", C.gauge.title, C.gauge.sub, { signature: true, exp: false });
+    PDC.gauge({ host: c2.body, value: C.gauge.value, label: C.gauge.title, caption: C.gauge.caption, icon: C.gauge.icon });
+    var c3 = card(host, "span-5", C.prog.title, C.prog.sub);
+    PDC.progress({ host: c3.body, exportBtn: c3.exp, title: C.prog.title, items: C.prog.items });
+    var c4 = card(host, "span-7", C.bars.title, C.bars.sub);
+    var nb = n === 12 ? 12 : n === 6 ? 8 : 4;
+    var bl = C.bars.labels.slice(-nb), bv = C.bars.values.slice(-nb), by = C.bars.year ? C.bars.year.slice(-nb) : null;
+    PDC.bars({ host: c4.body, exportBtn: c4.exp, title: C.bars.title, labels: bl, year: by, values: bv, name: C.bars.name, trendName: C.bars.trendName, summary: C.bars.summary });
+  }
+  renderCharts(12);
+  document.getElementById("periode").addEventListener("change", function (e) { renderCharts(+e.target.value); });
+
+  // ------------------------------------------------------------------
+  // Listes utiles sous les graphiques
+  // ------------------------------------------------------------------
+  var lists = document.getElementById("lists");
+  var sw = function (t) { return '<span class="type-chip" title="' + D.TYPES[t].label + '"><span class="det-swatch ' + D.TYPES[t].cls + '" aria-hidden="true"></span><span aria-hidden="true">' + { caries: "C", deep: "CP", periapical: "LPA", impacted: "DI", tooth: "FDI" }[t] + '</span><span class="sr-only">' + D.TYPES[t].label + '</span></span>'; };
+  var row = function (r, label) { var S = D.HISTORY_STATUS[r.status]; return '<li><div class="who"><strong>Analyse n° <span class="mono">' + r.n + '</span> · ID <span class="mono">' + r.id + '</span></strong><span>' + r.date + ' · ' + r.count + ' détection' + (r.count > 1 ? 's' : '') + '</span></div>' +
+    '<div class="rowl"><span class="dets">' + r.types.map(sw).join("") + '</span><span class="' + S.badge + '">' + S.label + '</span><a class="btn btn-sm btn-secondary" href="' + PD.withRole("analyse.html") + '">' + label + '<span class="sr-only"> l’analyse n° ' + r.n + '</span></a></div></li>'; };
+  function plain(span, title, link, html) {
+    var s = document.createElement("section"); s.className = "dcard " + span;
+    var id = "l-" + Math.random().toString(36).slice(2, 8);
+    s.setAttribute("aria-labelledby", id);
+    s.innerHTML = '<div class="dcard-h"><h3 id="' + id + '">' + title + '</h3>' + (link || "") + '</div>' + html;
+    lists.appendChild(s);
+  }
+  if (role === "praticien") {
+    plain("span-5", "À relire", '<span class="badge badge-warning">2 analyses</span>',
+      '<ul class="list"><li><div class="who"><strong>Analyse n° <span class="mono">0042</span> · ID <span class="mono">7F3A</span></strong><span>Relecture en cours · 3 détections non revues sur 9</span></div><a class="btn btn-primary btn-sm" href="' + PD.withRole("analyse.html") + '">Reprendre<span class="sr-only"> la relecture de l’analyse n° 0042</span></a></li>' +
+      '<li><div class="who"><strong>Analyse n° <span class="mono">0039</span> · ID <span class="mono">51DA</span></strong><span>À relire · 4 détections</span></div><a class="btn btn-secondary btn-sm" href="' + PD.withRole("analyse.html") + '">Commencer<span class="sr-only"> la relecture de l’analyse n° 0039</span></a></li></ul>');
+    plain("span-7", "Dernières analyses", '<a href="' + PD.withRole("historique.html") + '">Voir tout l’historique</a>', '<ul class="list">' + D.history.slice(0, 4).map(function (r) { return row(r, "Ouvrir"); }).join("") + '</ul>');
+  } else if (role === "lecteur") {
+    plain("span-12", "Dernières analyses clôturées", '<a href="' + PD.withRole("historique.html") + '">Voir tout l’historique</a>', '<ul class="list">' + D.history.filter(function (r) { return r.status === "closed"; }).slice(0, 5).map(function (r) { return row(r, "Consulter"); }).join("") + '</ul>');
+  } else {
+    plain("span-5", "État des services", '<a href="admin-supervision.html">Ouvrir la supervision</a>',
+      '<ul class="svc"><li>' + PD.icon("server") + 'API<span class="badge badge-success badge-dot">Opérationnel</span></li><li>' + PD.icon("cpu") + 'Inférence<span class="badge badge-warning badge-dot">Ralenti</span></li><li>' + PD.icon("database") + 'Base de données<span class="badge badge-success badge-dot">Opérationnel</span></li><li>' + PD.icon("box") + 'Stockage<span class="badge badge-success badge-dot">Opérationnel</span></li></ul>');
+    plain("span-7", "Dernières actions sensibles", '<a href="admin-audit.html">Journal d’audit complet</a>',
+      '<div class="table-wrap"><table class="table stack"><caption class="sr-only">Trois dernières actions sensibles</caption><thead><tr><th scope="col">Date</th><th scope="col">Acteur</th><th scope="col">Action</th></tr></thead><tbody>' +
+      '<tr><td data-label="Date"><span class="dt"><span class="d">Aujourd’hui</span><span class="t">09:12</span></span></td><td data-label="Acteur"><span class="who-chip"><span class="av" aria-hidden="true">AD</span>Administrateur</span></td><td data-label="Action">Compte créé : lecteur@demo.panoradent.test</td></tr>' +
+      '<tr><td data-label="Date"><span class="dt"><span class="d">Hier</span><span class="t">16:40</span></span></td><td data-label="Acteur"><span class="who-chip"><span class="av" aria-hidden="true">DR</span>Dr Rakoto</span></td><td data-label="Action">Analyse supprimée</td></tr>' +
+      '<tr><td data-label="Date"><span class="dt"><span class="d">Il y a 3 jours</span><span class="t">11:05</span></span></td><td data-label="Acteur"><span class="who-chip"><span class="av" aria-hidden="true">AD</span>Administrateur</span></td><td data-label="Action">Rôle modifié : praticien → lecteur</td></tr></tbody></table></div>');
+  }
+});
+</script>
+</body>
+</html>

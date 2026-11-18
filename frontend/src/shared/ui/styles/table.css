@@ -1,0 +1,121 @@
+/* Tableaux : carte, en-tête, puces d'identifiant, actions, pagination, matrice, mode empilé. */
+
+/* ---------- Tableaux ---------- */
+.table-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.table th { text-align: left; font-weight: 500; color: var(--color-muted); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); background: var(--color-bg); white-space: nowrap; }
+.table td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.table tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover { background: var(--color-bg); }
+
+/* ══ Tableaux modernes ═══════════════════════════════════════════════════
+   Carte à coins de 16 px, en-tête discret, lignes aérées, survol doux,
+   identifiants en puces, actions en icônes alignées sur une seule ligne.
+   Sur téléphone, la classe .stack transforme chaque ligne en carte. */
+.table-wrap { border-radius: 16px; box-shadow: var(--card-shadow); border: 1px solid var(--color-border); background: var(--color-surface); }
+.table { border-collapse: separate; border-spacing: 0; font-size: 14px; }
+.table th { background: var(--color-subtle); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-muted); padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
+.table td, .table tbody th { padding: 14px 16px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.table tbody th { text-align: left; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--color-ink); background: transparent; }
+.table tbody tr:last-child td, .table tbody tr:last-child th { border-bottom: 0; }
+.table tbody tr { transition: background var(--duration-fast); }
+.table tbody tr:hover { background: var(--color-subtle); }
+.table thead th:first-child { border-top-left-radius: 15px; }
+.table thead th:last-child { border-top-right-radius: 15px; }
+.table th.r, .table td.r { text-align: right; }
+.table td .sub, .table th .sub { display: block; font-size: 12px; font-weight: 400; color: var(--color-muted); margin-top: 2px; }
+.table caption.vis { caption-side: top; padding: 14px 16px; text-align: left; font-weight: 600; }
+
+/* Puce d identifiant, personne, actions */
+.id-chip { display: inline-block; white-space: nowrap; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; letter-spacing: 0.02em; padding: 3px 8px; border-radius: 8px; background: var(--color-subtle); border: 1px solid var(--color-border); color: var(--color-ink); }
+.num-chip { font-family: var(--font-mono); font-weight: 500; color: var(--color-muted); }
+.who-chip { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.who-chip .av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--color-primary-soft); color: var(--color-primary-hover); font-size: 11px; font-weight: 600; flex: none; }
+.person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.person .av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--color-primary-soft); color: var(--color-primary-hover); font-size: 13px; font-weight: 600; flex: none; }
+.person strong { display: block; font-weight: 600; color: var(--color-ink); }
+.person .sub { margin-top: 1px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
+.icon-act { width: 36px; height: 36px; flex: none; display: inline-grid; place-items: center; padding: 0; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-muted); cursor: pointer; text-decoration: none; transition: color var(--duration-fast), border-color var(--duration-fast), background var(--duration-fast); }
+.icon-act svg { width: 18px; height: 18px; }
+.icon-act:hover { color: var(--color-ink); border-color: var(--color-border-strong); background: var(--color-subtle); }
+.icon-act:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.icon-act.danger:hover { color: var(--color-danger); border-color: var(--color-danger); background: var(--color-danger-soft); }
+.icon-act[disabled], .icon-act[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; background: transparent; }
+.icon-act[disabled]:hover, .icon-act[aria-disabled="true"]:hover { color: var(--color-muted); border-color: var(--color-border); background: transparent; }
+.table-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); }
+.pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.page-btn { min-width: 36px; height: 36px; padding: 0 10px; display: inline-grid; place-items: center; border-radius: 10px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 13px; cursor: pointer; }
+.page-btn svg { width: 16px; height: 16px; }
+.page-btn:hover { border-color: var(--color-border-strong); background: var(--color-subtle); }
+.page-btn[aria-current="page"] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 600; }
+.page-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.page-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+:root[data-theme="dark"] .page-btn[aria-current="page"] { background: var(--viz-accent); border-color: var(--viz-accent); color: #0B1220; }
+
+/* Matrice des permissions et petits tableaux de données */
+.table.matrix td, .table.matrix th { text-align: center; }
+.table.matrix th:first-child, .table.matrix td:first-child { text-align: left; }
+
+@media (max-width: 1008px), (min-width: 1025px) and (max-width: 1271px) {
+  .table-wrap:has(.stack) { border: 0; background: transparent; box-shadow: none; overflow: visible; }
+  .table.stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .table.stack, .table.stack tbody, .table.stack tr, .table.stack td, .table.stack tbody th { display: block; width: 100%; }
+  .table.stack tr { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 16px; margin-bottom: var(--space-3); padding: var(--space-2) 0; box-shadow: var(--card-shadow); }
+  .table.stack tr:hover { background: var(--color-surface); }
+  .table.stack td, .table.stack tbody th { border: 0; padding: 8px 16px; }
+  .table.stack td { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+  .table.stack td::before { content: attr(data-label); color: var(--color-muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; flex: none; }
+  .table.stack td.td-actions { border-top: 1px solid var(--color-border); margin-top: 6px; padding-top: 12px; }
+  .table.stack td.td-actions::before { display: none; }
+}
+@media (max-width: 640px) {
+  .icon-act { width: 44px; height: 44px; }
+  .page-btn { min-width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .table tbody tr, .icon-act { transition: none; } }
+
+/* Écrans moyens : cellules plus serrées pour que les tableaux tiennent sans défiler */
+@media (max-width: 1400px) and (min-width: 641px) {
+  .table th, .table td, .table tbody th { padding-left: 10px; padding-right: 10px; }
+  .table td, .table tbody th { padding-top: 11px; padding-bottom: 11px; }
+  .table th { letter-spacing: 0.03em; }
+  .table-wrap .dets { flex-wrap: wrap; row-gap: 4px; }
+  .table-wrap .dets .sw { flex-wrap: wrap; }
+}
+
+/* Cellule date (jour, puis heure en petit) ; e-mail sans coupure ; tableaux dans des cartes ;
+   matrice des permissions : pastilles et cases cohérentes avec les autres tableaux */
+.dt { display: grid; gap: 1px; line-height: 1.25; white-space: nowrap; }
+.dt .d { color: var(--color-ink); }
+.dt .t { font-family: var(--font-mono); font-size: 12px; color: var(--color-muted); }
+.person > div { min-width: 0; }
+.person .sub { max-width: 23ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-sans); }
+.dcard .table-wrap, .card .table-wrap { border: 0; box-shadow: none; border-radius: 0; background: transparent; }
+.dcard .table thead th:first-child, .dcard .table thead th:last-child { border-radius: 0; }
+.table.matrix .cell-yes { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--color-success-soft); color: var(--color-success); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.table.matrix .cell-yes svg { width: 15px; height: 15px; }
+.table.matrix .cell-no { color: var(--color-border-strong); font-size: 18px; }
+.table.matrix td:first-child { font-weight: 500; color: var(--color-ink); }
+.table.matrix .check-row { min-height: 36px; justify-content: center; }
+.table.matrix .check-row input { width: 20px; height: 20px; accent-color: var(--color-primary); margin: 0; }
+.table.matrix th:nth-child(5), .table.matrix td:nth-child(5) { background: var(--color-primary-soft); }
+:root[data-theme="dark"] .table.matrix th:nth-child(5), :root[data-theme="dark"] .table.matrix td:nth-child(5) { background: rgba(34, 211, 238, 0.06); }
+:root[data-theme="dark"] .table.matrix .cell-yes { background: rgba(74, 222, 128, 0.12); color: #4ADE80; }
+
+/* Connexion en puces-icônes ; en-tête qui peut passer sur deux lignes */
+.methods { display: inline-flex; gap: 6px; vertical-align: middle; }
+.method { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 9px; border: 1px solid var(--color-border); background: var(--color-subtle); color: var(--color-muted); }
+.method svg { width: 16px; height: 16px; }
+.table th.w { white-space: normal; min-width: 7.5em; }
+
+.cell-col { display: grid; gap: 6px; justify-items: start; min-width: 0; }
+.cell-col .sub { margin-top: 0; }
+@media (max-width: 1008px), (min-width: 1025px) and (max-width: 1271px) {
+  .table.stack td { min-width: 0; }
+  .table.stack .cell-col { justify-items: end; text-align: right; }
+  .table.stack td .btn, .table.stack td .badge { max-width: 100%; }
+}
+@media (max-width: 1008px), (min-width: 1025px) and (max-width: 1271px) {
+  .table.stack tbody th { white-space: normal; }
+}

@@ -1,0 +1,43 @@
+/* Journal par session : cartes repliables et chronologie. */
+
+/* Journal par session : une carte repliable par session, chronologie des actions à l intérieur */
+.sess-day { font-size: 13px; font-weight: 600; color: var(--color-muted); margin: var(--space-6) 0 var(--space-2); letter-spacing: 0.01em; }
+.sess-day:first-child { margin-top: 0; }
+.sess { border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface); box-shadow: var(--card-shadow); overflow: hidden; }
+.sess + .sess { margin-top: var(--space-3); }
+.sess > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 24px minmax(0, 1.2fr) minmax(0, 1fr) auto auto; gap: 10px 18px; align-items: center; padding: 14px 18px; }
+.sess > summary::-webkit-details-marker { display: none; }
+.sess > summary:hover { background: var(--color-subtle); }
+.sess > summary:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
+.sess[open] > summary { background: var(--color-subtle); border-bottom: 1px solid var(--color-border); }
+.sess-chev { width: 24px; height: 24px; display: grid; place-items: center; color: var(--color-muted); }
+.sess-chev svg { width: 18px; height: 18px; transition: transform var(--duration-base) var(--ease-out); }
+.sess[open] .sess-chev svg { transform: rotate(180deg); }
+.sess-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sess-who .av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--color-primary-soft); color: var(--color-primary-hover); font-size: 12px; font-weight: 600; flex: none; }
+.sess-who strong { display: block; font-weight: 600; }
+.sess-who .sub { display: block; font-size: 12px; color: var(--color-muted); }
+.sess-when { display: flex; align-items: center; gap: 12px; }
+.sess-dur { font-size: 12px; color: var(--color-muted); border: 1px solid var(--color-border); border-radius: 8px; padding: 2px 8px; white-space: nowrap; }
+.sess-chips { display: flex; align-items: center; gap: 8px; }
+.sess-end { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tl { list-style: none; margin: 0; padding: 6px 18px 14px; display: grid; }
+.tl li { position: relative; display: grid; grid-template-columns: 56px 14px minmax(0, 1fr) auto; gap: 0 14px; align-items: start; padding: 12px 0; }
+.tl li::after { content: ""; position: absolute; left: calc(56px + 14px + 6px); top: 30px; bottom: -12px; width: 2px; background: var(--color-border); }
+.tl li:last-child::after { display: none; }
+.tl-t { font-size: 12.5px; color: var(--color-muted); padding-top: 2px; }
+.tl-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--viz-accent); background: var(--color-surface); margin-top: 3px; position: relative; z-index: 1; }
+.tl li.ko .tl-dot { border-color: var(--color-danger); background: var(--color-danger-soft); }
+.tl-body strong { display: block; font-weight: 500; }
+.tl-body .sub { display: block; font-size: 12.5px; color: var(--color-muted); margin-top: 2px; }
+.tl-res { padding-top: 1px; }
+@media (max-width: 1100px) {
+  .sess > summary { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .sess-when, .sess-chips, .sess-end { grid-column: 2 / -1; justify-content: flex-start; }
+}
+@media (max-width: 560px) {
+  .tl li { grid-template-columns: 48px 14px minmax(0, 1fr); }
+  .tl li::after { left: calc(48px + 14px + 6px); }
+  .tl-res { grid-column: 3; }
+}
+@media (prefers-reduced-motion: reduce) { .sess-chev svg { transition: none; } }

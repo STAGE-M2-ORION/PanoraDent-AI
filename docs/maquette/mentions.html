@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mentions légales · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="app.js" defer></script>
+<style>
+  .doc { max-width: 760px; margin: 0 auto; padding: var(--space-16) var(--space-6); display: grid; gap: var(--space-8); }
+  .doc h1 { font-size: var(--text-3xl); letter-spacing: var(--tracking-display); }
+  .doc h2 { font-size: var(--text-xl); margin-bottom: var(--space-3); }
+  .doc p, .doc li { color: var(--color-ink); }
+  .doc .tbd { color: var(--color-muted); font-style: italic; }
+  .doc header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+</style>
+</head>
+<body>
+<div class="proto-banner" role="note"><span><strong>Prototype non certifié</strong> · aide à la décision, ne remplace pas le jugement du praticien</span></div>
+<main class="doc">
+  <header><span id="lg"></span><a href="accueil.html">← Retour à l'accueil</a></header>
+  <h1>Mentions légales</h1>
+  <section><h2>Éditeur</h2><p>PanoraDent AI (nom provisoire), prototype académique réalisé dans le cadre d'un mémoire de fin d'études, Toliara, Madagascar.</p><p class="tbd">Nom de l'auteur, établissement, directeur de mémoire et adresse de contact : à renseigner.</p></section>
+  <section><h2>Hébergement</h2><p class="tbd">Hébergeur et adresse du serveur : à renseigner.</p></section>
+  <section><h2>Nature du service</h2><p>PanoraDent AI est un outil d'aide à la décision. Il n'est pas certifié comme dispositif médical, ne pose aucun diagnostic et ne remplace pas le jugement clinique du praticien, seul responsable de l'interprétation des examens.</p></section>
+  <section id="donnees"><h2>Données personnelles et données de santé</h2><ul><li>Les radiographies sont anonymisées dès l'import : balises DICOM identifiantes, métadonnées et texte incrusté sont retirés.</li><li>Les images et les détections restent sur le serveur de la plateforme ; aucune image n'est transmise à un service externe.</li><li>Les comptes sont créés par un administrateur ; l'accès est limité selon le rôle et tracé dans un journal d'audit.</li></ul><p class="tbd">Durée de conservation, responsable du traitement et cadre légal applicable à Madagascar : à renseigner.</p></section>
+  <section><h2>Jeu de données</h2><p>Le modèle est entraîné sur DENTEX, jeu public de radiographies panoramiques annotées. Licence et citation exacte : <span class="tbd">à renseigner</span>.</p></section>
+</main>
+<script>document.addEventListener("DOMContentLoaded", () => { document.getElementById("lg").innerHTML = PD.logo("accueil.html"); });</script>
+</body>
+</html>

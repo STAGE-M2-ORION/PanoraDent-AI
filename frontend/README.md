@@ -1,13 +1,14 @@
 # Frontend — architecture
 
 Application Next.js 14 (pages router) en **export statique**, organisée selon
-**Feature-Sliced Design** (FSD 2.1), habillée par **shadcn/ui** sur
-**Tailwind CSS v4**.
+**Feature-Sliced Design** (FSD 2.1). L'interface reproduit la **maquette haute
+fidélité validée** (`docs/maquette/`) : mêmes jetons, mêmes composants, mêmes
+écrans. Aucune bibliothèque d'interface : le design system est écrit dans le
+dépôt (`src/shared/ui/`), en CSS et en React.
 
-> 🎨 Le design system est documenté **par l'application elle-même** :
-> [http://localhost:3000/design-system](http://localhost:3000/design-system) —
-> 55 composants répartis en huit onglets. La page rend les vrais composants,
-> elle ne peut donc pas mentir sur leur apparence.
+> 🎨 Catalogue vivant : [http://localhost:3000/design-system](http://localhost:3000/design-system)
+> — jetons, icônes, composants, graphiques, détections et états communs. La page
+> rend les vrais composants : elle ne peut pas mentir sur leur apparence.
 
 ## Couches
 
@@ -16,66 +17,70 @@ couches strictement inférieures — jamais une couche supérieure, jamais une
 autre slice de la même couche.
 
 ```
-app          providers globaux, styles et jetons de design
+app          providers globaux, feuille d'entrée des styles
   ↓
-views        pages composées (couche « pages » de FSD, cf. note ci-dessous)
+views        écrans (couche « pages » de FSD, cf. note ci-dessous)
   ↓
-widgets      blocs autonomes composant features + entities
+widgets      blocs composés réutilisés par plusieurs écrans
   ↓
 features     actions utilisateur porteuses de valeur métier
   ↓
 entities     concepts métier : modèle, appels API, UI de présentation
   ↓
-shared       socle réutilisable, sans aucune connaissance du métier
+shared       socle sans connaissance du métier : API, lib, design system, démo
 ```
 
-| Couche | Slices actuelles |
+| Couche | Slices |
 |---|---|
 | `app` | `providers/`, `styles/` |
-| `views` | `landing`, `analysis`, `login`, `admin`, `design-system` |
-| `widgets` | `app-header`, `detection-viewer`, `users-panel`, `roles-panel` |
-| `features` | `upload-analysis`, `generate-report`, `sign-in`, `sign-out`, `manage-users`, `manage-roles` |
-| `entities` | `analysis`, `detection`, `system-status`, `session`, `user`, `role` |
-| `shared` | `api`, `config`, `lib`, `ui` |
+| `views` | `accueil`, `connexion`, `mentions`, `tableau-de-bord`, `nouvelle-analyse`, `analyse`, `compte-rendu`, `historique`, `profil`, `performance`, `admin-comptes`, `admin-roles`, `admin-audit`, `admin-supervision`, `design-system` |
+| `widgets` | `app-shell` (bandeau, barre latérale, barre du haut, garde de session, 403), `analysis-workspace` (modèle de lecture d'une analyse, réelle ou de démonstration) |
+| `features` | `sign-in`, `request-access`, `generate-report`, `manage-users`, `manage-roles` |
+| `entities` | `analysis`, `detection`, `session`, `user`, `role`, `model-version`, `system-status` |
+| `shared` | `api`, `config`, `lib`, `ui` (design system), `demo` (données de démonstration) |
 
 ### Pourquoi `views` et pas `pages`
 
-Le dossier `pages/` à la racine est **réservé au routeur Next.js**. La couche
-« pages » de FSD est donc nommée `views` — c'est la convention recommandée pour
-Next.js. Les fichiers de `pages/` sont de simples adaptateurs :
+Le dossier `pages/` à la racine est **réservé au routeur Next.js**. Ses fichiers
+sont de simples adaptateurs, sans UI ni logique :
 
 ```jsx
-// pages/index.jsx
-export { LandingPage as default } from "@/views/landing";
+// pages/historique.jsx
+export { HistoriquePage as default } from "@/views/historique";
 ```
-
-Aucune UI, aucun appel API, aucun état n'y vit.
 
 ### Routes
 
-| Route | Slice | Rôle |
+| Route | Écran de la maquette | Accès |
 |---|---|---|
-| `/` | `views/landing` | Vitrine : présentation de la plateforme, sans appel API hors bandeau d'état |
-| `/login` | `views/login` | Connexion |
-| `/analyse` | `views/analysis` | Poste de travail : import, détections, rapport (session requise) |
-| `/admin` | `views/admin` | Utilisateurs et rôles (`user:manage` / `role:manage`) |
-| `/design-system` | `views/design-system` | Catalogue des composants |
+| `/` | `accueil.html` — vitrine | public |
+| `/connexion` | `connexion.html` — connexion, mot de passe oublié | public |
+| `/mentions` | `mentions.html` | public |
+| `/design-system` | `etats.html` + `icones.html` + catalogue | public |
+| `/tableau-de-bord` | `tableau-de-bord.html` (indicateurs selon le profil) | session |
+| `/nouvelle-analyse` | `nouvelle-analyse.html` | `analysis:create` |
+| `/historique` | `historique.html` | `analysis:read` |
+| `/analyse?id=…` | `analyse.html` — poste de lecture (sans `id` : démonstration) | `analysis:read` |
+| `/compte-rendu?id=…` | `compte-rendu.html` | `analysis:read` |
+| `/profil` | `profil.html` | session |
+| `/performance` | `performance.html` | `model:read` |
+| `/admin/comptes` | `admin-comptes.html` | `user:manage` |
+| `/admin/roles` | `admin-roles.html` | `role:manage` |
+| `/admin/audit` | `admin-audit.html` | `user:manage` |
+| `/admin/supervision` | `admin-supervision.html` | `user:manage` |
 
-La racine a longtemps hébergé le poste d'analyse. Elle accueille désormais la
-vitrine : un visiteur doit pouvoir comprendre l'outil avant d'y déposer une
-image. Le poste de travail vit sur `/analyse`, et le titre de `AppHeader` y
-ramène à la vitrine.
+`/login`, `/admin` et `/mot-de-passe` redirigent vers leurs nouvelles adresses.
+La barre latérale n'affiche que les entrées permises par les **permissions
+réelles** du rôle (rôles personnalisés compris), pas une liste figée par rôle.
 
 ## Segments
-
-Chaque slice est découpée par **rôle technique**, pas par type de fichier :
 
 | Segment | Contenu |
 |---|---|
 | `api/` | appels HTTP et mapping DTO → modèle |
 | `model/` | logique métier, hooks d'état, normalisation |
 | `lib/` | utilitaires purs propres à la slice |
-| `ui/` | composants React |
+| `ui/` | composants React (+ le CSS propre à l'écran pour une vue) |
 | `index.js` | **API publique** de la slice |
 
 ## Règle d'import
@@ -83,179 +88,126 @@ Chaque slice est découpée par **rôle technique**, pas par type de fichier :
 Une slice s'importe **uniquement par son API publique** :
 
 ```js
-import { createAnalysis } from "@/entities/analysis";        // ✅
-import { createAnalysis } from "@/entities/analysis/api/analysis-api"; // ❌
+import { fetchAnalyses } from "@/entities/analysis";               // ✅
+import { fetchAnalyses } from "@/entities/analysis/api/analysis-api"; // ❌
 ```
 
-L'alias `@/` pointe vers `src/` ([jsconfig.json](jsconfig.json)).
-
-### Imports transverses (`@x`)
-
-Deux entités qui doivent se connaître passent par la notation `@x`, qui rend la
-dépendance explicite et limitée :
-
-```js
-// entities/analysis/model/analysis.js
-import { normalizeDetection } from "@/entities/detection/@x/analysis";
-```
-
-`entities/detection/@x/analysis.js` déclare exactement ce que `analysis` a le
-droit d'utiliser. Deux cross-imports existent aujourd'hui :
-
-- `entities/detection/@x/analysis.js` → `normalizeDetection`
-- `entities/analysis/@x/system-status.js` → `InferenceMode`
+L'alias `@/` pointe vers `src/` ([jsconfig.json](jsconfig.json)). Deux imports
+transverses (`@x`) existent : `entities/detection/@x/analysis.js`
+(`normalizeDetection`) et `entities/analysis/@x/system-status.js` (`InferenceMode`).
 
 ---
 
 ## Design system
 
-### shadcn/ui dans la couche `shared`
+### Jetons et styles
 
-Les composants shadcn ne sont pas une dépendance npm : la CLI **copie leur code
-source** dans le dépôt. [components.json](components.json) les dirige vers la
-couche FSD plutôt que vers le `components/ui` par défaut :
+Les styles de la maquette (`docs/maquette/theme.css`) ont été découpés, **sans
+changer une valeur**, en un fichier par famille dans
+[`src/shared/ui/styles/`](src/shared/ui/styles/) :
 
-```json
-"aliases": { "ui": "@/shared/ui", "utils": "@/shared/lib/utils" }
+| Fichier | Contenu |
+|---|---|
+| `tokens.css` | couleurs, typographie, espacements, rayons, ombres, mouvement, z-index, couleurs des graphiques |
+| `fonts.css` | Satoshi, JetBrains Mono, Panora Display (auto-hébergées dans `public/fonts/`) |
+| `base.css`, `brand.css` | remise à zéro, typographie, logo, motif signature (équerres cyan) |
+| `button.css` | variantes, tailles, bouton Google, bouton « lumière » |
+| `field.css`, `surface.css`, `modal.css` | champs ; cartes, pastilles, alertes, squelettes, notifications ; modale |
+| `table.css`, `detection.css` | tableaux (mode empilé sur mobile), puces ; pastilles d'anomalie |
+| `app-shell.css` | bandeau, barre latérale marine, barre du haut, page, pied |
+| `dashboard.css`, `chart.css` | KPI à anneau, grille 12 colonnes ; courbe, histogramme, jauge, barres |
+| `icon.css`, `photo-stack.css`, `role-card.css`, `session-log.css`, `icon-sheet.css` | icônes duotone et composants spécialisés |
+| `theme-dark.css` | surcharges du mode sombre (`<html data-theme="dark">`) |
+
+[`app/styles/index.css`](src/app/styles/index.css) les importe **dans l'ordre de
+la cascade d'origine**, puis [`views.css`](src/app/styles/views.css) importe le
+CSS propre à chaque écran.
+
+### Styles propres à un écran
+
+Chaque écran de la maquette avait son bloc `<style>` avec des noms génériques
+(`.foot`, `.chip`, `.toast`…). Pour qu'ils ne débordent jamais d'un écran à
+l'autre, chacun vit dans `views/<écran>/ui/<écran>.css`, **imbriqué** sous la
+classe racine de la vue (CSS imbriqué natif) :
+
+```css
+.v-historique {
+  .chip { … }          /* ne s'applique que dans l'historique */
+}
 ```
 
-La couche compte **55 composants** pour ~290 exports, couvrant l'essentiel du
-développement web : formulaires, tableaux, cartes, navigation, surcouches,
-retours utilisateur, graphiques.
+La vue pose cette classe sur sa racine (`<AppShell className="v-historique">`).
+Les `@keyframes` et `@page` restent au premier niveau du fichier.
 
-Ajouter un composant :
+### Composants React (`src/shared/ui/`)
 
-```bash
-npx shadcn@latest add dialog     # → src/shared/ui/dialog.jsx
-npm run ui:index                 # régénère l'API publique
-```
+| Module | Exports |
+|---|---|
+| `icon.jsx` / `icons.js` | `Icon`, `ICON_NAMES` — 62 icônes de la maquette (duotone + interface) |
+| `button.jsx` | `Button` (`primary` · `secondary` · `ghost` · `danger` · `google`, `size="sm"`, `href`) — effet « lumière » intégré |
+| `brand.jsx` | `Logo`, `GoogleMark` |
+| `feedback.jsx` | `Badge`, `Alert`, `Card`, `Skeleton`, `Avatar`, `Modal`, `ToastProvider` / `useToast` |
+| `field.jsx` | `Field`, `Input`, `Select`, `Textarea` |
+| `table.jsx` | `IdChip`, `NumChip`, `WhoChip`, `Person`, `DateCell`, `IconAction`, `Pager`, `paginate` |
+| `chart.jsx` | `KpiRing`, `LineChart`, `BarChart`, `Gauge`, `ProgressList`, `VizEmpty`, `DataDetails`, `exportCsv`, `lastMonths` |
+| `photo-stack.jsx` | `PhotoStack` (pile de photos en éventail) |
 
-**`shared/ui/index.js` est généré**, jamais édité à la main :
-[`scripts/generate-ui-index.mjs`](scripts/generate-ui-index.mjs) lit les exports
-réels de chaque fichier et échoue si deux composants exportent le même nom. Un
-composant installé mais oublié dans le baril serait invisible pour le reste de
-l'application — le script supprime ce risque.
-
-#### Retouches locales
-
-Ces fichiers **appartiennent au dépôt** et peuvent être modifiés, mais un
-`add --overwrite` les réécrase. Toute retouche est donc signalée par un
-commentaire dans le fichier concerné :
-
-| Fichier | Retouche | Raison |
-|---|---|---|
-| `alert.jsx` | variantes `warning` et `success` | shadcn ne fournit que `destructive` |
-| `badge.jsx` | variantes `warning` et `success` | idem, pour les statuts d'exécution |
-| `skeleton.jsx` | `bg-accent` → `bg-muted` | l'accent est teinté de la marque ; un placeholder doit rester neutre |
-| `pagination.jsx` | libellés traduits | l'interface est en français |
-
-`file-picker.jsx` est un composant **maison** (shadcn n'a pas d'équivalent) : il
-emprunte `buttonVariants` pour rester visuellement aligné sur `Button`.
-
-#### Coût du baril
-
-`package.json` déclare `"sideEffects": ["*.css"]`. Sans cette ligne, webpack
-considère chaque module comme potentiellement à effet de bord et embarque les
-55 composants dès qu'une page importe un seul `Button` : le JS partagé passe de
-137 à 213 ko. Les feuilles CSS sont exclues de la déclaration — leur import
-**est** un effet de bord.
-
-### Jetons
-
-Tout vit dans [`app/styles/globals.css`](src/app/styles/globals.css) — il n'y a
-plus de `tokens.css` séparé, c'est la convention shadcn :
-
-- `:root` et `.dark` définissent les variables en **OKLCH**, converties depuis
-  la charte historique (teal `#0F766E` / `#134E4A`) sans dérive de teinte ;
-- `@theme inline` les expose comme utilitaires Tailwind (`bg-primary`,
-  `text-warning`, `bg-detection-anomaly`…) ;
-- `--radius` est l'unique source des quatre rayons.
-
-Aux jetons shadcn standards s'ajoutent `warning`, `success`, et les couleurs
-métier `detection-normal` / `detection-anomaly`.
-
-> Les couleurs de détection sont **volontairement dupliquées** en hexadécimal
-> dans [`entities/detection`](src/entities/detection/model/detection.js) : le
-> canvas ne lit pas les variables CSS. Les deux doivent évoluer ensemble.
+Les composants produisent **exactement le balisage et les classes de la
+maquette** : un écran porté reste identique au pixel près à son modèle.
+Les composants métier vivent dans leur entité : `entities/detection` fournit
+`DetSwatch`, `TypeChip`, `DetectionBox` et `SimulatedPanoImage` (radiographie
+vectorielle simulée), `entities/session` fournit `PasswordInput` et `PasswordStrength`.
 
 ### Thème sombre
 
-Les jetons `.dark` existent et la page design system permet de les prévisualiser,
-mais **l'application reste en clair** : les couleurs de tracé du canvas sont
-figées. Le hook `useThemePreview` retire donc la classe `dark` en quittant la
-page.
+`useAppTheme()` (`shared/lib/theme.js`) pose `data-theme="dark"` sur `<html>` et
+mémorise le choix. Il ne s'applique qu'à l'application connectée : la vitrine et
+la connexion restent en clair.
 
-### Styles
+---
 
-Plus aucun CSS Module : toute la mise en forme passe par des classes Tailwind,
-et les valeurs viennent des jetons. Pas de style inline, pas de couleur brute
-dans une slice.
+## Données réelles et données de démonstration
 
-Une classe Tailwind doit apparaître **littéralement** dans le source — une
-classe construite dynamiquement (`` `bg-${name}` ``) ne serait pas générée.
-C'est pourquoi le catalogue de la page design system stocke des chaînes de
-classes complètes.
+Les écrans utilisent **l'API réelle** partout où elle existe : session, comptes,
+rôles et permissions, analyses (création, liste, détail, image), génération du
+PDF, versions du modèle, état des services.
 
-## Animations
+Le backend n'expose pas encore certaines fonctions de la maquette. Leurs écrans
+restent identiques, mais :
 
-**GSAP** (`gsap` + `@gsap/react`) n'anime aujourd'hui que la vitrine. Le hook
-[`use-landing-reveal.js`](src/views/landing/lib/use-landing-reveal.js) concentre
-toute la logique ; les composants ne portent qu'un attribut déclaratif.
-
-| `data-reveal` | Effet |
+| Fonction | Comportement actuel |
 |---|---|
-| `hero` | enfants directs décalés au chargement |
-| `frame` | visuel d'en-tête, fondu et léger zoom |
-| `box` | boîtes de détection, apparition rebondie |
-| `scan` | ligne de balayage, boucle infinie |
-| `section` | l'élément monte en fondu au défilement |
-| `stagger` | enfants directs décalés au défilement |
+| Journal d'audit, incidents, disponibilité | données de démonstration ([`shared/demo`](src/shared/demo/)), bandeau ou mention « données fictives » |
+| Indicateurs non mesurés (temps de relecture, connexions…) | données de démonstration, mention « données fictives » sur la carte |
+| Notifications de la cloche | données de démonstration |
+| Relecture des détections (valider, corriger, ajouter, supprimer), clôture | **locale à la session** : aucune route `PATCH` côté serveur (signalé à l'écran) |
+| Suppression d'analyse, mot de passe oublié, demande d'accès, Google | appel envoyé ; en 404, l'écran dit que la fonction n'est pas encore disponible |
+| Assistant | réponses de démonstration sur `/analyse` sans `id` ; « indisponible » sur une vraie analyse |
 
-Quatre points structurants :
-
-- **`useGSAP` avec un `scope`.** Le hook reçoit la ref du conteneur de page :
-  les sélecteurs ne sortent jamais de la vitrine, et toutes les animations
-  créées sont révoquées au démontage. Sans `scope`, un `ScrollTrigger` survivrait
-  à la navigation vers `/analyse`.
-- **Import nommé obligatoire.** `import { gsap } from "gsap"`, jamais
-  `import gsap from "gsap"` : au prérendu, webpack résout la build CJS dont
-  l'export par défaut est l'espace de noms du module. `gsap.registerPlugin` y
-  est introuvable et `next build` échoue sur `Failed to collect page data`.
-- **Uniquement des `from`.** L'état final est celui du DOM rendu : sans
-  JavaScript, ou si GSAP échoue, la page reste entièrement lisible. La
-  contrepartie est un état initial non masqué avant hydratation.
-- **`prefers-reduced-motion` respecté.** `gsap.matchMedia()` court-circuite
-  l'ensemble ; le DOM statique fait alors déjà le bon rendu.
-
-Les plugins sont enregistrés au niveau module (`registerPlugin(useGSAP,
-ScrollTrigger)`) : jamais référencés autrement que par leur effet de bord, ils
-seraient sinon candidats à l'élagage.
-
-**Coût** — GSAP, ScrollTrigger et le code des sections portent la vitrine à
-193 ko de premier chargement, contre 147 ko pour `/analyse`. La dépendance
-n'étant importée que par `views/landing`, le poste de travail n'en paie rien.
+Tout ce qui est fictif passe par `shared/demo` : le jour où une route existe,
+l'entité concernée appelle l'API et la démonstration recule, sans toucher aux écrans.
 
 ## Conventions
 
-- **Frontière DTO / modèle.** Le backend parle snake_case (`created_at`,
-  `n_detections`, `w`, `h`). Cette forme s'arrête dans le segment `api/` :
-  au-dessus, tout est camelCase et normalisé (`model/*.js`).
+- **Frontière DTO / modèle.** Le snake_case du backend s'arrête dans `api/` ;
+  au-dessus, tout est camelCase et normalisé (`model/*.js`). La confiance des
+  détections est convertie en pourcentage entier.
 - **Erreurs normalisées.** `shared/api/app-error.js` convertit toute exception
-  axios en `AppError { code, message }`, avec un message français prêt à
-  afficher. Aucun composant ne manipule d'erreur axios.
-- **État asynchrone.** `shared/lib/use-async-action.js` fournit la machine
-  `idle → pending → success | error` utilisée par les features.
+  axios en `AppError { code, message }` (message français prêt à afficher).
+- **État asynchrone.** `useAsyncAction` (actions) et `useAsyncResource`
+  (chargements) dans `shared/lib`.
+- **Honnêteté de l'interface.** Aucun écran ne prétend avoir fait ce que le
+  serveur n'a pas fait.
 
 ## Ajouter une fonctionnalité
 
-Exemple, la revue praticien (route `PATCH` sur les détections) :
+Exemple, enregistrer la relecture des détections le jour où la route existera :
 
-1. `entities/detection/api/detection-api.js` — l'appel HTTP et son mapping.
-2. `features/review-detection/` — `model/use-review-detection.js` + `ui/`.
-3. Brancher la feature dans `widgets/detection-viewer`.
+1. `entities/detection/api/detection-api.js` — l'appel `PATCH` et son mapping.
+2. `features/review-detection/` — `model/use-review-detection.js`.
+3. Remplacer, dans `views/analyse/ui/AnalysePage.jsx`, les mises à jour locales
+   (`updateDet`) par la feature.
 4. Exporter chaque nouveauté par l'`index.js` de sa slice.
-
-La page `views/analysis` n'a rien à savoir de l'implémentation.
 
 ## Commandes
 
@@ -274,14 +226,14 @@ NEXT_PUBLIC_API_BASE=http://localhost:8000/api npm run dev
 
 ## Authentification côté client
 
-- **Jetons** ([`shared/api/auth-tokens.js`](src/shared/api/auth-tokens.js)) : jeton d'accès
-  **en mémoire**, jeton de rafraîchissement en `sessionStorage` (un export statique ne peut
-  pas poser de cookie `httpOnly`). Choix et limites : voir le README racine.
+- **Jetons** ([`shared/api/auth-tokens.js`](src/shared/api/auth-tokens.js)) : jeton
+  d'accès **en mémoire**, jeton de rafraîchissement en `sessionStorage`, ou en
+  `localStorage` si « Se souvenir de moi » est coché à la connexion.
 - **Client HTTP** ([`shared/api/client.js`](src/shared/api/client.js)) : ajoute
-  `Authorization: Bearer …` ; sur `401`, **un seul** `POST /auth/refresh` partagé entre les
-  requêtes concurrentes (le serveur fait tourner les jetons), puis rejeu de la requête ; en
-  cas d'échec, session vidée. `skipAuth: true` exclut login/refresh de ce mécanisme.
-- **Session** (`entities/session`) : `SessionProvider` (monté dans `app/providers`),
-  `useCurrentUser()` → `{ status, user, login, logout, can, canAny }`, `RequireAuth` (garde de
-  route : redirige vers `/login?next=…`, ou affiche un refus si la permission manque).
-  Les gardes et les boutons masqués ne sont qu'ergonomiques : **le backend fait foi**.
+  `Authorization: Bearer …` ; sur `401`, **un seul** `POST /auth/refresh` partagé
+  entre les requêtes concurrentes, puis rejeu ; en cas d'échec, session vidée.
+- **Session** (`entities/session`) : `SessionProvider`, `useCurrentUser()` →
+  `{ status, user, endReason, login, logout, can, canAny }`. La garde de route est
+  dans `widgets/app-shell` : sans session, redirection vers `/connexion?next=…`
+  (avec `etat=expiree` ou `etat=deconnecte`) ; sans la permission, écran 403.
+  Les gardes ne sont qu'ergonomiques : **le backend fait foi**.

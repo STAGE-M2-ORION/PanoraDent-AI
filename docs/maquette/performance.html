@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Performance du modèle · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<script src="charts.js" defer></script>
+<style>
+  .fict { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+  .perf-grid { display: grid; gap: var(--space-6); grid-template-columns: 1fr 1fr; align-items: start; }
+  .section-title { font-size: var(--text-xl); margin-bottom: var(--space-1); }
+  .section-lead { color: var(--color-muted); font-size: var(--text-sm); margin-bottom: var(--space-4); max-width: 70ch; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-6); margin: var(--space-4) 0 0; }
+  .meta dt { font-size: var(--text-xs); color: var(--color-muted); }
+  .meta dd { margin: 2px 0 0; font-size: var(--text-sm); font-weight: 500; }
+  .tbd { color: var(--color-muted); font-weight: 400; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+  .versions { margin-top: var(--space-4); border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+  .versions summary { cursor: pointer; font-size: var(--text-sm); font-weight: 500; color: var(--color-primary); min-height: 44px; display: flex; align-items: center; }
+  .versions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
+  .versions li { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+  .lexicon { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); margin: 0; }
+  .lexicon div { background: var(--color-subtle); border-radius: var(--radius-md); padding: var(--space-4); }
+  .lexicon dt { font-weight: 600; margin-bottom: var(--space-1); }
+  .lexicon dd { margin: 0; font-size: var(--text-sm); color: var(--color-ink); }
+  .cls { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 500; white-space: nowrap; }
+  .cell-tbd { display: block; color: var(--color-muted); }
+  .cell-ex { display: block; font-size: var(--text-xs); color: var(--color-muted); font-family: var(--font-mono); }
+  .table tr.total td { background: var(--color-bg); font-weight: 600; }
+  .slider-row { display: flex; align-items: center; gap: var(--space-4); }
+  .slider-row input[type=range] { flex: 1; min-height: 44px; accent-color: var(--color-primary); }
+  .slider-val { font-family: var(--font-mono); min-width: 4ch; text-align: right; font-weight: 500; }
+  .curve { width: 100%; height: auto; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+  .curve text { font-family: var(--font-sans); font-size: 12px; fill: var(--color-muted); }
+  .legend { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); margin-top: var(--space-2); }
+  .legend span { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .legend i { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--color-primary); }
+  .legend i.dash { border-top: 3px dashed var(--color-ink); }
+  .matrix-wrap { overflow-x: auto; }
+  .matrix { border-collapse: separate; border-spacing: 3px; font-size: var(--text-sm); min-width: 640px; width: 100%; }
+  .matrix th { font-weight: 500; font-size: var(--text-xs); padding: var(--space-2); text-align: center; color: var(--color-ink); vertical-align: bottom; }
+  .matrix th.rowh { text-align: right; white-space: nowrap; }
+  .matrix td { text-align: center; height: 48px; border-radius: var(--radius-sm); font-family: var(--font-mono); background: var(--color-primary); position: relative; }
+  .matrix td span { position: relative; }
+  .axis { font-size: var(--text-xs); color: var(--color-muted); text-align: center; margin: var(--space-2) 0; }
+  .limits { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-2); max-width: 75ch; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); counter-reset: s; }
+  .steps li { counter-increment: s; background: var(--color-subtle); border-radius: var(--radius-md); padding: var(--space-4); font-size: var(--text-sm); }
+  .steps li::before { content: counter(s); display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary); color: var(--color-surface); font-weight: 600; margin-bottom: var(--space-2); }
+  .steps strong { display: block; font-size: var(--text-base); margin-bottom: var(--space-1); }
+  @media (max-width: 900px) { .perf-grid, .steps { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) { .meta { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="performance" data-allow="admin praticien lecteur">
+<div class="app"><aside class="sidebar" id="sidebar"></aside>
+<div class="main">
+<header class="topbar"><div><p class="crumbs">Application</p><h1>Performance du modèle</h1></div></header>
+<main class="page">
+
+  <div class="alert alert-warning" role="note">
+    <i data-icon="alert"></i>
+    <div><strong>Valeurs d’exemple fictives</strong>Valeurs d’exemple fictives — les mesures réelles seront renseignées après l’évaluation du modèle sur le jeu de test.</div>
+  </div>
+
+  <div class="page-head">
+    <div>
+      <h2>Performance du modèle</h2>
+      <p>Ce que le modèle sait faire, mesuré honnêtement, et ce qu’il ne sait pas faire.</p>
+    </div>
+  </div>
+
+  <section class="kpi-row" id="perf-kpis" aria-label="Mesures globales du modèle (à renseigner)"></section>
+  <div class="dash-grid">
+    <section class="dcard span-12 signature" aria-labelledby="t-evol">
+      <div class="dcard-h"><div><h3 id="t-evol">Évolution de la mAP@50 par version</h3><p>Une courbe par version du modèle, mesurée sur le même jeu de test</p></div></div>
+      <div id="perf-empty"></div>
+    </section>
+  </div>
+
+  <div class="perf-grid">
+    <section class="card card-pad" aria-labelledby="t-modele">
+      <div class="card-head">
+        <h3 class="section-title" id="t-modele">Modèle actif</h3>
+        <span class="badge badge-success badge-dot">Actif</span>
+      </div>
+      <dl class="meta">
+        <div><dt>Nom</dt><dd class="mono">panoradent-yolo</dd></div>
+        <div><dt>Version</dt><dd class="mono"><span class="fict" title="Valeur fictive">v0.3.1</span></dd></div>
+        <div><dt>Architecture</dt><dd>YOLO (détection d’objets)</dd></div>
+        <div><dt>Date d’entraînement</dt><dd class="tbd">à renseigner</dd></div>
+        <div><dt>Jeu de données</dt><dd>DENTEX — radiographies panoramiques publiques, challenge MICCAI 2023</dd></div>
+        <div><dt>Nombre d’images</dt><dd class="tbd">à renseigner</dd></div>
+        <div><dt>Répartition entraînement / validation / test</dt><dd class="tbd">à renseigner</dd></div>
+        <div><dt>Mise en service</dt><dd class="tbd">à renseigner</dd></div>
+      </dl>
+      <details class="versions">
+        <summary>Historique des versions</summary>
+        <ul>
+          <li><span class="mono">v0.3.1</span><span class="badge badge-success">Active</span><span class="muted">date à renseigner</span></li>
+          <li><span class="mono">v0.2.0</span><span class="badge">Archivée</span><span class="muted">date à renseigner</span></li>
+          <li><span class="mono">v0.1.0</span><span class="badge">Archivée</span><span class="muted">date à renseigner</span></li>
+        </ul>
+      </details>
+    </section>
+
+    <section class="card card-pad" aria-labelledby="t-lexique">
+      <h3 class="section-title" id="t-lexique">Petit lexique</h3>
+      <p class="section-lead">Les mots utilisés plus bas, sans jargon.</p>
+      <dl class="lexicon" style="grid-template-columns:1fr">
+        <div><dt>mAP (précision moyenne)</dt><dd>À quel point les cadres proposés tombent juste, toutes confiances confondues.</dd></div>
+        <div><dt>Rappel (sensibilité)</dt><dd>Part des anomalies réelles que le modèle retrouve : ce qu’il « ne laisse pas passer ».</dd></div>
+        <div><dt>Précision</dt><dd>Part des propositions du modèle qui sont justes. Pour un détecteur de cadres, elle remplace la spécificité, qui n’a pas de sens sans « vrais négatifs ».</dd></div>
+        <div><dt>Seuil de confiance</dt><dd>Niveau minimal de confiance au-dessous duquel une détection n’est pas affichée.</dd></div>
+        <div><dt>IoU</dt><dd>Recouvrement entre le cadre proposé et le cadre de référence.</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <section aria-labelledby="t-classes">
+    <h3 class="section-title" id="t-classes">Mesures par classe</h3>
+    <p class="section-lead">Les mesures réelles sont à renseigner ; l’exemple fictif en dessous illustre seulement le format attendu.</p>
+    <div class="table-wrap">
+      <table class="table stack">
+        <caption class="sr-only">Mesures par classe : mAP@50, rappel, précision, nombre d’exemples du jeu de test</caption>
+        <thead><tr><th scope="col">Classe</th><th scope="col">mAP@50</th><th scope="col">Rappel</th><th scope="col">Précision</th><th scope="col">Exemples du jeu de test</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card card-pad" aria-labelledby="t-seuil">
+    <h3 class="section-title" id="t-seuil">Seuil de confiance</h3>
+    <p class="section-lead">Un seuil bas fait apparaître plus de détections (moins d’oublis, plus de fausses alertes) ; un seuil haut l’inverse.</p>
+    <div class="perf-grid">
+      <div class="field">
+        <label class="label" for="seuil">Seuil de confiance</label>
+        <div class="slider-row">
+          <input type="range" id="seuil" min="0" max="100" step="1" value="50" aria-describedby="seuil-txt">
+          <output class="slider-val" for="seuil" id="seuil-val">50 %</output>
+        </div>
+        <p class="hint" id="seuil-txt" aria-live="polite">Seuil intermédiaire : compromis entre oublis et fausses alertes.</p>
+      </div>
+      <figure style="margin:0">
+        <svg class="curve" viewBox="0 0 400 230" role="img" aria-label="Schéma illustratif : le rappel baisse et la précision monte quand le seuil augmente. Courbe non mesurée.">
+          <line x1="40" y1="190" x2="380" y2="190" stroke="var(--color-border-strong)"/>
+          <line x1="40" y1="20" x2="40" y2="190" stroke="var(--color-border-strong)"/>
+          <path d="M40 40 C150 42 260 80 380 170" fill="none" stroke="var(--color-primary)" stroke-width="3"/>
+          <path d="M40 170 C150 120 260 70 380 36" fill="none" stroke="var(--color-ink)" stroke-width="3" stroke-dasharray="7 5"/>
+          <line id="marker" x1="210" y1="20" x2="210" y2="190" stroke="var(--color-muted)" stroke-width="1.5"/>
+          <text x="210" y="214" text-anchor="middle">Seuil de confiance (0 → 100 %)</text>
+          <text x="12" y="105" transform="rotate(-90 12 105)" text-anchor="middle">Niveau</text>
+        </svg>
+        <figcaption class="legend">
+          <span><i></i>Rappel (oublis évités)</span>
+          <span><i class="dash"></i>Précision (fausses alertes évitées)</span>
+        </figcaption>
+        <p class="hint" style="margin-top:var(--space-2)"><span class="badge badge-warning">courbe illustrative, non mesurée</span></p>
+      </figure>
+    </div>
+  </section>
+
+  <section class="card card-pad" aria-labelledby="t-matrice">
+    <h3 class="section-title" id="t-matrice">Matrice de confusion — exemple fictif</h3>
+    <p class="section-lead">Lecture : ligne = classe réelle, colonne = classe prédite ; plus la case est foncée, plus la part est grande. Chaque ligne est exprimée en pourcentage, valeurs fictives.</p>
+    <p class="axis">Classe prédite →</p>
+    <div class="matrix-wrap"><table class="matrix" id="matrix"><caption class="sr-only">Matrice de confusion fictive, lignes : classe réelle, colonnes : classe prédite</caption></table></div>
+  </section>
+
+  <div class="perf-grid">
+    <section class="card card-pad" aria-labelledby="t-limites">
+      <h3 class="section-title" id="t-limites">Limites connues</h3>
+      <ul class="limits">
+        <li>Entraîné sur un jeu public dont les appareils et les populations diffèrent peut-être de ceux des cabinets de Toliara.</li>
+        <li>Performance non évaluée sur des images du contexte local.</li>
+        <li>Ne détecte que 4 types d’anomalies : pas les parodontopathies, fractures, kystes, tumeurs, restaurations…</li>
+        <li>Sensible à la qualité de l’image (flou, mauvais positionnement, artefacts métalliques).</li>
+        <li>Les dents incluses partiellement visibles peuvent être mal numérotées.</li>
+        <li>Non certifié dispositif médical.</li>
+        <li>Ne remplace pas un examen clinique ni d’autres examens d’imagerie.</li>
+      </ul>
+    </section>
+    <section class="card card-pad" aria-labelledby="t-methode">
+      <h3 class="section-title" id="t-methode">Comment ces mesures sont obtenues</h3>
+      <ol class="steps" style="grid-template-columns:1fr">
+        <li><strong>Un jeu de test séparé</strong>Des images jamais vues par le modèle pendant l’entraînement.</li>
+        <li><strong>Comparaison aux annotations de référence</strong>Chaque cadre proposé est comparé à celui des annotations de référence de DENTEX.</li>
+        <li><strong>Calcul par classe</strong>Les mesures sont calculées séparément pour chaque classe, puis toutes classes confondues.</li>
+      </ol>
+    </section>
+  </div>
+
+</main></div></div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var k = document.getElementById("perf-kpis");
+  if (!k || !window.PDC) return;
+  [["mAP@50", "Toutes classes", "chart"], ["Rappel", "Part des anomalies trouvées", "search"], ["Précision", "Part des détections justes", "detect"], ["Images de test", "Jamais vues à l’entraînement", "pano"]].forEach(function (m) {
+    PDC.kpi(k, { icon: m[2], label: m[0] + " · " + m[1], value: "à renseigner", ring: null, ringText: m[0] + " : mesure pas encore disponible", dir: "flat" });
+  });
+  PDC.empty(document.getElementById("perf-empty"), "Pas encore de mesure réelle",
+    "La courbe apparaîtra quand le modèle aura été évalué sur le jeu de test. Nous n’affichons aucun chiffre inventé.");
+});
+</script>
+<script>
+(function () {
+  const classes = [
+    ["det-tooth", "Numérotation des dents", "0,90", "0,90", "0,90", "XXX"],
+    ["det-caries", "Carie", "0,70", "0,70", "0,90", "XXX"],
+    ["det-deep", "Carie profonde", "0,60", "0,60", "0,90", "XXX"],
+    ["det-periapical", "Lésion péri-apicale", "0,50", "0,50", "0,90", "XXX"],
+    ["det-impacted", "Dent incluse", "0,80", "0,80", "0,90", "XXX"]
+  ];
+  const ex = (v, t) => `<span class="cell-tbd">à renseigner</span><span class="cell-ex">ex. fictif : <span class="fict" title="Valeur fictive">${v}</span></span>`;
+  let h = classes.map(c => `<tr><td><span class="cls"><span class="det-swatch ${c[0]}"></span>${c[1]}</span></td><td>${ex(c[2])}</td><td>${ex(c[3])}</td><td>${ex(c[4])}</td><td><span class="cell-tbd">à renseigner</span><span class="cell-ex">ex. fictif : <span class="fict" title="Valeur fictive">100</span></span></td></tr>`).join("");
+  h += `<tr class="total"><th scope="row">Toutes classes</th><td data-label="mAP@50">${ex("0,70")}</td><td data-label="Rappel">${ex("0,70")}</td><td data-label="Précision">${ex("0,90")}</td><td data-label="Exemples du jeu de test"><span class="cell-tbd">à renseigner</span><span class="cell-ex">ex. fictif : <span class="fict" title="Valeur fictive">500</span></span></td></tr>`;
+  document.getElementById("rows").innerHTML = h;
+
+  // Matrice fictive (pourcentages par ligne)
+  const names = ["Dents", "Carie", "Carie profonde", "Péri-apicale", "Incluse", "Fond"];
+  const M = [
+    [80, 2, 0, 0, 3, 15],
+    [1, 60, 15, 2, 0, 22],
+    [0, 20, 50, 5, 0, 25],
+    [0, 3, 5, 55, 2, 35],
+    [5, 0, 0, 2, 70, 23],
+    [10, 8, 4, 3, 2, 73]
+  ];
+  let m = "<thead><tr><td style='background:none'></td>" + names.map(n => `<th scope="col">${n}</th>`).join("") + "</tr></thead><tbody>";
+  M.forEach((r, i) => {
+    m += `<tr><th scope="row" class="rowh">${names[i]}</th>` + r.map(v => {
+      const o = Math.max(0.06, v / 100).toFixed(2);
+      const dark = v >= 45;
+      return `<td title="Valeur fictive" style="background:color-mix(in srgb, var(--color-primary) ${Math.round(o*100)}%, var(--color-surface));color:${dark ? "var(--color-surface)" : "var(--color-ink)"}"><span class="fict">${v} %</span></td>`;
+    }).join("") + "</tr>";
+  });
+  document.getElementById("matrix").insertAdjacentHTML("beforeend", m + "</tbody>");
+  // légende axe vertical
+  document.querySelector("#matrix caption").insertAdjacentHTML("afterend", "");
+
+  // Curseur de seuil
+  const s = document.getElementById("seuil"), val = document.getElementById("seuil-val"), txt = document.getElementById("seuil-txt"), mk = document.getElementById("marker");
+  function upd() {
+    const v = +s.value;
+    val.textContent = v + " %";
+    const x = 40 + 340 * v / 100;
+    mk.setAttribute("x1", x); mk.setAttribute("x2", x);
+    txt.textContent = v < 35 ? "Seuil bas : plus de détections affichées, moins d’oublis, plus de fausses alertes."
+      : v > 65 ? "Seuil haut : moins de détections affichées, plus d’oublis possibles, moins de fausses alertes."
+      : "Seuil intermédiaire : compromis entre oublis et fausses alertes.";
+  }
+  s.addEventListener("input", upd); upd();
+})();
+</script>
+</body>
+</html>

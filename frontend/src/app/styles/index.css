@@ -1,0 +1,28 @@
+/* Point d'entrée des styles — chargé une seule fois par `pages/_app.jsx`.
+   L'ordre reproduit la cascade de la maquette validée : jetons, base,
+   composants, structure, puis surcharges du mode sombre. */
+
+/* Design system (shared/ui) */
+@import "../../shared/ui/styles/fonts.css";
+@import "../../shared/ui/styles/tokens.css";
+@import "../../shared/ui/styles/base.css";
+@import "../../shared/ui/styles/brand.css";
+@import "../../shared/ui/styles/icon.css";
+@import "../../shared/ui/styles/button.css";
+@import "../../shared/ui/styles/field.css";
+@import "../../shared/ui/styles/surface.css";
+@import "../../shared/ui/styles/detection.css";
+@import "../../shared/ui/styles/table.css";
+@import "../../shared/ui/styles/modal.css";
+@import "../../shared/ui/styles/app-shell.css";
+@import "../../shared/ui/styles/dashboard.css";
+@import "../../shared/ui/styles/chart.css";
+@import "../../shared/ui/styles/photo-stack.css";
+@import "../../shared/ui/styles/role-card.css";
+@import "../../shared/ui/styles/session-log.css";
+@import "../../shared/ui/styles/icon-sheet.css";
+@import "../../shared/ui/styles/theme-dark.css";
+
+/* Styles propres à chaque écran : chacun est confiné sous la classe racine
+   de sa vue (`.v-<nom>`), pour qu'aucune règle locale ne déborde ailleurs. */
+@import "./views.css";

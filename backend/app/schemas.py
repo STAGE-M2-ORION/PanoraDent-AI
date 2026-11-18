@@ -39,3 +39,7 @@ class AnalysisSummary(BaseModel):
     model_version: str
     inference_mode: str
     n_detections: int
+    # Classes d'anomalies présentes (sans doublon) : filtres de l'historique.
+    labels: list[str] = []
+    # Un rapport PDF a été généré : l'analyse est considérée clôturée.
+    has_report: bool = False

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Historique des analyses · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .maq-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .filters { display: grid; gap: var(--space-4); }
+  .filters-row { display: grid; grid-template-columns: minmax(240px, 2fr) 1fr 1fr; gap: var(--space-4); align-items: end; }
+  .search-wrap { position: relative; }
+  .search-wrap svg { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-muted); pointer-events: none; }
+  .search-wrap .input { padding-left: 40px; }
+  .types { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); align-items: center; }
+  .types legend { font-size: var(--text-sm); font-weight: 500; padding: 0; margin-bottom: var(--space-2); float: left; margin-right: var(--space-4); line-height: 44px; margin-bottom: 0; }
+  .check { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; font-size: var(--text-sm); cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--color-primary); margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 var(--space-2) 0 var(--space-3); border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary-hover); border: 1px solid var(--color-border-strong); font-size: var(--text-sm); }
+  .chip button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; color: inherit; cursor: pointer; border-radius: 50%; padding: 0; }
+  .chip button:hover { background: var(--color-surface); }
+  .chip svg { width: 14px; height: 14px; }
+  .dets { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .dets .n { min-width: 1.5ch; font-weight: 500; }
+  .dets .sw { display: inline-flex; gap: 4px; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); }
+  .state-box { display: grid; justify-items: center; gap: var(--space-3); text-align: center; padding: var(--space-12) var(--space-6); }
+  .ill-img { width: 160px; height: 160px; object-fit: contain; margin: -24px 0; }
+  .state-box svg.ill { width: 120px; height: 90px; color: var(--color-border-strong); }
+  .state-box h3 { font-size: var(--text-lg); }
+  .state-box p { color: var(--color-muted); max-width: 46ch; }
+  .sk-row { display: grid; grid-template-columns: 1fr 0.6fr 0.8fr 1.2fr 1fr 1fr 1.4fr; gap: var(--space-4); padding: var(--space-4); border-bottom: 1px solid var(--color-border); }
+  .sk-row .skeleton { height: 16px; }
+  .toast { position: fixed; right: var(--space-6); bottom: var(--space-6); z-index: 120; background: var(--color-ink); color: #fff; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: var(--text-sm); max-width: calc(100vw - 2 * var(--space-4)); }
+  .ro { display: inline-flex; align-items: center; gap: 6px; }
+  .ro svg { width: 14px; height: 14px; }
+  @media (max-width: 860px) { .filters-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .search-wrap-col { grid-column: 1 / -1; } }
+  @media (max-width: 640px) {
+    .filters-row { grid-template-columns: minmax(0,1fr); }
+    .types legend { float: none; display: block; line-height: 1.4; margin-bottom: var(--space-1); width: 100%; }
+    .toast { right: var(--space-4); bottom: var(--space-4); }
+    .sk-row { grid-template-columns: 1fr 1fr; }
+    .foot { justify-content: center; }
+  }
+</style>
+</head>
+<body data-page="historique" data-allow="admin praticien lecteur">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><p class="crumbs">Application</p><h1>Historique</h1></div>
+    </header>
+    <main class="page">
+
+      <div class="maq-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" data-state="normal" type="button">Normal</button>
+        <button class="btn btn-sm btn-ghost" data-state="noresult" type="button">Aucun résultat</button>
+        <button class="btn btn-sm btn-ghost" data-state="empty" type="button">Historique vide</button>
+        <button class="btn btn-sm btn-ghost" data-state="loading" type="button">Chargement</button>
+        <button class="btn btn-sm btn-ghost" data-state="error" type="button">Erreur</button>
+      </div>
+
+      <div class="page-head">
+        <div>
+          <h2>Historique des analyses</h2>
+          <p>Retrouvez un examen par son identifiant anonyme, sa date ou son statut.</p>
+        </div>
+        <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap">
+          <span class="badge badge-info ro" data-roles="lecteur"><i data-icon="eye"></i>Accès en lecture seule</span>
+          <a class="btn btn-primary" href="nouvelle-analyse.html" data-roles="praticien"><i data-icon="plus"></i>Nouvelle analyse</a>
+        </div>
+      </div>
+
+      <section class="card card-pad filters" aria-label="Recherche et filtres">
+        <div class="filters-row">
+          <div class="field search-wrap-col">
+            <label class="label" for="q">Identifiant anonyme ou n° d’analyse</label>
+            <div class="search-wrap"><i data-icon="search"></i><input class="input" id="q" type="search" placeholder="Par exemple : 7F3A ou 0042" autocomplete="off"></div>
+          </div>
+          <div class="field">
+            <label class="label" for="period">Période</label>
+            <select class="select" id="period">
+              <option value="all">Toutes les dates</option>
+              <option value="today">Aujourd’hui</option>
+              <option value="7">7 jours</option>
+              <option value="30">30 jours</option>
+              <option value="custom">Personnalisée</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="status">Statut de revue</label>
+            <select class="select" id="status">
+              <option value="all">Tous les statuts</option>
+              <option value="pending">À relire</option>
+              <option value="inprogress">Relecture en cours</option>
+              <option value="closed">Clôturée</option>
+              <option value="failed">Échec</option>
+            </select>
+          </div>
+        </div>
+        <div class="filters-row" id="custom-dates" hidden style="grid-template-columns:1fr 1fr">
+          <div class="field"><label class="label" for="from">Du</label><input class="input" id="from" type="date"></div>
+          <div class="field"><label class="label" for="to">Au</label><input class="input" id="to" type="date"></div>
+        </div>
+        <fieldset class="types" id="types"><legend>Type d’anomalie</legend></fieldset>
+        <div class="chips" id="chips" aria-live="polite"></div>
+      </section>
+
+      <section aria-label="Liste des analyses" id="list" aria-busy="false"></section>
+
+      <div class="foot" id="foot"></div>
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-delete" role="dialog" aria-modal="true" aria-labelledby="del-title">
+  <div class="modal">
+    <h2 id="del-title">Supprimer l’analyse n° <span class="mono" id="del-n"></span> ?</h2>
+    <p>Cette action est définitive : l’image, les détections et le compte rendu seront effacés. L’opération est inscrite au journal d’audit.</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" data-close-modal>Annuler</button>
+      <button class="btn btn-danger" type="button" id="del-ok">Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+<div id="toast-zone" role="status" aria-live="polite"></div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const D = window.DEMO, role = PD.role, canEdit = role !== "lecteur";
+  const ages = [0, 1, 1, 2, 4, 5, 6, 8, 9, 11];
+  let rows = D.history.map((h, i) => Object.assign({ age: ages[i], by: (h.status === "closed" || h.status === "inprogress") ? "Dr Rakoto" : "—" }, h));
+  let state = "normal", pendingDelete = null;
+  const f = { q: "", period: "all", status: "all", types: [], from: "", to: "" };
+  const $ = (id) => document.getElementById(id);
+  const PERIOD = { today: "Aujourd’hui", 7: "7 jours", 30: "30 jours", custom: "Personnalisée" };
+  const STATUS_FILTER = { pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
+  const TYPE_KEYS = ["caries", "deep", "periapical", "impacted"];
+
+  $("types").insertAdjacentHTML("beforeend", TYPE_KEYS.map((k) =>
+    `<label class="check"><input type="checkbox" value="${k}"><span class="det-swatch ${D.TYPES[k].cls}" aria-hidden="true"></span>${D.TYPES[k].label}</label>`).join(""));
+
+  const sw = (t) => `<span class="type-chip" title="${D.TYPES[t].label}"><span class="det-swatch ${D.TYPES[t].cls}" aria-hidden="true"></span><span aria-hidden="true">${{caries:"C",deep:"CP",periapical:"LPA",impacted:"DI",tooth:"FDI"}[t]}</span><span class="sr-only">${D.TYPES[t].label}</span></span>`;
+
+  function filtered() {
+    if (state === "noresult") return [];
+    const q = f.q.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (q && !(r.id.toLowerCase().includes(q) || r.n.includes(q))) return false;
+      if (f.period === "today" && r.age > 0) return false;
+      if ((f.period === "7") && r.age > 7) return false;
+      if ((f.period === "30") && r.age > 30) return false;
+      if (f.period === "custom") {
+        const d = new Date(); d.setDate(d.getDate() - r.age); const iso = d.toISOString().slice(0, 10);
+        if (f.from && iso < f.from) return false; if (f.to && iso > f.to) return false;
+      }
+      if (f.status !== "all" && r.status !== f.status) return false;
+      if (f.types.length && !f.types.some((t) => r.types.includes(t))) return false;
+      return true;
+    });
+  }
+  const hasFilters = () => f.q.trim() || f.period !== "all" || f.status !== "all" || f.types.length;
+
+  function renderChips() {
+    const c = [];
+    if (f.q.trim()) c.push(["q", "Recherche : " + f.q.trim()]);
+    if (f.period !== "all") c.push(["period", "Période : " + PERIOD[f.period]]);
+    if (f.status !== "all") c.push(["status", "Statut : " + STATUS_FILTER[f.status]]);
+    f.types.forEach((t) => c.push(["type:" + t, "Anomalie : " + D.TYPES[t].label]));
+    $("chips").innerHTML = c.length ? c.map(([k, l]) => `<span class="chip">${l}<button type="button" data-chip="${k}" aria-label="Retirer le filtre ${l}">${PD.icon("x")}</button></span>`).join("") +
+      `<button class="btn btn-sm btn-ghost" type="button" data-clear>Effacer les filtres</button>` : "";
+  }
+
+  function actions(r) {
+    const open = `<a class="btn btn-sm btn-secondary" href="analyse.html">${canEdit ? "Ouvrir" : "Consulter"}<span class="sr-only"> l’analyse n° ${r.n}</span></a>`;
+    const ok = r.status === "closed";
+    const cr = ok ? `<a class="icon-act" href="compte-rendu.html" title="Compte rendu" aria-label="Compte rendu de l’analyse n° ${r.n}">${PD.icon("file")}</a>`
+      : `<button class="icon-act" type="button" disabled aria-disabled="true" title="Le compte rendu n’est disponible qu’une fois l’analyse clôturée." aria-label="Compte rendu indisponible : l’analyse n° ${r.n} n’est pas clôturée">${PD.icon("file")}</button>`;
+    const del = canEdit ? `<button class="icon-act danger" type="button" aria-label="Supprimer l’analyse n° ${r.n}" title="Supprimer" data-del="${r.n}">${PD.icon("trash")}</button>` : "";
+    return open + cr + del;
+  }
+  const initials = (n) => n.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+
+  function renderList() {
+    const el = $("list"), foot = $("foot");
+    el.setAttribute("aria-busy", state === "loading");
+    if (state === "loading") {
+      el.innerHTML = `<div class="table-wrap" style="background:var(--color-surface)">` + Array.from({ length: 6 }, () => `<div class="sk-row">${'<span class="skeleton"></span>'.repeat(7)}</div>`).join("") + `</div><p class="sr-only">Chargement de l’historique…</p>`;
+      foot.innerHTML = ""; return;
+    }
+    if (state === "error") {
+      el.innerHTML = `<div class="alert alert-danger" role="alert">${PD.icon("alert")}<div><strong>L’historique n’a pas pu être chargé.</strong>La connexion au serveur a échoué. Vos analyses n’ont pas été modifiées. <div style="margin-top:var(--space-3)"><button class="btn btn-sm btn-secondary" type="button" data-state="normal">${PD.icon("refresh")}Réessayer</button></div></div></div>`;
+      foot.innerHTML = ""; return;
+    }
+    if (state === "empty" || (rows.length === 0)) {
+      el.innerHTML = `<div class="card state-box">
+        <img class="illus ill-img" src="medias/etat-vide.webp" width="1024" height="1024" alt="" aria-hidden="true">
+        <h3>Aucune analyse pour le moment</h3>
+        <p>Les analyses que vous lancerez apparaîtront ici, avec leur statut de relecture.</p>
+        ${canEdit && role === "praticien" ? `<a class="btn btn-primary" href="${PD.withRole("nouvelle-analyse.html")}">${PD.icon("plus")}Nouvelle analyse</a>` : `<p>Un praticien doit déposer une première radiographie.</p>`}
+      </div>`;
+      foot.innerHTML = ""; return;
+    }
+    const list = filtered();
+    if (!list.length) {
+      el.innerHTML = `<div class="card state-box">${PD.icon("search").replace('class=""', 'class="ill"')}<h3>Aucune analyse ne correspond à ces critères.</h3><p>Vérifiez l’identifiant saisi ou élargissez la période.</p><button class="btn btn-secondary" type="button" data-clear>Effacer les filtres</button></div>`;
+      foot.innerHTML = ""; return;
+    }
+    el.innerHTML = `<div class="table-wrap"><table class="table stack">
+      <caption class="sr-only">Analyses, de la plus récente à la plus ancienne</caption>
+      <thead><tr><th scope="col">Date</th><th scope="col">N°</th><th scope="col">ID anonyme</th><th scope="col">Statut de revue</th><th scope="col">Détections</th><th scope="col">Relu par</th><th scope="col" class="r">Actions</th></tr></thead>
+      <tbody>${list.map((r) => { const S = D.HISTORY_STATUS[r.status]; return `<tr>
+        <td data-label="Date" class="nowrap">${r.date}</td>
+        <td data-label="N°"><span class="num-chip">${r.n}</span></td>
+        <td data-label="ID anonyme"><span class="id-chip">${r.id}</span></td>
+        <td data-label="Statut de revue"><span class="${S.badge}">${S.label}</span></td>
+        <td data-label="Détections"><span class="dets"><span class="n mono">${r.count}</span><span class="sw">${r.types.map(sw).join("")}</span></span></td>
+        <td data-label="Relu par">${r.by === "—" ? '<span class="muted">—</span>' : `<span class="who-chip"><span class="av" aria-hidden="true">${initials(r.by)}</span>${r.by}</span>`}</td>
+        <td class="td-actions"><div class="row-actions">${actions(r)}</div></td></tr>`; }).join("")}</tbody></table></div>`;
+    const plain = !hasFilters();
+    foot.innerHTML = `<p class="muted">${plain ? `1–${list.length} sur 42 analyses` : `${list.length} analyse${list.length > 1 ? "s" : ""} trouvée${list.length > 1 ? "s" : ""}`}</p>` +
+      (plain ? `<nav class="pager" aria-label="Pagination"><button class="page-btn" type="button" disabled aria-label="Page précédente">${PD.icon("chevronleft")}</button>
+      <button class="page-btn" type="button" aria-current="page" aria-label="Page 1">1</button>
+      <button class="page-btn" type="button" aria-label="Page 2">2</button><button class="page-btn" type="button" aria-label="Page 3">3</button><button class="page-btn" type="button" aria-label="Page 4">4</button><button class="page-btn" type="button" aria-label="Page 5">5</button>
+      <button class="page-btn" type="button" aria-label="Page suivante">${PD.icon("chevron")}</button></nav>` : "");
+  }
+
+  function render() {
+    document.querySelectorAll("[data-state]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.state === state));
+    document.querySelector(".filters").style.opacity = (state === "empty" || state === "error") ? ".5" : "";
+    renderChips(); renderList();
+  }
+  function reset() { f.q = ""; f.period = "all"; f.status = "all"; f.types = []; f.from = f.to = "";
+    $("q").value = ""; $("period").value = "all"; $("status").value = "all"; $("custom-dates").hidden = true;
+    document.querySelectorAll("#types input").forEach((c) => (c.checked = false)); if (state === "noresult") state = "normal"; }
+
+  $("q").addEventListener("input", (e) => { f.q = e.target.value; if (state === "noresult") state = "normal"; render(); });
+  $("period").addEventListener("change", (e) => { f.period = e.target.value; $("custom-dates").hidden = f.period !== "custom"; render(); });
+  $("from").addEventListener("change", (e) => { f.from = e.target.value; render(); });
+  $("to").addEventListener("change", (e) => { f.to = e.target.value; render(); });
+  $("status").addEventListener("change", (e) => { f.status = e.target.value; render(); });
+  $("types").addEventListener("change", () => { f.types = [...document.querySelectorAll("#types input:checked")].map((c) => c.value); render(); });
+
+  document.addEventListener("click", (e) => {
+    const st = e.target.closest("[data-state]");
+    if (st) { state = st.dataset.state; render(); return; }
+    if (e.target.closest("[data-clear]")) { reset(); render(); return; }
+    const ch = e.target.closest("[data-chip]");
+    if (ch) { const k = ch.dataset.chip;
+      if (k === "q") { f.q = ""; $("q").value = ""; }
+      else if (k === "period") { f.period = "all"; $("period").value = "all"; $("custom-dates").hidden = true; }
+      else if (k === "status") { f.status = "all"; $("status").value = "all"; }
+      else { const t = k.split(":")[1]; f.types = f.types.filter((x) => x !== t); document.querySelector(`#types input[value="${t}"]`).checked = false; }
+      render(); return; }
+    const del = e.target.closest("[data-del]");
+    if (del) { pendingDelete = del.dataset.del; $("del-n").textContent = pendingDelete; $("modal-delete").dataset.open = "true"; $("modal-delete").querySelector("button").focus(); }
+  });
+  $("del-ok").addEventListener("click", () => {
+    rows = rows.filter((r) => r.n !== pendingDelete);
+    $("modal-delete").dataset.open = "false";
+    const t = document.createElement("div"); t.className = "toast";
+    t.textContent = `Analyse n° ${pendingDelete} supprimée. L’opération a été inscrite au journal d’audit.`;
+    $("toast-zone").appendChild(t); setTimeout(() => t.remove(), 4500);
+    render();
+  });
+  render();
+});
+</script>
+</body>
+</html>

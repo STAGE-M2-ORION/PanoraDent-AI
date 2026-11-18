@@ -19,7 +19,7 @@ inférence → persistance → rapport PDF) dès le premier jour.
 | | |
 |---|---|
 | **Statut** | Prototype fonctionnel de bout en bout, sans modèle entraîné |
-| **Stack** | Next.js 14 · shadcn/ui · FastAPI · PostgreSQL 16 · MinIO · YOLO (optionnel) |
+| **Stack** | Next.js 14 · design system maison · FastAPI · PostgreSQL 16 · MinIO · YOLO (optionnel) |
 | **Prérequis** | Docker + Docker Compose v2, ~4 Go de disque. Aucun GPU requis |
 | **Démarrage** | `cp .env.example .env && docker compose up --build` |
 
@@ -47,9 +47,9 @@ docker compose up --build   # ou : make up
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
-| Connexion | http://localhost:3000/login | `ADMIN_EMAIL` / `ADMIN_PASSWORD` du `.env` (voir [Authentification](#authentification-et-rôles)) |
+| Connexion | http://localhost:3000/connexion | `ADMIN_EMAIL` / `ADMIN_PASSWORD` du `.env` (voir [Authentification](#authentification-et-rôles)) |
 | Poste d'analyse | http://localhost:3000/analyse | session requise |
-| Administration | http://localhost:3000/admin | rôle avec `user:manage` / `role:manage` |
+| Administration | http://localhost:3000/admin/comptes | rôle avec `user:manage` / `role:manage` |
 | Design system | http://localhost:3000/design-system | — |
 | API (Swagger) | http://localhost:8000/docs | — |
 | Service d'inférence | http://localhost:8001/health | — |
@@ -61,17 +61,16 @@ curl http://localhost:8000/api/health
 # {"status":"ok","inference_reachable":true,"inference_mode":"mock"}
 ```
 
-`Inférence : mock` dans le bandeau de l'application signifie que les détections
-affichées sont **factices**.
+En mode `mock`, le poste de lecture affiche « Mode démonstration du modèle » et la
+supervision marque l'inférence « Dégradé » : les détections affichées sont **factices**.
 
-**Premier essai** : se connecter sur `/login` avec `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+**Premier essai** : se connecter sur `/connexion` avec `ADMIN_EMAIL` / `ADMIN_PASSWORD`
 (mot de passe généré s'il est vide : `docker compose logs backend | grep seed_auth`),
-puis depuis la page d'accueil suivre « Analyser une panoramique »
-(ou aller directement sur `/analyse`), importer n'importe quel JPG/PNG (ou
-`.dcm`), puis « Générer le rapport PDF ». Les objets produits sont visibles dans MinIO (`images/`,
-`reports/`). L'aperçu affiche en revanche « Image non affichable… » et le lien
-PDF ne s'ouvre pas : les URLs présignées ne sont pas résolvables depuis le
-navigateur en configuration par défaut — voir [Limites connues](#limites-connues).
+puis ouvrir « Nouvelle analyse » dans la barre latérale (`/nouvelle-analyse`), importer
+n'importe quel JPG/PNG (ou `.dcm`), « Ouvrir la relecture », puis « Générer le compte rendu »
+› « Télécharger le PDF ». Les objets produits sont visibles dans MinIO (`images/`,
+`reports/`). L'image et le PDF sont servis au navigateur par le proxy nginx
+(`/storage/`, voir [Limites connues](#limites-connues)).
 
 En ligne de commande :
 
@@ -278,7 +277,7 @@ est un ensemble de permissions ; un utilisateur a **exactement un rôle**.
 
 Les rôles système ne se suppriment ni ne se renomment. Seuls `practitioner` et
 `viewer` sont modifiables, et le seed ne réécrit jamais leurs permissions une fois
-créés. Un administrateur peut créer des rôles sur mesure depuis `/admin`.
+créés. Un administrateur peut créer des rôles sur mesure depuis `/admin/roles`.
 
 **Endpoints.** `POST /api/auth/login` (formulaire OAuth2 : `username` = email),
 `POST /api/auth/refresh`, `POST /api/auth/logout` (204, révoque toutes les sessions),
@@ -407,36 +406,28 @@ docker compose logs inference | grep mode=
 ## Frontend et design system
 
 Next.js 14 en **export statique** (`output: "export"`), servi par nginx. Code
-organisé en **Feature-Sliced Design**, habillé par **shadcn/ui** sur Tailwind v4.
+organisé en **Feature-Sliced Design**. L'interface reproduit la **maquette haute
+fidélité** de [`docs/maquette/`](docs/maquette/) : son design system (jetons,
+icônes duotone, composants, graphiques) est écrit dans le dépôt, sans
+bibliothèque d'interface ([`frontend/src/shared/ui/`](frontend/src/shared/ui/)).
 
-Conventions, couches, règles d'import et fonctionnement du design system :
+Conventions, couches, routes, design system et part des données de démonstration :
 **[frontend/README.md](frontend/README.md)**.
 
-Cinq routes : `/` présente la plateforme (vitrine animée avec GSAP), `/login` est
-la connexion, `/analyse` le poste de travail — import, détections, rapport —
-(session requise), `/admin` la gestion des comptes et des rôles, `/design-system`
-le catalogue des composants.
-
-Le projet expose sa propre documentation de design à
-**http://localhost:3000/design-system** — **55 composants** en huit onglets
-(Fondations, Base, Formulaires, Données, Navigation, Surcouches, Retours,
-Métier). La page rend les **vrais composants**, elle ne peut donc pas diverger
-de l'application ; elle n'appelle aucune API.
+Écrans : vitrine (`/`), connexion, tableau de bord, nouvelle analyse, historique,
+poste de lecture (`/analyse`), compte rendu, profil, performance du modèle et
+administration (comptes, rôles, journal d'audit, supervision). Catalogue vivant
+du design system : **http://localhost:3000/design-system**.
 
 Points structurants :
 
-- Les composants shadcn sont **copiés dans le dépôt**
-  ([`src/shared/ui/`](frontend/src/shared/ui/)), pas installés en dépendance.
-  `shared/ui/index.js` est **généré** (`npm run ui:index`).
-- Jetons en **OKLCH** dans [globals.css](frontend/src/app/styles/globals.css),
-  convertis depuis la charte teal `#0F766E` / `#134E4A` sans dérive de teinte.
-  Plus aucun CSS Module.
-- `package.json` déclare `"sideEffects": ["*.css"]` — sans quoi le baril
-  d'exports embarque les 55 composants dans chaque page (JS partagé : 137 ko
-  avec, 213 ko sans).
+- Styles de la maquette découpés par composant dans
+  [`shared/ui/styles/`](frontend/src/shared/ui/styles/) ; le CSS propre à chaque
+  écran est confiné sous la classe racine de sa vue (`.v-<écran>`).
+- Quatre dépendances d'exécution seulement : Next, React, React DOM et axios.
 - [nginx.conf](frontend/nginx.conf) : `try_files $uri $uri.html $uri/ /index.html`.
-  Le `$uri.html` est **indispensable** — l'export produit `design-system.html`,
-  pas `design-system/index.html`.
+  Le `$uri.html` est **indispensable** — l'export produit `historique.html`,
+  pas `historique/index.html`.
 
 ---
 
@@ -515,10 +506,9 @@ panoradent-ai/
 │   ├── train.py · evaluate.py      # ultralytics · métriques par classe
 │   ├── publish_model.py            # model_versions + dépôt des poids
 │   └── notebooks/                  # colab_panoradent.ipynb
-├── frontend/                       # Next.js 14, FSD, shadcn/ui, export statique
+├── frontend/                       # Next.js 14, FSD, design system maison, export statique
 │   ├── Dockerfile · .dockerignore  # npm ci ; exclut node_modules (binaires natifs)
-│   ├── components.json             # config shadcn → @/shared/ui
-│   ├── scripts/generate-ui-index.mjs
+│   ├── public/                     # polices, logos et illustrations de la maquette
 │   ├── pages/                      # routeur Next : adaptateurs uniquement
 │   └── src/                        # app · views · widgets · features · entities · shared
 ├── .github/workflows/ci.yml
@@ -531,22 +521,10 @@ panoradent-ai/
 `numpy`, `pytest` — `ultralytics` et `torch` commentés. Entraînement
 ([`training/requirements.txt`](training/requirements.txt), **jamais installé
 dans un conteneur**) : `ultralytics`, `torch`, `torchvision`, `sqlalchemy`.
-Frontend : `next`, `react`,
-`axios`, `tailwindcss` v4, `radix-ui`/`@base-ui/react`, `lucide-react`, plus les
-paquets tirés par les composants shadcn (`react-hook-form`, `zod`, `recharts`,
-`cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `sonner`…) et
-`gsap`/`@gsap/react` pour les animations de la vitrine. Ces derniers ne pèsent
-que sur les pages qui les utilisent — premier chargement par route :
-
-| Route | Poids de la page | Premier chargement |
-|---|---|---|
-| `/` (vitrine) | 52,1 ko | **193 ko** |
-| `/analyse` | 6,4 ko | **147 ko** |
-| `/design-system` | 252 ko | **375 ko** |
-
-Le poste d'analyse, seule route réellement utilisée en séance, reste la plus
-légère. Les 46 ko qui séparent la vitrine du poste couvrent GSAP, ScrollTrigger
-et le code des sections.
+Frontend : `next`, `react`, `react-dom`, `axios` — rien d'autre à l'exécution :
+le design system, les icônes et les graphiques sont écrits dans le dépôt.
+Premier chargement par route : de 106 ko (redirections) à 135 ko (`/analyse`,
+le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko.
 
 ---
 
@@ -608,12 +586,11 @@ mode réel emprunte la déduction géométrique.
 
 **Infrastructure**
 
-- **URLs présignées non résolvables depuis le navigateur** — signées avec
-  `S3_ENDPOINT=http://minio:9000`, nom interne au réseau Docker. L'analyse et la
-  génération du PDF côté serveur fonctionnent ; le viewer **dégrade proprement**
-  (« Image non affichable… »). Contournements : ajouter `127.0.0.1 minio` au
-  fichier `hosts`, ou signer avec une adresse publique tout en gardant
-  l'endpoint interne pour les appels serveur.
+- **URLs présignées** — signées avec `S3_ENDPOINT=http://minio:9000`, nom interne
+  au réseau Docker. Résolu : le backend réécrit leur origine vers
+  `S3_PUBLIC_URL` (`/storage` par défaut), que nginx relaie vers MinIO en
+  rétablissant `Host: minio:9000` (la signature v4 couvre cet en-tête). Hors
+  Docker, laisser `S3_PUBLIC_URL` vide.
 - **`VITE_API_BASE` dans [docker-compose.yml](docker-compose.yml)** est un
   reliquat de la migration Vite → Next.js, sans effet. Le renommer ne suffirait
   pas : passé en `environment`, il faudrait un `build.args`. Le frontend retombe
@@ -640,8 +617,7 @@ mode réel emprunte la déduction géométrique.
 
 ## Feuille de route
 
-1. **Rendre les URLs présignées utilisables depuis le navigateur** — dissocier
-   endpoint interne et endpoint public de signature. Débloque la démonstration.
+1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
 2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
    viewer. Le rapport devient un document validé.
 3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (JWT + RBAC) ; reste 2FA/SSO, audit, cookies `httpOnly`.
@@ -664,7 +640,7 @@ mode réel emprunte la déduction géométrique.
 | `inference_reachable: false` | Conteneur `inference` crashé : `docker compose logs inference` |
 | Mode toujours `mock` après ajout des poids | Poids absents, `ultralytics`/`torch` non décommentés, ou échec de chargement (chercher `échec du chargement` dans les logs). Rebuild requis. Poser `MODEL_STRICT=1` transforme cette bascule en erreur de démarrage |
 | Erreur 500 à l'upload | DICOM sans `pixel_array` exploitable, ou format illisible par Pillow |
-| « Image non affichable… » / lien PDF mort | URL présignée vers `http://minio:9000` — voir [Limites connues](#limites-connues) |
+| « Image indisponible » / lien PDF mort | URL présignée non relayée : vérifier `S3_PUBLIC_URL=/storage` (backend) et `location /storage/` dans [nginx.conf](frontend/nginx.conf) |
 | Upload refusé > ~50 Mo | `client_max_body_size` dans [nginx.conf](frontend/nginx.conf) |
 | `504` sur `/api/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` |
 | Bandeau figé après redémarrage d'un service | `/api/health` est relu toutes les 30 s (et au retour sur l'onglet) : patienter, ou recharger |

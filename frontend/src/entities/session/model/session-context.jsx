@@ -16,6 +16,12 @@ export const SessionStatus = {
   ANONYMOUS: "anonymous",
 };
 
+/** Pourquoi la session s'est terminée : la page de connexion l'annonce. */
+export const SessionEndReason = {
+  EXPIRED: "expiree",
+  SIGNED_OUT: "deconnecte",
+};
+
 const SessionContext = createContext(null);
 
 /**
@@ -24,16 +30,17 @@ const SessionContext = createContext(null);
  * client HTTP rafraîchit seul le jeton d'accès au premier 401.
  */
 export function SessionProvider({ children }) {
-  const [state, setState] = useState({ status: SessionStatus.LOADING, user: null });
+  const [state, setState] = useState({ status: SessionStatus.LOADING, user: null, endReason: null });
 
   const setAnonymous = useCallback(
-    () => setState({ status: SessionStatus.ANONYMOUS, user: null }),
+    (endReason = null) => setState({ status: SessionStatus.ANONYMOUS, user: null, endReason }),
     [],
   );
 
   useEffect(() => {
-    // Rafraîchissement impossible en cours de route : la garde de route renvoie vers /login.
-    setSessionExpiredHandler(setAnonymous);
+    // Rafraîchissement impossible en cours de route : la garde de route renvoie
+    // vers /connexion, qui annonce l'expiration.
+    setSessionExpiredHandler(() => setAnonymous(SessionEndReason.EXPIRED));
 
     let cancelled = false;
     if (!getAccessToken() && !getRefreshToken()) {
@@ -41,7 +48,7 @@ export function SessionProvider({ children }) {
     } else {
       fetchMe()
         .then((user) => {
-          if (!cancelled) setState({ status: SessionStatus.AUTHENTICATED, user });
+          if (!cancelled) setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
         })
         .catch(() => {
           if (!cancelled) {
@@ -56,12 +63,12 @@ export function SessionProvider({ children }) {
     };
   }, [setAnonymous]);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, { remember = false } = {}) => {
     const tokens = await requestLogin(email.trim(), password);
-    setTokens(tokens);
+    setTokens(tokens, { persist: remember });
     try {
       const user = await fetchMe();
-      setState({ status: SessionStatus.AUTHENTICATED, user });
+      setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
       return user;
     } catch (error) {
       clearTokens();
@@ -76,7 +83,7 @@ export function SessionProvider({ children }) {
       /* session déjà expirée côté serveur : on vide quand même le client */
     }
     clearTokens();
-    setAnonymous();
+    setAnonymous(SessionEndReason.SIGNED_OUT);
   }, [setAnonymous]);
 
   const value = useMemo(() => {
@@ -94,8 +101,8 @@ export function SessionProvider({ children }) {
 }
 
 /**
- * Utilisateur courant : `{ status, user, login, logout, can, canAny }`, avec
- * `user = { email, role, permissions, … }` (null hors session).
+ * Utilisateur courant : `{ status, user, endReason, login, logout, can, canAny }`,
+ * avec `user = { email, fullName, role, permissions, … }` (null hors session).
  */
 export function useCurrentUser() {
   const context = useContext(SessionContext);

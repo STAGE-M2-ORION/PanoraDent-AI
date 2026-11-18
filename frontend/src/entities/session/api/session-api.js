@@ -29,5 +29,6 @@ export function normalizeUser(dto) {
     fullName: dto.full_name ?? "",
     role: dto.role,
     permissions: dto.permissions ?? [],
+    lastLoginAt: dto.last_login_at ?? null,
   };
 }

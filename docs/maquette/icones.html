@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planche d’icônes · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body data-page="icones">
+<main class="sheet">
+  <header>
+    <p class="crumbs muted" style="font-size:var(--text-sm)">Design system · provisoire</p>
+    <h1>Planche d’icônes</h1>
+    <p class="muted" style="max-width:62ch;margin-top:var(--space-2)">Même grille (24 px), même trait (1,8), extrémités arrondies. Les icônes de contenu sont en duotone : un aplat discret et un détail d’accent (teal sur fond clair, cyan sur fond sombre). Les icônes d’interface restent en trait simple.</p>
+  </header>
+  <div id="sheet" style="display:grid;gap:var(--space-8)"></div>
+</main>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var SETS = [
+    ["Propres à PanoraDent", "Dessinées pour le projet", ["tooth", "pano", "detect", "file", "sparkle"]],
+    ["Navigation et comptes", "Duotone", ["home", "upload", "history", "chart", "users", "user", "key", "list", "activity", "shield", "bell", "eye"]],
+    ["Données et système", "Duotone", ["database", "server", "cpu", "box", "mail", "message", "clock", "search", "download", "printer", "edit", "trash"]],
+    ["États", "Duotone, l’accent suit la couleur du message", ["alert", "info", "lock", "unlock"]],
+    ["Interface", "Trait simple", ["plus", "minus", "x", "check", "chevron", "chevrondown", "chevronleft", "menu", "arrowUpRight", "arrowDownRight", "refresh", "filter", "zoomin", "zoomout", "maximize", "move", "hand", "layers", "grid", "panel", "book", "sun", "contrast", "eyeoff", "logout", "send", "thumbup", "thumbdown", "square"]]
+  ];
+  var NAV = { home: 1, upload: 1, history: 1, chart: 1, users: 1, key: 1, list: 1, activity: 1 };
+  var root = document.getElementById("sheet");
+  function cells(names) { return names.filter(function (n) { return PD.ICONS[n]; }).map(function (n) { return '<div class="sheet-cell">' + PD.icon(n) + "<code>" + n + "</code></div>"; }).join(""); }
+  SETS.forEach(function (s) {
+    var sec = document.createElement("section");
+    sec.innerHTML = '<div class="dash-sec-h" style="margin-bottom:var(--space-3)"><h3>' + s[0] + '</h3><span class="sheet-tag">' + s[1] + "</span></div>" +
+      '<div class="sheet-grid">' + cells(s[2]) + "</div>" +
+      '<div class="sheet-dark" style="margin-top:var(--space-3)"><div class="sheet-grid">' + cells(s[2]) + "</div></div>";
+    root.appendChild(sec);
+  });
+  // Tailles
+  var sz = document.createElement("section");
+  sz.innerHTML = '<div class="dash-sec-h" style="margin-bottom:var(--space-3)"><h3>Tailles</h3><span class="sheet-tag">16 · 20 · 24 · 32 · 48</span></div><div class="sheet-cell" style="justify-items:start"><div class="sheet-sizes">' +
+    [16, 20, 24, 32, 48].map(function (n) { return '<span style="display:inline-grid">' + PD.icon("pano").replace("<svg ", '<svg style="width:' + n + "px;height:" + n + 'px" ') + "</span>"; }).join("") + "</div></div>";
+  root.appendChild(sz);
+});
+</script>
+</body>
+</html>

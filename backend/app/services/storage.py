@@ -33,8 +33,13 @@ def get(key: str) -> bytes:
 
 
 def presigned_url(key: str, expires: int = 3600) -> str:
-    return _s3.generate_presigned_url(
+    url = _s3.generate_presigned_url(
         "get_object",
         Params={"Bucket": settings.s3_bucket, "Key": key},
         ExpiresIn=expires,
     )
+    # La signature couvre le chemin et l'en-tête Host, pas l'origine : le proxy
+    # public (nginx `/storage/`) rétablit `Host: minio:9000` avant MinIO.
+    if settings.s3_public_url and url.startswith(settings.s3_endpoint):
+        url = settings.s3_public_url.rstrip("/") + url[len(settings.s3_endpoint.rstrip("/")):]
+    return url

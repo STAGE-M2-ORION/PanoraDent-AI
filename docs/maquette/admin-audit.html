@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Journal d’audit · Administration · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
+  .sub { display: block; font-size: var(--text-xs); color: var(--color-muted); }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+  .pager nav { display: flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; }
+  @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .filters { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="admin-audit" data-allow="admin">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><p class="crumbs">Administration</p><h1>Journal d’audit</h1></div>
+    </header>
+    <main class="page">
+
+      <div class="state-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="normal">Normal</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="loading">Chargement</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="empty">Aucun résultat</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="error">Erreur de chargement</button>
+      </div>
+
+      <div class="page-head">
+        <div>
+          <h2>Journal d’audit</h2>
+          <p>Les actions sont regroupées par session d’utilisateur. Le journal est en ajout seul : aucune entrée ne peut être modifiée ni supprimée.</p>
+        </div>
+        <button class="btn btn-secondary" type="button" id="export"><i data-icon="download"></i>Exporter (CSV)</button>
+      </div>
+
+      <div id="feedback" aria-live="polite"></div>
+
+      <section class="card card-pad" aria-label="Filtres" style="display:grid;gap:var(--space-3)">
+        <div class="filters">
+          <div class="field"><label class="label" for="f-per">Période</label>
+            <select class="select" id="f-per"><option value="1">Dernières 24 heures</option><option value="3">3 derniers jours</option><option value="7" selected>7 derniers jours</option><option value="30">30 derniers jours</option></select></div>
+          <div class="field"><label class="label" for="f-aut">Auteur</label>
+            <select class="select" id="f-aut"><option value="">Tous les auteurs</option><option>Administrateur</option><option>Dr Rakoto</option><option>Dr Andria</option><option>Dr Fara</option><option>Lecteur</option><option>Système</option></select></div>
+          <div class="field"><label class="label" for="f-typ">Type d’action</label>
+            <select class="select" id="f-typ"><option value="">Tous les types</option><option>Connexions</option><option>Comptes et rôles</option><option>Analyses</option><option>Comptes rendus</option></select></div>
+          <div class="field"><label class="label" for="f-res">Résultat</label>
+            <select class="select" id="f-res"><option value="">Tous les résultats</option><option value="ok">Succès</option><option value="ko">Échec</option></select></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);flex-wrap:wrap">
+          <p class="muted" style="font-size:var(--text-sm)" id="count" aria-live="polite"></p>
+          <div style="display:flex;gap:var(--space-2)"><button class="btn btn-sm btn-ghost" type="button" id="open-all">Tout déplier</button><button class="btn btn-sm btn-ghost" type="button" id="close-all">Tout replier</button></div>
+        </div>
+      </section>
+
+      <div id="area"></div>
+
+      <div class="pager">
+        <p class="muted" style="font-size:var(--text-sm)">Page 1 sur 12 · <span class="maq-note">valeurs fictives</span></p>
+        <nav aria-label="Pagination du journal">
+          <button class="page-btn" type="button" disabled aria-label="Page précédente">‹</button>
+          <button class="page-btn" type="button" aria-current="page">1</button>
+          <button class="page-btn" type="button">2</button>
+          <button class="page-btn" type="button">3</button>
+          <span class="muted" aria-hidden="true">…</span>
+          <button class="page-btn" type="button">12</button>
+          <button class="page-btn" type="button" aria-label="Page suivante">›</button>
+        </nav>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var area = document.getElementById("area");
+  if (!area) return;
+  var D = window.DEMO, ic = window.PD.icon;
+  var $ = function (id) { return document.getElementById(id); };
+  var ini = function (n) { var w = String(n).split(/\s+/); return (w.length > 1 ? w[0][0] + w[1][0] : String(n).slice(0, 2)).toUpperCase(); };
+  var esc = function (t) { var x = document.createElement("div"); x.textContent = t; return x.innerHTML; };
+  var P1 = "Poste cabinet 1", P2 = "Poste cabinet 2", P3 = "Poste cabinet 3";
+
+  // Sessions d'utilisateur (valeurs fictives). state : active | closed | expired | none
+  var SES = {
+    s1: { who: "Administrateur", n: "0187", poste: P2, method: "mail", state: "active" },
+    s2: { who: "Dr Rakoto", n: "0188", poste: P1, method: "google", state: "active" },
+    s3: { who: "Dr Rakoto", n: "0181", poste: P1, method: "mail", state: "closed" },
+    s4: { who: "Dr Andria", n: "0182", poste: P3, method: "mail", state: "expired" },
+    s5: { who: "Administrateur", n: "0176", poste: P2, method: "mail", state: "closed" },
+    s6: { who: "Lecteur", n: "0171", poste: P3, method: "mail", state: "expired" },
+    g1: { who: "Dr Fara", poste: P3, method: "mail", state: "none", title: "Tentatives de connexion" },
+    g2: { who: "Non authentifié", poste: P3, method: "mail", state: "none", title: "Tentatives de connexion" }
+  };
+  // [jours, heure, auteur, action, cible, détail, poste, type, résultat, session]
+  var E = [
+    [0, "10:12", "Administrateur", "Export du journal d’audit", "Journal · 7 derniers jours", "", P2, "Comptes et rôles", "ok", "s1"],
+    [0, "09:58", "Dr Rakoto", "Génération du compte rendu", "Analyse 0041", "", P1, "Comptes rendus", "ok", "s2"],
+    [0, "09:40", "Dr Rakoto", "Clôture d’analyse", "Analyse 0040", "", P1, "Analyses", "ok", "s2"],
+    [0, "09:12", "Dr Rakoto", "Connexion avec Google", "Compte Dr Rakoto", "Adresse Google vérifiée", P1, "Connexions", "ok", "s2"],
+    [0, "08:47", "Administrateur", "Modification d’un rôle personnalisé", "Rôle « Assistant de recherche »", "", P2, "Comptes et rôles", "ok", "s1"],
+    [0, "08:12", "Administrateur", "Connexion", "Compte Administrateur", "", P2, "Connexions", "ok", "s1"],
+    [1, "17:30", "Dr Andria", "Changement de mot de passe", "Compte Dr Andria", "", P3, "Comptes et rôles", "ok", "s4"],
+    [1, "17:28", "Dr Andria", "Connexion", "Compte Dr Andria", "", P3, "Connexions", "ok", "s4"],
+    [1, "16:20", "Dr Rakoto", "Déconnexion", "Compte Dr Rakoto", "", P1, "Connexions", "ok", "s3"],
+    [1, "16:05", "Dr Rakoto", "Réouverture d’analyse", "Analyse 0035", "Motif : « Correction d’un type de détection après relecture »", P1, "Analyses", "ok", "s3"],
+    [1, "15:20", "Dr Rakoto", "Suppression d’analyse", "Analyse 0031", "", P1, "Analyses", "ok", "s3"],
+    [1, "14:58", "Dr Rakoto", "Connexion", "Compte Dr Rakoto", "", P1, "Connexions", "ok", "s3"],
+    [2, "16:41", "Système", "Verrouillage temporaire du compte", "Compte Dr Fara", "Après 5 échecs de connexion", "Serveur", "Connexions", "ok", "g1"],
+    [2, "16:40", "Dr Fara", "Connexion", "Compte Dr Fara", "5e échec consécutif", P3, "Connexions", "ko", "g1"],
+    [2, "16:39", "Dr Fara", "Connexion", "Compte Dr Fara", "4e échec consécutif", P3, "Connexions", "ko", "g1"],
+    [2, "14:24", "Administrateur", "Déconnexion", "Compte Administrateur", "", P2, "Connexions", "ok", "s5"],
+    [2, "14:20", "Administrateur", "Changement de rôle", "Compte Lecteur 2", "Praticien → Lecteur", P2, "Comptes et rôles", "ok", "s5"],
+    [2, "14:15", "Administrateur", "Création de compte", "Compte Lecteur 2", "", P2, "Comptes et rôles", "ok", "s5"],
+    [2, "14:10", "Administrateur", "Connexion", "Compte Administrateur", "", P2, "Connexions", "ok", "s5"],
+    [3, "08:36", "Lecteur", "Consultation d’analyse", "Analyse 0038", "", P3, "Analyses", "ok", "s6"],
+    [3, "08:30", "Lecteur", "Connexion", "Compte Lecteur", "", P3, "Connexions", "ok", "s6"],
+    [4, "18:03", "Non authentifié", "Connexion", "Adresse inconnue", "Compte inexistant", P3, "Connexions", "ko", "g2"],
+    [4, "17:55", "Non authentifié", "Connexion avec Google", "Adresse Google inconnue", "Aucun compte associé, aucun compte créé", P3, "Connexions", "ko", "g2"]
+  ];
+  var state = "normal", openIds = { s1: true };
+  var mins = function (hm) { var p = hm.split(":"); return +p[0] * 60 + +p[1]; };
+  var dur = function (m) { return m < 60 ? m + " min" : Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0"); };
+  var small = function (svg) { return svg.replace("<svg ", '<svg style="width:13px;height:13px" '); };
+  var STATE = {
+    active: '<span class="badge badge-info badge-dot">En cours</span>',
+    closed: '<span class="badge badge-success">' + small(ic("check")) + "Déconnexion</span>",
+    expired: '<span class="badge badge-warning">' + small(ic("clock")) + "Expirée</span>",
+    none: '<span class="badge badge-danger">' + small(ic("lock")) + "Aucune session ouverte</span>"
+  };
+  var METHOD = {
+    mail: '<span class="method" title="Connexion par e-mail">' + ic("mail") + '<span class="sr-only">E-mail</span></span>',
+    google: '<span class="method" title="Connexion avec Google">' + window.PD.GOOGLE_G.replace('class="g-logo"', 'style="width:16px;height:16px"') + '<span class="sr-only">Google</span></span>'
+  };
+  var dayLabel = function (n) { return (n === 0 ? "Aujourd’hui" : n === 1 ? "Hier" : "Il y a " + n + " jours") + " · " + D.fmt(D.daysAgo(n)); };
+
+  function entryHtml(r) {
+    var ok = r[8] === "ok";
+    var res = ok ? '<span class="badge badge-success">' + small(ic("check")) + "Succès</span>" : '<span class="badge badge-danger">' + small(ic("x")) + "Échec</span>";
+    return '<li class="' + (ok ? "" : "ko") + '"><span class="tl-t mono">' + r[1] + '</span><span class="tl-dot" aria-hidden="true"></span><span class="tl-body"><strong>' + esc(r[3]) + "</strong>" +
+      '<span class="sub">' + esc(r[4]) + (r[5] ? " · " + esc(r[5]) : "") + '</span></span><span class="tl-res">' + res + "</span></li>";
+  }
+  function sessionHtml(id, items, total) {
+    var S = SES[id], list = items.slice().sort(function (a, b) { return mins(a[1]) - mins(b[1]); });
+    var first = list[0], last = list[list.length - 1], ko = list.filter(function (r) { return r[8] !== "ok"; }).length;
+    var span = mins(last[1]) - mins(first[1]);
+    var when = '<span class="dt"><span class="d">' + D.fmt(D.daysAgo(first[0])) + '</span><span class="t">' + first[1] + (span ? " → " + last[1] : "") + "</span></span>";
+    var who = S.who === "Non authentifié" ? "Non authentifié" : S.who;
+    var title = S.title ? S.title : "Session n° " + S.n;
+    var counts = '<span class="badge">' + list.length + (list.length < total ? " sur " + total : "") + " action" + (total > 1 ? "s" : "") + "</span>" + (ko ? ' <span class="badge badge-danger">' + ko + " échec" + (ko > 1 ? "s" : "") + "</span>" : "");
+    return '<details class="sess" data-id="' + id + '"' + (openIds[id] ? " open" : "") + "><summary>" +
+      '<span class="sess-chev" aria-hidden="true">' + ic("chevrondown") + "</span>" +
+      '<span class="sess-who"><span class="av" aria-hidden="true">' + esc(ini(who)) + '</span><span><strong>' + esc(who) + '</strong><span class="sub">' + esc(title) + "</span></span></span>" +
+      '<span class="sess-when">' + when + (S.state !== "none" && span ? '<span class="sess-dur mono">' + dur(span) + "</span>" : "") + "</span>" +
+      '<span class="sess-chips"><span class="id-chip">' + esc(S.poste) + "</span>" + METHOD[S.method] + "</span>" +
+      '<span class="sess-end">' + counts + " " + STATE[S.state] + "</span></summary>" +
+      '<ol class="tl" aria-label="Actions de la session, de la première à la dernière">' + list.map(entryHtml).join("") + "</ol></details>";
+  }
+  function groups(list) {
+    var by = {}, order = [];
+    list.forEach(function (e) { var id = e[9]; if (!by[id]) { by[id] = []; order.push(id); } by[id].push(e); });
+    // La plus récente d'abord (jours croissants, puis heure décroissante)
+    order.sort(function (a, b) {
+      var ka = by[a].reduce(function (m, e) { return Math.min(m, e[0] * 1440 - mins(e[1])); }, 1e9), kb = by[b].reduce(function (m, e) { return Math.min(m, e[0] * 1440 - mins(e[1])); }, 1e9);
+      return ka - kb;
+    });
+    return { by: by, order: order };
+  }
+  function skeleton() {
+    var s = ""; for (var i = 0; i < 4; i++) s += '<div class="skeleton" style="height:64px;border-radius:16px;margin-bottom:var(--space-3)"></div>';
+    return '<div role="status" aria-label="Chargement du journal">' + s + "</div>";
+  }
+  function render() {
+    var per = +$("f-per").value, a = $("f-aut").value, t = $("f-typ").value, r = $("f-res").value;
+    if (state === "loading") { area.innerHTML = skeleton(); $("count").textContent = "Chargement…"; return; }
+    if (state === "error") {
+      area.innerHTML = '<div class="alert alert-danger" role="alert">' + ic("alert") + '<div><strong>Le journal n’a pas pu être chargé</strong>Le service est momentanément indisponible. Vos données ne sont pas perdues. <button class="btn btn-secondary btn-sm" type="button" id="retry" style="margin-top:var(--space-2)">Réessayer</button></div></div>';
+      $("count").textContent = ""; $("retry").addEventListener("click", function () { state = "normal"; render(); }); return;
+    }
+    var list = state === "empty" ? [] : E.filter(function (e) { return e[0] < per && (!a || e[2] === a) && (!t || e[7] === t) && (!r || e[8] === r); });
+    var G = groups(list), nSes = G.order.filter(function (id) { return SES[id].state !== "none"; }).length;
+    $("count").textContent = list.length + " entrée" + (list.length > 1 ? "s" : "") + " dans " + G.order.length + " groupe" + (G.order.length > 1 ? "s" : "") + " (" + nSes + " session" + (nSes > 1 ? "s" : "") + ") correspondant aux filtres.";
+    if (!list.length) { area.innerHTML = '<div class="card card-pad" style="text-align:center"><p><strong>Aucune entrée ne correspond à ces filtres.</strong></p><p class="muted">Élargissez la période ou retirez un filtre.</p></div>'; return; }
+    var html = "", day = null;
+    G.order.forEach(function (id) {
+      var items = G.by[id], d0 = items.reduce(function (m, e) { return Math.min(m, e[0]); }, 99);
+      if (d0 !== day) { day = d0; html += '<h3 class="sess-day">' + dayLabel(d0) + "</h3>"; }
+      html += sessionHtml(id, items, E.filter(function (e) { return e[9] === id; }).length);
+    });
+    area.innerHTML = html;
+    area.querySelectorAll("details.sess").forEach(function (el) { el.addEventListener("toggle", function () { if (el.open) openIds[el.dataset.id] = true; else delete openIds[el.dataset.id]; }); });
+  }
+  ["f-per", "f-aut", "f-typ", "f-res"].forEach(function (i) { $(i).addEventListener("change", function () { state = "normal"; render(); }); });
+  document.querySelectorAll("[data-state]").forEach(function (b) { b.addEventListener("click", function () { state = b.dataset.state; render(); }); });
+  $("open-all").addEventListener("click", function () { area.querySelectorAll("details.sess").forEach(function (el) { el.open = true; }); });
+  $("close-all").addEventListener("click", function () { area.querySelectorAll("details.sess").forEach(function (el) { el.open = false; }); });
+  $("export").addEventListener("click", function () {
+    $("feedback").innerHTML = '<div class="alert alert-success" role="status">' + ic("check") + "<div><strong>Export prêt</strong>Le fichier CSV contient une ligne par entrée correspondant aux filtres, avec le numéro de session. L’export est lui-même inscrit au journal.</div></div>";
+  });
+  render();
+});
+</script>
+</body>
+</html>

@@ -66,6 +66,8 @@ def list_analyses(
         AnalysisSummary(
             id=a.id, created_at=a.created_at, model_version=a.model_version,
             inference_mode=a.inference_mode, n_detections=len(a.detections),
+            labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
+            has_report=a.report_key is not None,
         ) for a in rows
     ]
 

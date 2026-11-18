@@ -5,4 +5,3 @@ export {
   normalizeSystemStatus,
 } from "./model/system-status";
 export { useSystemStatus } from "./model/use-system-status";
-export { SystemStatusLine } from "./ui/SystemStatusLine";

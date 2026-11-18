@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "panoradent"
+    # Origine publique des URLs présignées (ex. « /storage » derrière le proxy
+    # nginx du frontend). Vide : l'URL garde l'origine interne `s3_endpoint`,
+    # que le navigateur ne sait pas résoudre en Docker.
+    s3_public_url: str = ""
     inference_url: str = "http://inference:8001"
 
     # --- Authentification -------------------------------------------------

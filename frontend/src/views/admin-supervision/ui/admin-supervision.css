@@ -1,0 +1,29 @@
+/* Écran « admin-supervision » — styles propres, confinés sous .v-admin-supervision (repris de la maquette). */
+
+.v-admin-supervision {
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .svc-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+  .svc { display: grid; gap: var(--space-3); align-content: start; }
+  .svc-head { display: flex; align-items: center; gap: var(--space-2); }
+  .svc-head svg { width: 20px; height: 20px; color: var(--color-muted); }
+  .svc-head h3 { font-size: var(--text-base); }
+  .kv { display: grid; gap: 2px; font-size: var(--text-sm); }
+  .kv dt { color: var(--color-muted); font-size: var(--text-xs); }
+  .kv dd { margin: 0; }
+  .bar { height: 8px; border-radius: 999px; background: var(--color-subtle); border: 1px solid var(--color-border); overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--color-primary); }
+  .uptime { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(30, minmax(0, 1fr)); gap: 3px; }
+  .uptime li { height: 28px; border-radius: 2px; background: var(--color-success); }
+  .uptime li.deg { background: repeating-linear-gradient(45deg, var(--color-warning) 0 3px, var(--color-warning-soft) 3px 6px); border: 1px solid var(--color-warning); }
+  .uptime li.down { background: var(--color-danger); border-bottom: 5px solid var(--color-ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: var(--text-sm); }
+  .legend span { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .legend i { display: inline-block; width: 16px; height: 16px; border-radius: 2px; background: var(--color-success); }
+  .legend i.deg { background: repeating-linear-gradient(45deg, var(--color-warning) 0 3px, var(--color-warning-soft) 3px 6px); border: 1px solid var(--color-warning); }
+  .legend i.down { background: var(--color-danger); border-bottom: 5px solid var(--color-ink); }
+  .incidents { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+  .incidents li { display: grid; grid-template-columns: minmax(110px, auto) 1fr auto; gap: var(--space-3); align-items: start; padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); font-size: var(--text-sm); }
+  .incidents li:last-child { border-bottom: 0; padding-bottom: 0; }
+  @media (max-width: 1100px) { .svc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .svc-grid { grid-template-columns: 1fr; } .incidents li { grid-template-columns: 1fr; gap: var(--space-1); } }
+}

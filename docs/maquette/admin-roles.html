@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rôles et permissions · Administration · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<script src="charts.js" defer></script>
+<style>
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .matrix th, .matrix td { text-align: center; }
+  .matrix th:first-child, .matrix td:first-child { text-align: left; }
+  .matrix td:first-child { font-weight: 500; }
+  .cell-yes, .cell-no { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); }
+  .cell-yes { color: var(--color-success); font-weight: 500; }
+  .cell-yes svg { width: 18px; height: 18px; }
+  .cell-no { color: var(--color-muted); }
+  .check-row { display: flex; align-items: flex-start; gap: var(--space-3); min-height: 44px; font-size: var(--text-sm); }
+  .check-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--color-primary); flex: none; }
+  .matrix .check-row { justify-content: center; min-height: 36px; }
+  .modal.wide { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+  fieldset { border: 1px solid var(--color-border); border-radius: var(--radius-md); margin: 0; padding: var(--space-3) var(--space-4); display: grid; gap: 0; min-width: 0; }
+  legend { font-size: var(--text-sm); font-weight: 600; padding: 0 var(--space-2); }
+  .summary { background: var(--color-subtle); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+  .summary ul { margin: var(--space-1) 0 0; padding-left: var(--space-5); }
+  .matrix-card .table-wrap { margin-inline: calc(var(--space-6) * -1); width: calc(100% + var(--space-6) * 2); max-width: none; }
+  .matrix-card .dcard-h { flex-wrap: wrap; }
+  @media (max-width: 1008px), (min-width: 1025px) and (max-width: 1271px) { .matrix-card .table-wrap { margin-inline: 0; width: auto; } }
+</style>
+</head>
+<body data-page="admin-roles" data-allow="admin">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><p class="crumbs">Administration</p><h1>Rôles et permissions</h1></div>
+    </header>
+    <main class="page">
+
+      <div class="state-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" type="button" id="s-normal">Normal</button>
+        <button class="btn btn-sm btn-ghost" type="button" id="s-sensitive">Création avec permission sensible</button>
+        <button class="btn btn-sm btn-ghost" type="button" id="s-error">Création avec erreur de nom</button>
+      </div>
+
+      <div class="dash-head">
+        <div class="dash-hello">
+          <h2>Rôles et permissions</h2>
+          <p>Un rôle regroupe des permissions. Les trois rôles système ne sont pas modifiables.</p>
+        </div>
+        <div class="dash-tools">
+          <button class="btn btn-primary" type="button" id="btn-new"><i data-icon="plus"></i>Créer un rôle personnalisé</button>
+        </div>
+      </div>
+
+      <div id="feedback" aria-live="polite"></div>
+
+      <section class="kpi-row" id="role-kpis" aria-label="Indicateurs des rôles (valeurs fictives)"></section>
+
+      <section aria-labelledby="h-roles" class="dash" style="gap:var(--space-4)">
+        <div class="dash-sec-h"><h3 id="h-roles">Rôles existants</h3><span class="fict" style="font-size:12px;color:var(--color-muted)">données fictives</span></div>
+        <div class="role-grid" id="role-grid"></div>
+      </section>
+
+      <section class="dcard matrix-card" aria-labelledby="h-matrix">
+        <div class="dcard-h">
+          <div>
+            <h3 id="h-matrix">Matrice des permissions</h3>
+            <p>Les colonnes des rôles système sont en lecture seule. Seul le rôle personnalisé peut être ajusté. · <span class="fict">données fictives</span></p>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" id="save-custom">Enregistrer « Assistant de recherche »</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table matrix stack">
+            <caption class="sr-only">Permissions par rôle</caption>
+            <thead><tr><th scope="col">Permission</th><th scope="col">Administrateur</th><th scope="col">Praticien</th><th scope="col">Lecteur</th><th scope="col">Assistant de recherche</th></tr></thead>
+            <tbody id="matrix"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Modale : créer un rôle -->
+<div class="modal-backdrop" id="m-role" role="dialog" aria-modal="true" aria-labelledby="m-role-t">
+  <form class="modal wide" id="f-role" novalidate>
+    <h2 id="m-role-t">Créer un rôle personnalisé</h2>
+    <div class="field"><label class="label" for="r-name">Nom du rôle</label><input class="input" id="r-name" autocomplete="off" required aria-describedby="r-name-err"><p class="error-text" id="r-name-err" hidden></p></div>
+    <div class="field"><label class="label" for="r-desc">Description</label><textarea class="textarea" id="r-desc" style="min-height:64px"></textarea></div>
+
+    <fieldset><legend>Analyses</legend>
+      <label class="check-row"><input type="checkbox" data-p="Créer des analyses"><span>Créer des analyses</span></label>
+      <label class="check-row"><input type="checkbox" data-p="Consulter les analyses"><span>Consulter les analyses</span></label>
+      <label class="check-row"><input type="checkbox" data-p="Supprimer des analyses"><span>Supprimer des analyses</span></label>
+    </fieldset>
+    <fieldset><legend>Revue des détections</legend>
+      <label class="check-row"><input type="checkbox" data-p="Relire les détections (valider, corriger, ajouter, supprimer)"><span>Valider, corriger, ajouter et supprimer des détections</span></label>
+    </fieldset>
+    <fieldset><legend>Comptes rendus</legend>
+      <label class="check-row"><input type="checkbox" data-p="Générer le compte rendu"><span>Générer le compte rendu</span></label>
+    </fieldset>
+    <fieldset><legend>Modèle</legend>
+      <label class="check-row"><input type="checkbox" data-p="Consulter la performance du modèle"><span>Lire la performance du modèle</span></label>
+    </fieldset>
+    <fieldset><legend>Administration</legend>
+      <label class="check-row"><input type="checkbox" data-p="Gérer les utilisateurs"><span>Gérer les utilisateurs</span></label>
+      <label class="check-row"><input type="checkbox" data-p="Gérer les rôles" id="p-roles"><span>Gérer les rôles</span></label>
+      <label class="check-row"><input type="checkbox" data-p="Consulter le journal d’audit"><span>Consulter le journal d’audit</span></label>
+      <label class="check-row"><input type="checkbox" data-p="Superviser les services"><span>Superviser les services</span></label>
+    </fieldset>
+
+    <div class="alert alert-warning" id="warn" role="alert" hidden><i data-icon="alert"></i><div><strong>Permission sensible</strong>Permission sensible : ce rôle pourra modifier les droits de tous les comptes.</div></div>
+
+    <div class="summary" aria-live="polite"><strong>Ce rôle pourra :</strong><div id="sum"></div></div>
+
+    <div class="modal-actions"><button class="btn btn-secondary" type="button" data-close-modal>Annuler</button><button class="btn btn-primary" type="submit">Créer le rôle</button></div>
+  </form>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var mx = document.getElementById("matrix");
+  if (!mx) return; // rôle non autorisé
+  var ic = window.PD.icon;
+  var $ = function (id) { return document.getElementById(id); };
+  var PERMS = [
+    ["Analyses — créer", 1, 1, 0, 1],
+    ["Analyses — consulter", 1, 1, 1, 1],
+    ["Analyses — supprimer", 1, "own", 0, 0],
+    ["Revue des détections (valider, corriger, ajouter, supprimer)", 1, 1, 0, 0],
+    ["Génération du compte rendu", 1, 1, 0, 0],
+    ["Consultation de la performance du modèle", 1, 1, 1, 1],
+    ["Gestion des utilisateurs", 1, 0, 0, 0],
+    ["Gestion des rôles", 1, 0, 0, 0],
+    ["Consultation du journal d’audit", 1, 0, 0, 0],
+    ["Supervision des services", 1, 0, 0, 0]
+  ];
+  var NAMES = ["Administrateur", "Praticien", "Lecteur"];
+  mx.innerHTML = PERMS.map(function (p, i) {
+    var cells = [1, 2, 3].map(function (c) {
+      var v = p[c];
+      if (v === "own") return '<td data-label="' + NAMES[c - 1] + '"><span class="cell-yes">' + ic("check") + '<span>Oui, ses analyses<span class="sr-only"> (' + NAMES[c - 1] + ")</span></span></span></td>";
+      return '<td data-label="' + NAMES[c - 1] + '">' + (v ? '<span class="cell-yes">' + ic("check") + '<span class="sr-only">Autorisé : ' + NAMES[c - 1] + "</span><span aria-hidden=\"true\">Oui</span></span>"
+        : '<span class="cell-no"><span aria-hidden="true">—</span><span class="sr-only">Non autorisé : ' + NAMES[c - 1] + "</span></span>") + "</td>";
+    }).join("");
+    var sens = i >= 6 ? ' <span class="badge badge-warning">Sensible</span>' : "";
+    return '<tr><th scope="row"><span>' + p[0] + "</span>" + sens + "</th>" + cells +
+      '<td data-label="Assistant de recherche"><label class="check-row"><input type="checkbox" ' + (p[4] ? "checked" : "") + '><span class="sr-only">' + p[0] + " : Assistant de recherche</span></label></td></tr>";
+  }).join("");
+
+  // ---------------------------------------------------------------- indicateurs et cartes de rôles
+  var TOTAL = PERMS.length;
+  function granted(col) { return PERMS.filter(function (p) { return p[col]; }).length; }
+  var ROLES = [
+    { name: "Administrateur", col: 1, icon: "shield", sys: true, desc: "Gère les comptes, les rôles et la supervision. Non modifiable.", accounts: ["AD"] },
+    { name: "Praticien", col: 2, icon: "tooth", sys: true, desc: "Dépose, relit et clôture ses analyses, génère les comptes rendus.", accounts: ["DR", "DA", "DF"] },
+    { name: "Lecteur", col: 3, icon: "eye", sys: true, desc: "Consulte les analyses et la performance du modèle, en lecture seule.", accounts: ["LE", "L2"] },
+    { name: "Assistant de recherche", col: 4, icon: "sparkle", sys: false, desc: "Exemple de rôle personnalisé : crée et consulte des analyses, sans les supprimer.", accounts: [] }
+  ];
+  var totalAccounts = ROLES.reduce(function (n, r) { return n + r.accounts.length; }, 0);
+  var SENS = PERMS.filter(function (p, i) { return i >= 6; }).length;
+  var kp = $("role-kpis");
+  [
+    { label: "Rôles", icon: "key", value: ROLES.length, ring: 75, ringText: "4 rôles : 3 système et 1 personnalisé", delta: "3 système · 1 personnalisé", dir: "flat" },
+    { label: "Comptes", icon: "users", value: totalAccounts, ring: 100, ringText: "Les " + totalAccounts + " comptes ont un rôle", delta: "Tous ont un rôle", dir: "flat", tone: "navy", good: true, href: "admin-comptes.html" },
+    { label: "Permissions gérées", icon: "list", value: TOTAL, ring: 100, ringText: TOTAL + " permissions dans la matrice", delta: "Voir la matrice", dir: "flat" },
+    { label: "Permissions sensibles", icon: "shield", value: SENS, ring: Math.round(SENS / TOTAL * 100), ringText: SENS + " permissions sensibles sur " + TOTAL + ", réservées à l’administrateur", delta: "Réservées à l’administrateur", dir: "flat", tone: "warning" }
+  ].forEach(function (o) { PDC.kpi(kp, o); });
+
+  var grid = $("role-grid");
+  var esc = function (t) { var d = document.createElement("div"); d.textContent = t; return d.innerHTML; };
+  grid.innerHTML = ROLES.map(function (r, k) {
+    var n = granted(r.col), pct = Math.round(n / TOTAL * 100);
+    var av = r.accounts.length
+      ? '<span class="av-stack" aria-hidden="true">' + r.accounts.map(function (a) { return '<span class="av">' + a + "</span>"; }).join("") + "</span>"
+      : "";
+    var cpt = r.accounts.length ? r.accounts.length + (r.accounts.length > 1 ? " comptes" : " compte") : "Aucun compte";
+    return '<article class="dcard role-tile' + (r.sys ? "" : " custom") + '" aria-labelledby="rt-' + k + '">' +
+      '<div class="role-tile-h"><span class="role-ic" aria-hidden="true">' + ic(r.icon) + '</span><div class="role-tile-t"><h3 id="rt-' + k + '">' + esc(r.name) + "</h3>" +
+      (r.sys ? '<span class="badge">' + ic("lock") + "Système</span>" : '<span class="badge badge-primary">Personnalisé</span>') + "</div></div>" +
+      '<p class="role-desc">' + esc(r.desc) + "</p>" +
+      '<div class="role-perms"><div class="prog-top"><span class="prog-name">Permissions accordées</span><span class="prog-v mono" id="rp-v-' + r.col + '">' + n + " sur " + TOTAL + "</span></div>" +
+      '<div class="prog-trk" role="img" id="rp-t-' + r.col + '" aria-label="' + n + " permissions sur " + TOTAL + '"><span class="prog-fill" id="rp-f-' + r.col + '" style="--w:' + pct + '%"></span></div></div>' +
+      '<div class="role-foot"><span class="role-who">' + av + "<span>" + cpt + '</span></span><a href="#h-matrix" class="role-link">Voir<span class="sr-only"> les permissions du rôle ' + esc(r.name) + "</span></a></div></article>";
+  }).join("");
+
+  // La colonne du rôle personnalisé est modifiable : la carte suit les cases cochées
+  mx.addEventListener("change", function () {
+    var n = mx.querySelectorAll("td:last-child input:checked").length, pct = Math.round(n / TOTAL * 100);
+    $("rp-v-4").textContent = n + " sur " + TOTAL; $("rp-f-4").style.setProperty("--w", pct + "%");
+    $("rp-t-4").setAttribute("aria-label", n + " permissions sur " + TOTAL);
+  });
+
+  $("save-custom").addEventListener("click", function () {
+    $("feedback").innerHTML = '<div class="alert alert-success" role="status">' + ic("check") + "<div><strong>Rôle enregistré</strong>Les permissions du rôle « Assistant de recherche » ont été mises à jour. L’action est inscrite au journal d’audit.</div></div>";
+  });
+
+  var boxes = Array.prototype.slice.call(document.querySelectorAll("#f-role input[data-p]"));
+  function sum() {
+    var on = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.p; });
+    $("sum").innerHTML = on.length ? "<ul>" + on.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul>" : '<span class="muted">Aucune permission sélectionnée pour l’instant.</span>';
+    $("warn").hidden = !$("p-roles").checked;
+  }
+  boxes.forEach(function (b) { b.addEventListener("change", sum); });
+  function err(msg) {
+    $("r-name-err").hidden = !msg; $("r-name-err").textContent = msg || "";
+    if (msg) $("r-name").setAttribute("aria-invalid", "true"); else $("r-name").removeAttribute("aria-invalid");
+  }
+  function openRole() { $("f-role").reset(); err(""); sum(); $("m-role").dataset.open = "true"; $("r-name").focus(); }
+  $("btn-new").addEventListener("click", openRole);
+  $("s-normal").addEventListener("click", function () { $("m-role").dataset.open = "false"; $("feedback").innerHTML = ""; });
+  $("s-sensitive").addEventListener("click", function () {
+    openRole(); $("r-name").value = "Coordinateur"; $("p-roles").checked = true;
+    document.querySelector('#f-role input[data-p="Consulter les analyses"]').checked = true; sum();
+  });
+  $("s-error").addEventListener("click", function () { openRole(); $("r-name").value = "Praticien"; err("Ce nom est déjà utilisé par un rôle."); });
+
+  $("f-role").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var n = $("r-name").value.trim();
+    if (!n) { err("Saisissez un nom de rôle."); $("r-name").focus(); return; }
+    if (/^(administrateur|praticien|lecteur|assistant de recherche)$/i.test(n)) { err("Ce nom est déjà utilisé par un rôle."); $("r-name").focus(); return; }
+    $("m-role").dataset.open = "false";
+    $("feedback").innerHTML = '<div class="alert alert-success" role="status">' + ic("check") + "<div><strong>Rôle créé</strong>Le rôle « " + n.replace(/[<>&]/g, "") + " » est disponible lors de la création d’un compte.</div></div>";
+  });
+  sum();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connexion · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  body { background: #0F2A43; }
+  .auth-page { min-height: calc(100vh - 30px); display: grid; place-items: center; padding: 56px 32px; }
+  /* La grande carte : 36 % formulaire / 64 % photo */
+  .auth-card { position: relative; width: 100%; max-width: 1200px; height: min(760px, calc(100vh - 140px)); min-height: 720px; display: grid; grid-template-columns: minmax(0, 36fr) minmax(0, 64fr); background: #FFFFFF; border-radius: 20px; overflow: hidden; box-shadow: 0 24px 60px rgba(4, 12, 24, 0.45); }
+
+  /* Colonne gauche */
+  .auth-form { display: flex; flex-direction: column; gap: var(--space-5); padding: 32px; overflow-y: auto; min-width: 0; }
+  .auth-logo { display: block; width: fit-content; }
+  .auth-logo img { height: 32px; width: auto; display: block; }
+  .auth-form h1 { font-family: var(--font-display); font-size: 28px; line-height: 1.1; margin: var(--space-2) 0 0; color: #0F2A43; }
+  .auth-form .sous { font-size: 14px; color: #64748B; margin: calc(var(--space-3) * -1) 0 0; }
+  .auth-form form { display: grid; gap: var(--space-4); }
+  .auth-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-4); min-width: 0; }
+  .auth-form .input { border: 1px solid #E2E8F0; border-radius: 10px; }
+  .auth-form .input:focus, .auth-form .input:focus-visible { outline: none; border-color: #0E7490; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.5); }
+  .pw-wrap { position: relative; }
+  .pw-wrap .input { padding-right: 52px; }
+  .pw-toggle { position: absolute; right: 2px; top: 0; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; cursor: pointer; color: var(--color-muted); border-radius: 10px; }
+  .pw-toggle:hover { color: var(--color-ink); }
+  .pw-toggle svg { width: 20px; height: 20px; }
+  .remember { display: flex; align-items: center; gap: var(--space-2); font-size: 14px; color: var(--color-ink); cursor: pointer; min-height: 32px; }
+  .remember input { width: 18px; height: 18px; accent-color: #0E7490; margin: 0; }
+  .auth-form .btn-connexion, .auth-form .btn-google { width: 100%; min-height: 44px; }
+  .hint-g { font-size: 12px; color: #64748B; margin: calc(var(--space-2) * -1) 0 0; }
+  .panel-v { display: grid; gap: var(--space-4); align-content: start; }
+  .panel-v[hidden] { display: none; }
+  .panel-v h1:focus { outline: none; }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+  .rules li { display: flex; align-items: center; gap: var(--space-2); color: #64748B; }
+  .rules .mk { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--color-border-strong); display: grid; place-items: center; }
+  .rules .mk svg { width: 11px; height: 11px; display: none; }
+  .rules li.ok { color: var(--color-success); }
+  .rules li.ok .mk { background: var(--color-success); border-color: var(--color-success); color: #fff; }
+  .rules li.ok .mk svg { display: block; }
+  .meter { display: grid; gap: 4px; }
+  .meter-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .meter-bar span { height: 6px; border-radius: 3px; background: var(--color-subtle); border: 1px solid var(--color-border); }
+  .meter[data-lvl="1"] .meter-bar span:nth-child(-n+1) { background: var(--color-danger); border-color: var(--color-danger); }
+  .meter[data-lvl="2"] .meter-bar span:nth-child(-n+2) { background: var(--color-warning); border-color: var(--color-warning); }
+  .meter[data-lvl="3"] .meter-bar span:nth-child(-n+3) { background: var(--color-info); border-color: var(--color-info); }
+  .meter[data-lvl="4"] .meter-bar span:nth-child(-n+4) { background: var(--color-success); border-color: var(--color-success); }
+  .retour a { color: #0E7490; text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
+  .oubli { text-align: center; font-size: 14px; }
+  .oubli a { color: #0E7490; text-decoration: underline; text-underline-offset: 3px; }
+  .auth-foot { margin-top: auto; font-size: 12px; color: #64748B; line-height: 1.5; }
+  /* Focus visible : anneau marine + cyan (le cyan seul ne se voit pas sur blanc) */
+  .auth-card a:focus-visible, .auth-card button:focus-visible, .auth-card .remember input:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0F2A43, 0 0 0 6px #22D3EE; }
+  .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: spin .8s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .countdown { font-family: var(--font-mono); font-weight: 600; }
+
+  /* Colonne droite : photo, voile, message, fragments d'interface */
+  .auth-photo { position: relative; min-width: 0; overflow: hidden; background: #0F2A43; }
+  .auth-photo > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 66% 50%; }
+  .auth-photo::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(135deg, rgba(15,42,67,.93) 0%, rgba(15,42,67,.8) 28%, rgba(15,42,67,.28) 62%, rgba(15,42,67,0) 100%); }
+  .photo-msg { position: absolute; z-index: 2; top: 40px; left: 40px; right: 40px; max-width: 460px; color: #FFFFFF; display: grid; gap: var(--space-3); }
+  .photo-msg h2 { font-family: var(--font-display); font-size: 32px; line-height: 1.15; color: #FFFFFF; margin: 0; }
+  .photo-msg p { font-size: 15px; line-height: 1.5; color: rgba(255,255,255,.8); margin: 0; max-width: 40ch; }
+  .photo-msg a { color: #FFFFFF; text-decoration: underline; text-underline-offset: 4px; width: fit-content; font-weight: 500; }
+  .photo-msg a:focus-visible { box-shadow: 0 0 0 2px #0F2A43, 0 0 0 4px #22D3EE; border-radius: 4px; outline: none; }
+  .float { position: absolute; z-index: 2; background: #FFFFFF; border-radius: 14px; box-shadow: 0 12px 32px rgba(11, 18, 32, 0.28); }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .float { background: rgba(255, 255, 255, 0.86); -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15); border: 1px solid rgba(255, 255, 255, 0.6); }
+  }
+  .float-import { width: 56px; height: 56px; left: 42%; top: 34%; display: grid; place-items: center; color: #0E7490; }
+  .float-import svg { width: 26px; height: 26px; }
+  .float-result { width: 280px; right: 6%; bottom: 14%; padding: 14px 16px; display: grid; gap: 8px; }
+  .float-result::after { content: ""; position: absolute; inset: -6px; pointer-events: none; background: var(--corner-bg); --cl: 22px; }
+  .float-result .t { font-size: 13px; color: #64748B; margin: 0; }
+  .float-result ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-family: var(--font-mono); font-size: 13px; color: #0F2A43; }
+  .float-result li { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+  /* Outils de maquette (hors carte) */
+  .auth-card .maq-details { position: fixed; left: var(--space-4); bottom: var(--space-4); z-index: 80; }
+  .states-bar { max-width: min(540px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); padding: var(--space-2); box-shadow: var(--shadow-md); }
+  .states-bar .btn-sm { min-height: 30px; font-size: var(--text-xs); }
+  .states-bar .btn[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-hover); }
+  .states-bar .demo { display: flex; gap: var(--space-3); flex-wrap: wrap; width: 100%; font-size: var(--text-xs); padding: var(--space-1) var(--space-2) 0; border-top: 1px solid var(--color-border); margin-top: var(--space-1); }
+
+  /* Moins de 900 px : une colonne, la photo devient une bande de 220 px en haut */
+  @media (max-width: 900px) {
+    .auth-page { padding: 24px; }
+    .auth-card { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
+    .auth-photo { order: -1; height: 220px; }
+    .auth-photo > img { object-position: 70% 40%; }
+    .photo-msg { top: 24px; left: 24px; right: 24px; }
+    .photo-msg h2 { font-size: 26px; }
+    .photo-msg p, .photo-msg a, .float { display: none; }
+    .auth-form { overflow: visible; padding: 28px 24px; }
+  }
+  /* Moins de 480 px : pleine largeur, 16 px de marge */
+  @media (max-width: 480px) {
+    .auth-page { padding: 16px; }
+    .photo-msg h2 { font-size: 22px; }
+    .auth-form { padding: 24px 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+</style>
+</head>
+<body data-page="connexion">
+<main class="auth-page">
+  <div class="auth-card">
+    <div class="auth-form">
+      <div class="states-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" data-etat="normal">Normal</button>
+        <button class="btn btn-sm btn-ghost" data-etat="erreur">Erreur</button>
+        <button class="btn btn-sm btn-ghost" data-etat="verrouille">Verrouillé</button>
+        <button class="btn btn-sm btn-ghost" data-etat="expiree">Session expirée</button>
+        <button class="btn btn-sm btn-ghost" data-etat="deconnecte">Déconnecté</button>
+        <button class="btn btn-sm btn-ghost" data-etat="chargement">Chargement</button>
+        <button class="btn btn-sm btn-ghost" data-etat="oubli">Mot de passe oublié</button>
+        <button class="btn btn-sm btn-ghost" data-etat="envoye">Lien envoyé</button>
+        <button class="btn btn-sm btn-ghost" data-etat="nouveau">Nouveau mot de passe</button>
+        <button class="btn btn-sm btn-ghost" data-etat="expire">Lien expiré</button>
+        <button class="btn btn-sm btn-ghost" data-etat="succes">Mot de passe modifié</button>
+        <button class="btn btn-sm btn-ghost" data-etat="google-redirection">Google : redirection</button>
+        <button class="btn btn-sm btn-ghost" data-etat="google-inconnu">Google : compte inconnu</button>
+        <button class="btn btn-sm btn-ghost" data-etat="google-annule">Google : annulée</button>
+        <button class="btn btn-sm btn-ghost" data-etat="google-desactive">Google : désactivée</button>
+        <div class="demo"><span class="maq-note">Comptes de démonstration</span>
+          <a href="#" data-h="tableau-de-bord.html?role=praticien" data-keep>Dr Rakoto (praticien)</a>
+          <a href="#" data-h="tableau-de-bord.html?role=admin" data-keep>Administrateur</a>
+          <a href="#" data-h="tableau-de-bord.html?role=lecteur" data-keep>Lecteur</a>
+        </div>
+      </div>
+
+      <a class="auth-logo" href="accueil.html" aria-label="PanoraDent AI, accueil"><img src="brand/Logo_clair_transparent.svg" alt="PanoraDent AI"></a>
+      <div class="panel-v" id="view-login">
+        <h1 id="t-login" tabindex="-1">Connexion</h1>
+        <p class="sous">Accès réservé aux praticiens et au personnel autorisé.</p>
+
+        <div id="messages" aria-live="polite" style="display:grid;gap:var(--space-3)"></div>
+
+        <button type="button" class="btn btn-google" id="google"><span id="g-slot"></span><span id="g-label">Se connecter avec Google</span></button>
+        <p class="hint-g">Réservé aux comptes créés par l’administrateur.</p>
+        <div class="or-sep">ou avec votre e-mail</div>
+
+        <form id="login" novalidate>
+          <fieldset id="fs">
+            <div class="field">
+              <label class="label" for="email">Adresse e-mail</label>
+              <input class="input" id="email" type="email" autocomplete="username" value="rakoto@demo.panoradent.test" required>
+            </div>
+            <div class="field">
+              <label class="label" for="pw">Mot de passe</label>
+              <div class="pw-wrap">
+                <input class="input" id="pw" type="password" autocomplete="current-password" value="demonstration" required>
+                <button type="button" class="pw-toggle" id="pwt" aria-label="Afficher le mot de passe" aria-pressed="false"></button>
+              </div>
+            </div>
+            <label class="remember" for="remember"><input type="checkbox" id="remember" checked> Se souvenir de moi</label>
+            <button class="btn btn-primary btn-connexion" id="submit" type="submit">Se connecter</button>
+          </fieldset>
+        </form>
+        <p class="oubli"><a href="connexion.html?etat=oubli" id="open-reset">Mot de passe oublié ?</a></p>
+      </div>
+
+      <div class="panel-v" id="view-reset" hidden>
+        <h1 id="t-reset" tabindex="-1">Mot de passe oublié</h1>
+        <p class="sous">Saisissez l’adresse e-mail de votre compte. Nous vous enverrons un lien de réinitialisation.</p>
+        <form id="reset" novalidate style="display:grid;gap:var(--space-4)">
+          <div class="field">
+            <label class="label" for="r-mail">Adresse e-mail</label>
+            <input class="input" id="r-mail" type="email" autocomplete="email" required>
+          </div>
+          <button class="btn btn-primary btn-connexion" type="submit">Envoyer le lien</button>
+        </form>
+        <p class="retour"><a href="#" data-retour>Retour à la connexion</a></p>
+      </div>
+
+      <div class="panel-v" id="view-sent" hidden>
+        <h1 id="t-sent" tabindex="-1">Vérifiez votre messagerie</h1>
+        <div class="alert alert-success" role="status"><i data-icon="mail"></i><div>Si un compte correspond à cette adresse, un lien de réinitialisation valable 30 minutes vient d’être envoyé.</div></div>
+        <p class="sous">Rien reçu ? Vérifiez vos courriers indésirables, ou contactez l’administrateur de votre cabinet.</p>
+        <button type="button" class="btn btn-secondary btn-connexion" data-retour>Retour à la connexion</button>
+        <p class="sous"><span class="maq-note">Démo</span> <a href="#" data-go="nouveau">Ouvrir le lien reçu</a></p>
+      </div>
+
+      <div class="panel-v" id="view-nouveau" hidden>
+        <h1 id="t-nouveau" tabindex="-1">Choisir un nouveau mot de passe</h1>
+        <p class="sous">Ce lien est à usage unique.</p>
+        <form id="f-nouveau" novalidate style="display:grid;gap:var(--space-3)">
+          <div class="field">
+            <label class="label" for="n-pw">Nouveau mot de passe</label>
+            <div class="pw-wrap">
+              <input class="input" id="n-pw" type="password" autocomplete="new-password" aria-describedby="rules meter-txt">
+              <button type="button" class="pw-toggle" aria-label="Afficher le mot de passe" aria-pressed="false" data-toggle="n-pw"></button>
+            </div>
+          </div>
+          <div class="meter" id="meter" data-lvl="0">
+            <div class="meter-bar" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            <span class="hint" id="meter-txt" aria-live="polite">Robustesse : à saisir</span>
+          </div>
+          <ul class="rules" id="rules" aria-label="Règles du mot de passe"></ul>
+          <div class="field">
+            <label class="label" for="n-pw2">Confirmer le mot de passe</label>
+            <div class="pw-wrap">
+              <input class="input" id="n-pw2" type="password" autocomplete="new-password" aria-describedby="n-err">
+              <button type="button" class="pw-toggle" aria-label="Afficher la confirmation" aria-pressed="false" data-toggle="n-pw2"></button>
+            </div>
+            <span class="error-text" id="n-err" role="alert" hidden>Les deux mots de passe ne correspondent pas.</span>
+          </div>
+          <button class="btn btn-primary btn-connexion" id="n-submit" type="submit" disabled>Enregistrer le nouveau mot de passe</button>
+        </form>
+      </div>
+
+      <div class="panel-v" id="view-expire" hidden>
+        <h1 id="t-expire" tabindex="-1">Lien expiré</h1>
+        <div class="alert alert-danger" role="alert"><i data-icon="alert"></i><div><strong>Ce lien n’est plus valable.</strong>Il a expiré (validité de 30 minutes) ou a déjà été utilisé.</div></div>
+        <button type="button" class="btn btn-primary btn-connexion" data-go="reset">Demander un nouveau lien</button>
+        <p class="retour"><a href="#" data-retour>Retour à la connexion</a></p>
+      </div>
+
+      <div class="panel-v" id="view-succes" hidden>
+        <h1 id="t-succes" tabindex="-1">Mot de passe modifié</h1>
+        <div class="alert alert-success" role="status"><i data-icon="check"></i><div>Mot de passe modifié. Toutes vos sessions ouvertes ont été fermées.</div></div>
+        <button type="button" class="btn btn-primary btn-connexion" id="to-login">Aller à la connexion</button>
+      </div>
+
+      <p class="auth-foot">Prototype d’aide à la décision — non certifié. © 2026 PanoraDent AI.</p>
+    </div>
+
+    <aside class="auth-photo" aria-labelledby="side-t">
+      <img src="medias/connexion/login-praticien.webp" width="1824" height="1344" alt="Praticienne de profil, assise à son poste dans un cabinet dentaire moderne, qui examine une radiographie panoramique affichée sur son écran. Image générée par IA.">
+      <div class="photo-msg">
+        <h2 id="side-t">Votre seconde lecture,<br>sous contrôle</h2>
+        <p>Détection et numérotation des anomalies sur radiographies panoramiques. Le praticien garde la décision.</p>
+        <a href="accueil.html">Découvrir la plateforme ›</a>
+      </div>
+      <div class="float float-import" aria-hidden="true"><i data-icon="upload"></i></div>
+      <div class="float float-result" aria-hidden="true">
+        <p class="t">Analyse terminée</p>
+        <ul>
+          <li><span class="det-swatch det-caries"></span>36 · carie · 94&nbsp;%</li>
+          <li><span class="det-swatch det-periapical"></span>46 · lésion apicale · 88&nbsp;%</li>
+          <li><span class="det-swatch det-impacted"></span>38 · dent incluse · 91&nbsp;%</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // Bandeau de prototype (app.js ne l'ajoute que sur les pages .app)
+  var b = document.createElement("div");
+  b.className = "proto-banner"; b.setAttribute("role", "note");
+  b.innerHTML = PD.icon("info") + "<span><strong>Prototype non certifié</strong> · aide à la décision, ne remplace pas le jugement du praticien · données fictives</span>";
+  document.body.prepend(b);
+
+  // Raccourcis de démo : le rôle est choisi par le lien, pas par le rôle courant
+  document.querySelectorAll("a[data-keep]").forEach(function (a) { a.setAttribute("href", a.dataset.h); });
+
+  var pw = document.getElementById("pw"), pwt = document.getElementById("pwt");
+  function pwIcon() { pwt.innerHTML = PD.icon(pw.type === "password" ? "eye" : "eyeoff"); }
+  pwIcon();
+  pwt.addEventListener("click", function () {
+    var show = pw.type === "password"; pw.type = show ? "text" : "password";
+    pwt.setAttribute("aria-pressed", show); pwt.setAttribute("aria-label", show ? "Masquer le mot de passe" : "Afficher le mot de passe"); pwIcon();
+  });
+
+  var msgs = document.getElementById("messages"), fs = document.getElementById("fs"), sub = document.getElementById("submit");
+  var gBtn = document.getElementById("google"), gSlot = document.getElementById("g-slot"), gLabel = document.getElementById("g-label");
+  var views = { login: document.getElementById("view-login"), reset: document.getElementById("view-reset"), sent: document.getElementById("view-sent"), nouveau: document.getElementById("view-nouveau"), expire: document.getElementById("view-expire"), succes: document.getElementById("view-succes") };
+  var timer = null;
+  // La colonne de gauche change de vue sans quitter la page ; la photo ne bouge pas
+  function show(name, focus) {
+    Object.keys(views).forEach(function (k) { views[k].hidden = k !== name; });
+    if (focus) { var h = views[name].querySelector("h1"); if (h) h.focus(); }
+  }
+  gBtn.addEventListener("click", function () {
+    setState("google-redirection");
+    setTimeout(function () { location.href = "tableau-de-bord.html?role=praticien"; }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 300 : 1600);
+  });
+  document.getElementById("open-reset").addEventListener("click", function (e) {
+    e.preventDefault(); document.getElementById("r-mail").value = document.getElementById("email").value; show("reset", true);
+  });
+  document.querySelectorAll("[data-retour]").forEach(function (x) { x.addEventListener("click", function (e) { e.preventDefault(); setState("normal"); show("login", true); }); });
+  // Liens internes : « Ouvrir le lien reçu », « Demander un nouveau lien »
+  document.querySelectorAll("[data-go]").forEach(function (x) {
+    x.addEventListener("click", function (e) { e.preventDefault(); show(x.dataset.go, true); });
+  });
+  // Afficher / masquer les champs du nouveau mot de passe
+  document.querySelectorAll(".pw-toggle[data-toggle]").forEach(function (t) {
+    var inp = document.getElementById(t.dataset.toggle);
+    var draw = function () { t.innerHTML = PD.icon(inp.type === "password" ? "eye" : "eyeoff"); };
+    draw();
+    t.addEventListener("click", function () {
+      var on = inp.type === "password"; inp.type = on ? "text" : "password";
+      t.setAttribute("aria-pressed", on); t.setAttribute("aria-label", on ? "Masquer le mot de passe" : "Afficher le mot de passe"); draw();
+    });
+  });
+  // Règles qui se cochent en direct, jauge de robustesse
+  var RULES = [
+    ["12 caractères minimum", function (v) { return v.length >= 12; }],
+    ["Une majuscule et une minuscule", function (v) { return /[A-Z]/.test(v) && /[a-z]/.test(v); }],
+    ["Un chiffre", function (v) { return /\d/.test(v); }],
+    ["Un caractère spécial", function (v) { return /[^A-Za-z0-9]/.test(v); }],
+    ["Différent des 3 derniers mots de passe", function (v) { return v.length > 0 && ["Ancien-Mdp#2024a", "Ancien-Mdp#2025b", "Ancien-Mdp#2026c"].indexOf(v) < 0; }]
+  ];
+  var ul = document.getElementById("rules");
+  ul.innerHTML = RULES.map(function (r) { return '<li><span class="mk">' + PD.icon("check") + '</span><span>' + r[0] + '<span class="sr-only"> : non respectée</span></span></li>'; }).join("");
+  var npw = document.getElementById("n-pw"), npw2 = document.getElementById("n-pw2"), meter = document.getElementById("meter"), mt = document.getElementById("meter-txt"), nbtn = document.getElementById("n-submit"), nerr = document.getElementById("n-err");
+  var LAB = ["à saisir", "faible", "moyenne", "bonne", "solide"];
+  function check() {
+    var v = npw.value, okAll = true, n = 0;
+    RULES.forEach(function (r, i) {
+      var ok = r[1](v), li = ul.children[i];
+      li.classList.toggle("ok", ok);
+      li.querySelector(".sr-only").textContent = ok ? " : respectée" : " : non respectée";
+      if (!ok) okAll = false;
+      if (i < 4 && ok) n++;
+    });
+    var lvl = v ? Math.max(1, n) : 0;
+    meter.dataset.lvl = lvl; mt.textContent = "Robustesse : " + LAB[lvl];
+    var match = npw2.value === v;
+    nerr.hidden = !npw2.value || match;
+    npw2.setAttribute("aria-invalid", !!(npw2.value && !match));
+    nbtn.disabled = !(okAll && match && npw2.value);
+  }
+  npw.addEventListener("input", check); npw2.addEventListener("input", check); check();
+  document.getElementById("f-nouveau").addEventListener("submit", function (e) { e.preventDefault(); if (!nbtn.disabled) show("succes", true); });
+  document.getElementById("to-login").addEventListener("click", function () {
+    setState("normal");
+    msgs.innerHTML = alertHtml("success", "check", "", "Mot de passe modifié. Connectez-vous avec votre nouveau mot de passe.");
+    msgs.firstChild.setAttribute("role", "status"); show("login", true);
+  });
+  document.getElementById("reset").addEventListener("submit", function (e) { e.preventDefault(); show("sent", true); });
+  function alertHtml(cls, ic, strong, text) {
+    return '<div class="alert alert-' + cls + '">' + PD.icon(ic) + "<div>" + (strong ? "<strong>" + strong + "</strong>" : "") + text + "</div></div>";
+  }
+  function setState(s) {
+    clearInterval(timer);
+    document.querySelectorAll("[data-etat]").forEach(function (x) { x.setAttribute("aria-pressed", x.dataset.etat === s); });
+    if (s === "oubli") { show("reset", false); return; }
+    if (s === "envoye") { show("sent", false); return; }
+    if (s === "nouveau" || s === "expire" || s === "succes") { show(s, false); return; }
+    show("login", false);
+    fs.disabled = false; sub.disabled = false; sub.textContent = "Se connecter"; msgs.innerHTML = "";
+    gBtn.disabled = false; gSlot.innerHTML = PD.GOOGLE_G; gLabel.textContent = "Se connecter avec Google";
+    pw.removeAttribute("aria-invalid"); document.getElementById("email").removeAttribute("aria-invalid");
+    if (s === "google-redirection") {
+      gBtn.disabled = true; fs.disabled = true;
+      gSlot.innerHTML = '<span class="spinner" aria-hidden="true" style="border-color:var(--color-border);border-top-color:var(--color-primary);margin:0"></span>';
+      gLabel.textContent = "Redirection vers Google…";
+      msgs.innerHTML = alertHtml("info", "info", "", "Vous allez choisir votre compte Google dans une fenêtre de Google, puis revenir ici. PanoraDent ne reçoit que votre adresse e-mail et votre nom : jamais votre mot de passe Google.");
+    } else if (s === "google-inconnu") {
+      msgs.innerHTML = alertHtml("danger", "alert", "Aucun compte PanoraDent pour cette adresse Google", "L’adresse <span class='mono'>andria.cabinet@gmail.com</span> n’est associée à aucun compte. Il n’y a pas d’inscription libre : demandez un accès à l’administrateur de votre cabinet, ou connectez-vous avec votre e-mail.");
+      msgs.firstChild.setAttribute("role", "alert");
+    } else if (s === "google-annule") {
+      msgs.innerHTML = alertHtml("info", "info", "", "Connexion avec Google annulée. Vous pouvez réessayer ou vous connecter avec votre e-mail.");
+    } else if (s === "google-desactive") {
+      gBtn.disabled = true;
+      msgs.innerHTML = alertHtml("warning", "lock", "Connexion Google désactivée pour ce compte", "L’administrateur a réservé ce compte à la connexion par e-mail et mot de passe. Utilisez le formulaire ci-dessous.");
+    }
+    if (s === "erreur") {
+      msgs.innerHTML = alertHtml("danger", "alert", "", "Identifiants incorrects. Vérifiez votre e-mail et votre mot de passe.<br>Il vous reste 2 tentatives avant le verrouillage temporaire du compte.");
+      msgs.firstChild.setAttribute("role", "alert");
+    } else if (s === "verrouille") {
+      var sec = 14 * 60 + 32;
+      msgs.innerHTML = alertHtml("warning", "lock", "Compte verrouillé temporairement", "Après 5 échecs de connexion, le compte est verrouillé pendant 15 minutes. Nouvel essai possible dans <span class='countdown' id='cd'></span>. Vous pouvez aussi <a href='#' data-reset-link>réinitialiser votre mot de passe</a>.");
+      fs.disabled = true;
+      var cd = document.getElementById("cd");
+      var draw = function () { cd.textContent = Math.floor(sec / 60) + " min " + String(sec % 60).padStart(2, "0") + " s"; };
+      draw();
+      timer = setInterval(function () { if (sec > 0) { sec--; draw(); } }, 1000);
+    } else if (s === "expiree") {
+      msgs.innerHTML = alertHtml("info", "clock", "", "Votre session a expiré après 30 minutes d’inactivité. Reconnectez-vous pour reprendre ; vos relectures enregistrées sont conservées.");
+    } else if (s === "deconnecte") {
+      msgs.innerHTML = alertHtml("success", "check", "", "Vous êtes déconnecté.");
+      msgs.firstChild.setAttribute("role", "status");
+    } else if (s === "chargement") {
+      fs.disabled = true; sub.innerHTML = '<span class="spinner" aria-hidden="true"></span>Connexion…';
+    }
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-reset-link]")) { e.preventDefault(); document.getElementById("open-reset").click(); }
+  });
+  var allowed = ["normal", "erreur", "verrouille", "expiree", "deconnecte", "chargement", "oubli", "envoye", "nouveau", "expire", "succes", "google-redirection", "google-inconnu", "google-annule", "google-desactive"];
+  var e0 = new URLSearchParams(location.search).get("etat");
+  setState(allowed.indexOf(e0) > -1 ? e0 : "normal");
+  document.querySelectorAll("[data-etat]").forEach(function (x) { x.addEventListener("click", function () { setState(x.dataset.etat); }); });
+
+  document.getElementById("login").addEventListener("submit", function (e) {
+    e.preventDefault(); location.href = PD.withRole("tableau-de-bord.html");
+  });
+});
+</script>
+</body>
+</html>

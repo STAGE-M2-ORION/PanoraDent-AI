@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>États communs · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+  .card h3 { font-size: var(--text-lg); }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+  .center { display: grid; justify-items: center; text-align: center; gap: var(--space-3); padding: var(--space-6) var(--space-2); }
+  .ill-img { width: 160px; height: 160px; object-fit: contain; margin: -24px 0; }
+  .center svg.ill { width: 120px; height: 90px; color: var(--color-border-strong); }
+  .center h4 { font-size: var(--text-base); margin: 0; }
+  .skel-row { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
+  .skel-row:last-child { border-bottom: 0; }
+  .skel-row .skeleton { height: 14px; }
+  .preview { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--color-bg); }
+  .toast-zone { position: fixed; right: var(--space-4); bottom: var(--space-4); display: grid; gap: var(--space-3); z-index: 200; width: min(360px, calc(100vw - 2 * var(--space-4))); }
+  .toast { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-left-width: 4px; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: var(--text-sm); }
+  .toast svg { width: 20px; height: 20px; flex: none; }
+  .toast.ok { border-left-color: var(--color-success); } .toast.ok > svg { color: var(--color-success); }
+  .toast.ko { border-left-color: var(--color-danger); } .toast.ko > svg { color: var(--color-danger); }
+  .toast span { flex: 1; }
+  .toast button { background: none; border: 0; cursor: pointer; width: 28px; height: 28px; color: var(--color-muted); display: grid; place-items: center; }
+  .toast button svg { width: 16px; height: 16px; color: inherit; }
+  .btn-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .offline-banner { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--color-warning-soft); color: #78350F; border: 1px solid #FDE68A; border-radius: var(--radius-md); font-size: var(--text-sm); }
+  .offline-banner svg { width: 18px; height: 18px; color: var(--color-warning); flex: none; }
+  @media (max-width: 1100px) { .catalog { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body data-page="" data-allow="admin praticien lecteur">
+<div class="app"><aside class="sidebar" id="sidebar"></aside>
+<div class="main">
+  <header class="topbar"><div><p class="crumbs">Maquette</p><h1>États communs</h1></div></header>
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <h2>États communs</h2>
+        <p>Catalogue des états communs à toute l’application (maquette).</p>
+      </div>
+      <span class="maq-note">Page de maquette, absente du produit</span>
+    </div>
+
+    <div class="catalog">
+
+      <section class="card card-pad" aria-labelledby="e1">
+        <div class="card-head"><h3 id="e1">Écran vide</h3><span class="badge">Historique sans analyse</span></div>
+        <div class="center">
+          <img class="illus ill-img" src="medias/etat-vide.webp" width="1024" height="1024" alt="" aria-hidden="true">
+          <h4>Aucune analyse pour le moment</h4>
+          <p class="muted" style="font-size:var(--text-sm);max-width:36ch">Déposez une radiographie panoramique : les analyses terminées apparaîtront ici.</p>
+          <a class="btn btn-primary" href="nouvelle-analyse.html" data-roles="admin praticien"><i data-icon="plus"></i>Nouvelle analyse</a>
+          <p class="muted" style="font-size:var(--text-sm)" data-hide-roles="admin praticien">Le rôle lecteur ne peut pas créer d’analyse.</p>
+        </div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e2">
+        <div class="card-head"><h3 id="e2">Chargement en squelettes</h3><span class="badge">Tableau et carte</span></div>
+        <div role="status" aria-label="Chargement en cours" style="display:grid;gap:var(--space-4)">
+          <div class="table-wrap" aria-hidden="true">
+            <div class="skel-row"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
+            <div class="skel-row"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
+            <div class="skel-row"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
+          </div>
+          <div class="card card-pad" aria-hidden="true" style="display:grid;gap:var(--space-3)">
+            <span class="skeleton" style="height:18px;width:40%"></span>
+            <span class="skeleton" style="height:12px"></span>
+            <span class="skeleton" style="height:12px;width:75%"></span>
+          </div>
+          <span class="sr-only">Chargement en cours…</span>
+        </div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e3">
+        <div class="card-head"><h3 id="e3">Erreur de chargement</h3></div>
+        <div class="alert alert-danger" role="alert">
+          <i data-icon="alert"></i>
+          <div><strong>Impossible de charger l’historique.</strong>Le service ne répond pas.
+            <div style="margin-top:var(--space-2)" class="muted">Code d’incident : <span class="mono">INC-20261115-A7F3</span> <span class="maq-note">fictif</span></div>
+            <div style="margin-top:var(--space-3)"><button class="btn btn-sm btn-secondary" type="button" id="retry"><i data-icon="refresh"></i>Réessayer</button></div>
+          </div>
+        </div>
+        <p id="retry-msg" class="hint" aria-live="polite" style="margin-top:var(--space-2)"></p>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e4">
+        <div class="card-head"><h3 id="e4">Confirmation de suppression</h3></div>
+        <p class="muted" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">Action destructrice : confirmation par saisie, inscrite au journal d’audit.</p>
+        <button class="btn btn-danger" type="button" data-open-modal="m-del"><i data-icon="trash"></i>Supprimer l’analyse n° 0039</button>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e5">
+        <div class="card-head"><h3 id="e5">Accès refusé (403)</h3></div>
+        <div class="preview">
+          <div class="center" style="padding:var(--space-4) 0">
+            <span class="avatar" style="width:52px;height:52px;background:var(--color-danger-soft);color:var(--color-danger)"><i data-icon="lock"></i></span>
+            <p class="mono muted" style="font-size:var(--text-sm)">Erreur 403</p>
+            <h4 style="font-size:var(--text-xl)">Accès refusé</h4>
+            <p class="muted" style="font-size:var(--text-sm)">Votre rôle (Praticien) ne donne pas accès à cette fonction. Si vous pensez qu’il s’agit d’une erreur, contactez l’administrateur de votre cabinet.</p>
+          </div>
+        </div>
+        <p style="margin-top:var(--space-3);font-size:var(--text-sm)"><a href="#" data-h="admin-comptes.html?role=praticien" data-keep>Voir en vrai</a> (page d’administration ouverte avec le rôle praticien)</p>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e6">
+        <div class="card-head"><h3 id="e6">Session expirée</h3></div>
+        <div class="preview">
+          <div class="modal" style="box-shadow:var(--shadow-md);width:100%">
+            <h2>Session expirée</h2>
+            <p class="muted" style="font-size:var(--text-sm)">Votre session a expiré après 30 minutes d’inactivité. Reconnectez-vous pour reprendre ; vos relectures enregistrées sont conservées.</p>
+            <div class="modal-actions"><span class="btn btn-primary" aria-disabled="true" role="presentation">Se reconnecter</span></div>
+          </div>
+        </div>
+        <p style="margin-top:var(--space-3);font-size:var(--text-sm)"><a href="connexion.html?etat=expiree">Voir l’écran de connexion correspondant</a> <span class="maq-note">durée à confirmer</span></p>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e7">
+        <div class="card-head"><h3 id="e7">Notification (toast)</h3></div>
+        <p class="muted" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">S’affiche en bas à droite et se ferme seule après 6 secondes.</p>
+        <div class="btn-row">
+          <button class="btn btn-secondary" type="button" data-toast="ok">Notification de succès</button>
+          <button class="btn btn-secondary" type="button" data-toast="ko">Notification d’erreur</button>
+        </div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="e8">
+        <div class="card-head"><h3 id="e8">Hors ligne</h3></div>
+        <div class="offline-banner" role="status"><i data-icon="alert"></i><span><strong>Connexion perdue.</strong> Vous êtes hors ligne. Vos modifications seront envoyées au retour du réseau.</span></div>
+      </section>
+    </div>
+  </main>
+</div></div>
+
+<div class="modal-backdrop" id="m-del" data-open="false" role="dialog" aria-modal="true" aria-labelledby="m-del-t">
+  <div class="modal">
+    <h2 id="m-del-t">Supprimer l’analyse n° 0039 ?</h2>
+    <p style="font-size:var(--text-sm)">Cette action est définitive : l’image, les détections et le compte rendu seront effacés. Elle sera inscrite au journal d’audit.</p>
+    <div class="field">
+      <label class="label" for="del-confirm">Tapez SUPPRIMER pour confirmer</label>
+      <input class="input" id="del-confirm" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" data-close-modal>Annuler</button>
+      <button class="btn btn-danger" type="button" id="del-go" disabled>Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-zone" id="toasts" aria-live="polite"></div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // Liens de démonstration : le rôle est imposé par le lien
+  document.querySelectorAll("a[data-keep]").forEach(function (a) { a.setAttribute("href", a.dataset.h); });
+
+  var inp = document.getElementById("del-confirm"), go = document.getElementById("del-go");
+  inp.addEventListener("input", function () { go.disabled = inp.value.trim() !== "SUPPRIMER"; });
+  function toast(kind) {
+    var t = document.createElement("div");
+    t.className = "toast " + kind;
+    t.innerHTML = PD.icon(kind === "ok" ? "check" : "alert") + "<span>" + (kind === "ok" ? "Modifications enregistrées." : "Échec de l’enregistrement. Réessayez dans un instant.") + '</span><button type="button" aria-label="Fermer la notification">' + PD.icon("x") + "</button>";
+    t.querySelector("button").addEventListener("click", function () { t.remove(); });
+    document.getElementById("toasts").appendChild(t);
+    setTimeout(function () { t.remove(); }, 6000);
+  }
+  go.addEventListener("click", function () {
+    document.getElementById("m-del").dataset.open = "false"; inp.value = ""; go.disabled = true;
+    toast("ok");
+  });
+  document.querySelectorAll("[data-toast]").forEach(function (b) { b.addEventListener("click", function () { toast(b.dataset.toast); }); });
+  document.getElementById("retry").addEventListener("click", function () {
+    document.getElementById("retry-msg").textContent = "Nouvelle tentative… (démonstration : l’état reste affiché)";
+  });
+});
+</script>
+</body>
+</html>

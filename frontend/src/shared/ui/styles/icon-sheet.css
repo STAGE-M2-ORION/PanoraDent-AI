@@ -1,0 +1,14 @@
+/* Planche d'icônes (page design system). */
+
+/* Planche d icônes */
+.sheet { display: grid; gap: var(--space-6); max-width: 1100px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
+.sheet h1 { font-family: var(--font-display); font-size: 2rem; }
+.sheet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: var(--space-3); }
+.sheet-cell { display: grid; justify-items: center; gap: 10px; padding: var(--space-4) var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface); color: var(--color-ink); }
+.sheet-cell svg { width: 32px; height: 32px; }
+.sheet-cell code { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-muted); }
+.sheet-sizes { display: flex; align-items: center; gap: 12px; }
+.sheet-dark { background: #0F2A43; color: #E2E8F0; --ic-accent: #22D3EE; padding: var(--space-4); border-radius: 16px; }
+.sheet-dark .sheet-cell { background: #112B46; border-color: #1E3A5C; color: #E2E8F0; }
+.sheet-dark .sheet-cell code { color: #94A3B8; }
+.sheet-tag { font-size: 11px; color: var(--color-muted); border: 1px solid var(--color-border); border-radius: 6px; padding: 0 6px; }

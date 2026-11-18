@@ -1,7 +1,1 @@
-export {
-  createUser,
-  deleteUser,
-  fetchUsers,
-  normalizeManagedUser,
-  updateUser,
-} from "./api/user-api";
+export { createUser, deleteUser, fetchUsers, normalizeManagedUser, updateUser } from "./api/user-api";
