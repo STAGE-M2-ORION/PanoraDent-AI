@@ -1,58 +1,93 @@
-"""Dépendances FastAPI : utilisateur courant et contrôle de permission."""
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+"""Dépendances FastAPI : session courante et contrôle de permission.
+
+Toute route déclare soit `exiger("<permission>")` (ou `session_ouverte`), soit
+explicitement `publique`. Un test parcourt la liste des routes et échoue si
+l'une d'elles ne porte ni l'un ni l'autre : c'est lui qui empêchera d'oublier
+un garde sur une nouvelle route.
+
+Les routes déclarent la PERMISSION exigée, jamais le rôle.
+"""
+import uuid
+
+from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from . import auth_security as sec
-from .auth_models import User
+from .auth_models import SessionUtilisateur, Utilisateur
 from .database import get_db
+from .errors import ApiError
 
-# Les routeurs sont montés sous /api (voir main.py) : l'URL de login est donc
-# /api/auth/login. Sert uniquement à la documentation Swagger ("Authorize").
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# Cookies de session (httpOnly, Secure, SameSite=Lax).
+COOKIE_ACCES = "pd_acces"
+COOKIE_RAFRAICHISSEMENT = "pd_rafraichissement"
+COOKIE_OAUTH = "pd_oauth"
+# Chemins : le jeton d'accès accompagne tout appel à l'API ; celui de
+# rafraîchissement ne part que vers les routes d'authentification.
+CHEMIN_ACCES = "/api"
+CHEMIN_RAFRAICHISSEMENT = "/api/v1/auth"
+CHEMIN_OAUTH = "/api/v1/auth/google"
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
-) -> User:
-    unauthorized = HTTPException(
-        status.HTTP_401_UNAUTHORIZED,
-        "Authentification requise",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+def publique() -> None:
+    """Marque explicite d'une route accessible sans session."""
+    return None
+
+
+def _non_authentifie() -> ApiError:
+    return ApiError(401, "non_authentifie", "Authentification requise. Reconnectez-vous.")
+
+
+def _uuid(valeur) -> uuid.UUID:
     try:
-        payload = sec.decode_token(token, sec.ACCESS)
+        return uuid.UUID(str(valeur))
+    except (ValueError, TypeError) as exc:
+        raise _non_authentifie() from exc
+
+
+def session_ouverte(request: Request, db: Session = Depends(get_db)) -> Utilisateur:
+    """Décode le jeton d'accès, vérifie que sa session n'est pas révoquée et
+    charge l'utilisateur, qui doit être actif. Les permissions sont relues en
+    base : un changement de rôle s'applique sans attendre l'expiration."""
+    jeton = request.cookies.get(COOKIE_ACCES)
+    if not jeton:
+        raise _non_authentifie()
+    try:
+        payload = sec.decode_token(jeton, sec.ACCESS)
     except sec.TokenError:
-        raise unauthorized
-    user = db.get(User, payload["sub"])
-    if user is None or not user.is_active:
-        raise unauthorized
-    return user
+        raise _non_authentifie()
+
+    session = db.get(SessionUtilisateur, _uuid(payload.get("sid")))
+    if session is None or not session.valide():
+        raise _non_authentifie()
+    utilisateur = db.get(Utilisateur, _uuid(payload["sub"]))
+    if utilisateur is None or utilisateur.id != session.utilisateur_id or not utilisateur.actif:
+        raise _non_authentifie()
+    request.state.session_id = session.id
+    return utilisateur
 
 
-def require_permission(code: str):
+def exiger(code: str):
     """Fabrique une dépendance qui renvoie 403 si le rôle n'a pas `code`.
 
-    Renvoie l'utilisateur, utilisable directement par la route :
-        user: User = Depends(require_permission("analysis:read"))
+        utilisateur: Utilisateur = Depends(exiger("analysis:read"))
     """
-    def dependency(user: User = Depends(get_current_user)) -> User:
-        if not user.has_permission(code):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, f"Permission requise : {code}"
+    def dependance(utilisateur: Utilisateur = Depends(session_ouverte)) -> Utilisateur:
+        if not utilisateur.a_permission(code):
+            raise ApiError(403, "acces_refuse", f"Votre rôle ne permet pas cette action ({code}).")
+        return utilisateur
+
+    dependance.permission = code
+    return dependance
+
+
+def exiger_une_de(*codes: str):
+    """Comme `exiger`, mais une seule des permissions suffit."""
+    def dependance(utilisateur: Utilisateur = Depends(session_ouverte)) -> Utilisateur:
+        if not any(utilisateur.a_permission(c) for c in codes):
+            raise ApiError(
+                403, "acces_refuse", f"Votre rôle ne permet pas cette action ({' ou '.join(codes)})."
             )
-        return user
+        return utilisateur
 
-    return dependency
-
-
-def require_any_permission(*codes: str):
-    """Comme `require_permission`, mais une seule des permissions suffit."""
-    def dependency(user: User = Depends(get_current_user)) -> User:
-        if not any(user.has_permission(c) for c in codes):
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN, f"Permission requise : {' ou '.join(codes)}"
-            )
-        return user
-
-    return dependency
+    dependance.permission = codes
+    return dependance

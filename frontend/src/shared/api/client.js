@@ -2,59 +2,47 @@ import axios from "axios";
 
 import { API_BASE_URL, API_TIMEOUT_MS } from "@/shared/config";
 
-import {
-  clearTokens,
-  getAccessToken,
-  getRefreshToken,
-  notifySessionExpired,
-  setTokens,
-} from "./auth-tokens";
-
 /**
  * Unique point de sortie HTTP de l'application. Aucune couche au-dessus de
  * `shared/api` ne doit instancier son propre client.
  *
- * Options par requête (champs de config axios) :
- * - `skipAuth: true`  — n'ajoute pas d'en-tête Authorization et ne tente
- *   aucun rafraîchissement (login, refresh).
+ * SESSION PAR COOKIES : le backend pose deux cookies `httpOnly` (accès 15 min,
+ * rafraîchissement 7 j). Le JavaScript ne voit, ne stocke et n'envoie aucun
+ * jeton : `withCredentials` suffit, et nginx sert l'API sur la même origine.
+ *
+ * Option par requête (champ de config axios) :
+ * - `skipRefresh: true` — sur 401, ne tente aucun rafraîchissement (routes
+ *   publiques, routes d'authentification elles-mêmes).
  */
 export const httpClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT_MS,
+  withCredentials: true,
 });
 
-httpClient.interceptors.request.use((config) => {
-  const token = getAccessToken();
-  if (token && !config.skipAuth) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+/** Routes qui ne doivent jamais déclencher de rafraîchissement (risque de boucle). */
+const AUTH_PATHS = ["/auth/rafraichir", "/auth/deconnexion"];
+
+let onSessionExpired = () => {};
+
+/** Branché par la couche session : appelé quand le rafraîchissement échoue. */
+export function setSessionExpiredHandler(handler) {
+  onSessionExpired = typeof handler === "function" ? handler : () => {};
+}
 
 /**
  * Rafraîchissement partagé : si plusieurs requêtes reçoivent un 401 en même
- * temps, une seule appelle `/auth/refresh`. Indispensable car le serveur fait
- * tourner les jetons — un second appel avec l'ancien jeton serait refusé et
- * couperait la session.
+ * temps, une seule appelle `/auth/rafraichir`. Indispensable car le serveur
+ * fait tourner le cookie de rafraîchissement — un second appel avec l'ancien
+ * serait refusé et couperait la session.
  */
 let refreshInFlight = null;
 
 function refreshSession() {
   if (!refreshInFlight) {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) return Promise.reject(new Error("no refresh token"));
-
-    // Instance nue : ni cet intercepteur, ni risque de boucle.
+    // Instance nue : ni l'intercepteur ci-dessous, ni risque de boucle.
     refreshInFlight = axios
-      .post(
-        `${API_BASE_URL}/auth/refresh`,
-        { refresh_token: refreshToken },
-        { timeout: API_TIMEOUT_MS },
-      )
-      .then(({ data }) => {
-        setTokens(data);
-        return data.access_token;
-      })
+      .post(`${API_BASE_URL}/auth/rafraichir`, null, { timeout: API_TIMEOUT_MS, withCredentials: true })
       .finally(() => {
         refreshInFlight = null;
       });
@@ -66,20 +54,24 @@ httpClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { response, config } = error;
-    if (response?.status !== 401 || !config || config.skipAuth || config._retried) {
+    if (
+      response?.status !== 401 ||
+      !config ||
+      config.skipRefresh ||
+      config._retried ||
+      AUTH_PATHS.some((path) => config.url?.startsWith(path))
+    ) {
       return Promise.reject(error);
     }
 
     // Une seule relance par requête.
     config._retried = true;
     try {
-      const token = await refreshSession();
-      config.headers.Authorization = `Bearer ${token}`;
-      return httpClient(config);
+      await refreshSession();
     } catch {
-      clearTokens();
-      notifySessionExpired();
+      onSessionExpired();
       return Promise.reject(error);
     }
+    return httpClient(config);
   },
 );

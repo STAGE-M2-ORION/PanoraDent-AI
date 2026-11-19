@@ -1,18 +1,102 @@
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-import { Permission, PasswordInput, PasswordStrength, changeMyPassword, displayName, evaluatePassword, roleLabel, useCurrentUser } from "@/entities/session";
+import { Permission, displayName, removeMyPhoto, roleLabel, uploadMyPhoto, useCurrentUser } from "@/entities/session";
 import { updateUser } from "@/entities/user";
-import { ErrorCode, toAppError } from "@/shared/api";
+import { toAppError } from "@/shared/api";
 import { formatDateTime } from "@/shared/lib";
-import { Alert, Badge, Button, GoogleMark, Icon } from "@/shared/ui";
+import { Alert, Avatar, Badge, Button, GoogleMark, Icon } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
+
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const PHOTO_MAX = 5 * 1024 * 1024;
+
+const SOURCE_LABEL = {
+  importee: "Photo importée",
+  google: "Photo de votre compte Google",
+};
+
+/**
+ * Photo de profil : celle du compte Google par défaut, remplaçable par une
+ * photo importée (prioritaire), qu'on peut retirer pour revenir à Google.
+ */
+function PhotoCard() {
+  const { user, setUser } = useCurrentUser();
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const name = displayName(user);
+
+  const run = async (action, success) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      setUser(await action());
+      setMsg({ tone: "success", text: success });
+    } catch (cause) {
+      setMsg({ tone: "danger", text: toAppError(cause).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // permet de reprendre le même fichier
+    if (!file) return;
+    if (!PHOTO_TYPES.includes(file.type)) {
+      setMsg({ tone: "danger", text: "Formats acceptés : JPEG, PNG ou WebP." });
+      return;
+    }
+    if (file.size > PHOTO_MAX) {
+      setMsg({ tone: "danger", text: "La photo dépasse 5 Mo." });
+      return;
+    }
+    run(() => uploadMyPhoto(file), "Photo de profil mise à jour.");
+  };
+
+  const source = user?.photoSource;
+  return (
+    <section className="card card-pad" aria-labelledby="h-photo">
+      <div className="card-head">
+        <h3 id="h-photo">Photo de profil</h3>
+      </div>
+      <div className="btn-row" style={{ alignItems: "center", gap: "var(--space-4, 16px)" }}>
+        <Avatar src={user?.photoUrl} name={name} style={{ width: 72, height: 72, fontSize: "var(--text-lg, 1.25rem)" }} />
+        <div className="stack" style={{ gap: 8 }}>
+          <p className="hint" style={{ margin: 0 }}>
+            {source ? SOURCE_LABEL[source] : "Aucune photo : vos initiales sont affichées."}
+            {source !== "importee" ? " Vous pouvez importer la vôtre (JPEG, PNG ou WebP, 5 Mo au plus)." : null}
+          </p>
+          <div className="btn-row">
+            <input ref={inputRef} type="file" accept={PHOTO_TYPES.join(",")} hidden onChange={onFile} />
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+              <Icon name="upload" /> {source === "importee" ? "Changer la photo" : "Importer une photo"}
+            </Button>
+            {source === "importee" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => run(removeMyPhoto, "Photo importée retirée.")}
+              >
+                Retirer la photo importée
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <div aria-live="polite">{msg ? <Alert tone={msg.tone}>{msg.text}</Alert> : null}</div>
+    </section>
+  );
+}
 
 function InfoCard() {
   const { user, can } = useCurrentUser();
-  const [name, setName] = useState(user?.fullName ?? "");
+  const [form, setForm] = useState({ prenom: user?.prenom ?? "", nom: user?.nom ?? "" });
   const [msg, setMsg] = useState(null);
   const canSave = can(Permission.USER_MANAGE);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const save = async () => {
     if (!canSave) {
@@ -20,8 +104,8 @@ function InfoCard() {
       return;
     }
     try {
-      await updateUser(user.id, { fullName: name.trim() });
-      setMsg({ tone: "success", text: "Informations enregistrées. Elles s’afficheront à votre prochaine connexion." });
+      await updateUser(user.id, { prenom: form.prenom.trim(), nom: form.nom.trim() });
+      setMsg({ tone: "success", text: "Informations enregistrées. Elles s’afficheront au prochain chargement de l’application." });
     } catch (cause) {
       setMsg({ tone: "danger", text: toAppError(cause).message });
     }
@@ -34,14 +118,20 @@ function InfoCard() {
       </div>
       <div className="form">
         <div className="field">
+          <label className="label" htmlFor="i-prenom">
+            Prénom
+          </label>
+          <input className="input" id="i-prenom" autoComplete="given-name" value={form.prenom} onChange={set("prenom")} readOnly={!canSave} />
+        </div>
+        <div className="field">
           <label className="label" htmlFor="i-nom">
             Nom
           </label>
-          <input className="input" id="i-nom" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="input" id="i-nom" autoComplete="family-name" value={form.nom} onChange={set("nom")} readOnly={!canSave} />
         </div>
         <div className="field">
           <label className="label" htmlFor="i-mail">
-            Adresse e-mail
+            Adresse Google
           </label>
           <input className="input ro" id="i-mail" type="email" autoComplete="email" value={user?.email ?? ""} readOnly aria-describedby="i-mail-h" />
           <span className="hint" id="i-mail-h">
@@ -72,145 +162,39 @@ function InfoCard() {
   );
 }
 
-function PasswordCard() {
-  const router = useRouter();
-  const { logout } = useCurrentUser();
-  const [form, setForm] = useState({ old: "", pw: "", pw2: "" });
-  const [show, setShow] = useState({ old: false, pw: false, pw2: false });
-  const [state, setState] = useState({ pending: false, error: null, oldWrong: false });
-  const { valid } = evaluatePassword(form.pw);
-  const mismatch = Boolean(form.pw2) && form.pw2 !== form.pw;
-  const ready = valid && !mismatch && form.pw2 && form.old;
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const toggle = (k) => () => setShow((s) => ({ ...s, [k]: !s[k] }));
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!ready) return;
-    setState({ pending: true, error: null, oldWrong: false });
-    try {
-      await changeMyPassword(form.old, form.pw);
-      // Le serveur ferme toutes les sessions : on repart d'une connexion propre.
-      await logout();
-      router.replace({ pathname: "/connexion", query: { etat: "mot-de-passe-modifie" } });
-    } catch (cause) {
-      const error = toAppError(cause);
-      const oldWrong = error.code === ErrorCode.VALIDATION && /actuel/i.test(error.message);
-      setState({ pending: false, error: oldWrong ? "Le mot de passe actuel est incorrect." : error.message, oldWrong });
-    }
-  };
-
-  return (
-    <section className="card card-pad" aria-labelledby="h-pw">
-      <div className="card-head">
-        <h3 id="h-pw">Changer mon mot de passe</h3>
-      </div>
-      <div aria-live="polite" style={{ marginBottom: state.error ? "var(--space-4)" : 0 }}>
-        {state.error ? (
-          <Alert tone="danger" icon="alert" role="alert">
-            {state.error}
-          </Alert>
-        ) : null}
-      </div>
-      <form className="form" noValidate onSubmit={submit}>
-        <div className="field">
-          <label className="label" htmlFor="p-old">
-            Mot de passe actuel
-          </label>
-          <PasswordInput
-            id="p-old"
-            autoComplete="current-password"
-            aria-describedby="p-old-err"
-            aria-invalid={state.oldWrong ? "true" : undefined}
-            value={form.old}
-            onChange={set("old")}
-            visible={show.old}
-            onToggle={toggle("old")}
-            label="le mot de passe actuel"
-          />
-          <span className="error-text" id="p-old-err" hidden={!state.oldWrong}>
-            Le mot de passe actuel est incorrect.
-          </span>
-        </div>
-        <div className="field">
-          <label className="label" htmlFor="p-new">
-            Nouveau mot de passe
-          </label>
-          <PasswordInput id="p-new" autoComplete="new-password" aria-describedby="rules meter-txt" value={form.pw} onChange={set("pw")} visible={show.pw} onToggle={toggle("pw")} label="le nouveau mot de passe" />
-        </div>
-        <PasswordStrength value={form.pw} />
-        <div className="field">
-          <label className="label" htmlFor="p-new2">
-            Confirmer le nouveau mot de passe
-          </label>
-          <PasswordInput
-            id="p-new2"
-            autoComplete="new-password"
-            aria-describedby="p-err"
-            aria-invalid={mismatch ? "true" : "false"}
-            value={form.pw2}
-            onChange={set("pw2")}
-            visible={show.pw2}
-            onToggle={toggle("pw2")}
-            label="la confirmation"
-          />
-          <span className="error-text" id="p-err" hidden={!mismatch}>
-            Les deux mots de passe ne correspondent pas.
-          </span>
-        </div>
-        <div>
-          <Button type="submit" disabled={!ready || state.pending}>
-            Enregistrer le nouveau mot de passe
-          </Button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-/** Profil, mot de passe, connexion Google, sessions et rappel de sécurité. */
+/** Profil, connexion Google, session et rappel de sécurité. */
 export function ProfilPage() {
   const router = useRouter();
   const { user, logout } = useCurrentUser();
-  const [googleMsg, setGoogleMsg] = useState(false);
-  const [othersMsg, setOthersMsg] = useState(false);
 
   return (
-    <AppShell page="profil" title="Profil et mot de passe" crumbs="Compte" className="v-profil">
+    <AppShell page="profil" title="Profil" crumbs="Compte" className="v-profil">
       <div className="stack">
+        <PhotoCard />
         <InfoCard />
-        <PasswordCard />
 
         <section className="card card-pad" aria-labelledby="h-google">
           <div className="card-head">
             <h3 id="h-google">Connexion avec Google</h3>
             <span>
-              <Badge>Non associé</Badge>
+              <Badge tone="success" dot>
+                Associée
+              </Badge>
             </span>
           </div>
-          <div style={{ display: "grid", gap: "var(--space-4)" }}>
-            <p className="hint">
-              Aucun compte Google associé. L’adresse Google doit être celle de votre compte PanoraDent ; sinon, demandez à l’administrateur de la modifier.
+          <div className="btn-row" style={{ alignItems: "center" }}>
+            <span className="method" aria-hidden="true">
+              <GoogleMark />
+            </span>
+            <p className="hint" style={{ margin: 0 }}>
+              Vous vous connectez avec le compte Google <strong>{user?.email}</strong>. Aucun mot de passe n’est enregistré par PanoraDent AI.
             </p>
-            <div className="btn-row">
-              <button className="btn btn-google" type="button" style={{ width: "auto" }} onClick={() => setGoogleMsg(true)}>
-                <GoogleMark />
-                Associer un compte Google
-              </button>
-            </div>
           </div>
-          {googleMsg ? (
-            <div style={{ marginTop: "var(--space-4)" }}>
-              <Alert tone="info" role="status">
-                La connexion avec Google n’est pas encore activée sur ce serveur.
-              </Alert>
-            </div>
-          ) : null}
         </section>
 
         <section className="card card-pad" aria-labelledby="h-sess">
           <div className="card-head">
-            <h3 id="h-sess">Sessions</h3>
+            <h3 id="h-sess">Session</h3>
           </div>
           <ul className="sess">
             <li>
@@ -242,17 +226,7 @@ export function ProfilPage() {
               <Icon name="logout" />
               Se déconnecter
             </Button>
-            <Button variant="secondary" onClick={() => setOthersMsg(true)}>
-              Fermer les autres sessions
-            </Button>
           </div>
-          {othersMsg ? (
-            <div style={{ marginTop: "var(--space-4)" }}>
-              <Alert tone="info" role="status">
-                Pour fermer toutes vos sessions, changez votre mot de passe : le serveur déconnecte alors tous vos appareils. La fermeture sélective n’est pas encore disponible.
-              </Alert>
-            </div>
-          ) : null}
         </section>
 
         <section className="card card-pad" aria-labelledby="h-sec">
@@ -260,9 +234,9 @@ export function ProfilPage() {
             <h3 id="h-sec">Rappel de sécurité</h3>
           </div>
           <ul className="sec-list">
-            <li>Le compte est verrouillé 15 minutes après 5 échecs de connexion.</li>
-            <li>La session expire après 15 minutes sans activité si elle n’est pas rafraîchie, et au bout de 7 jours au plus.</li>
-            <li>Changer de mot de passe ferme toutes les sessions ouvertes.</li>
+            <li>Seuls les comptes créés par l’administrateur peuvent se connecter, avec l’adresse Google enregistrée.</li>
+            <li>La session est prolongée automatiquement pendant l’utilisation, et dure 7 jours au plus.</li>
+            <li>Un compte désactivé par l’administrateur ne peut plus se connecter.</li>
           </ul>
         </section>
       </div>

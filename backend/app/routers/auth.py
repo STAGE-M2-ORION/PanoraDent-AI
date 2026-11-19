@@ -1,45 +1,196 @@
-from fastapi import APIRouter, Depends, Response, status
-from fastapi.security import OAuth2PasswordRequestForm
+"""Parcours OAuth Google (code d'autorisation + PKCE, mené côté serveur) et session.
+
+La route de retour est une NAVIGATION du navigateur, pas un appel JSON : elle
+redirige toujours, vers l'application en cas de succès, sinon vers
+`/connexion?erreur=<code>` que la page de connexion traduit en message.
+"""
+import hmac
+import logging
+
+from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..auth_deps import get_current_user
-from ..auth_models import User
-from ..auth_schemas import PasswordChange, RefreshRequest, TokenPair, UserOut
+from .. import auth_security as sec
+from .. import journal
+from ..auth_deps import (
+    CHEMIN_ACCES, CHEMIN_OAUTH, CHEMIN_RAFRAICHISSEMENT, COOKIE_ACCES, COOKIE_OAUTH,
+    COOKIE_RAFRAICHISSEMENT, publique, session_ouverte,
+)
+from ..auth_models import Utilisateur
+from ..auth_schemas import UtilisateurOut
+from ..config import settings
 from ..database import get_db
+from ..identity import ErreurEchange, ErreurJetonIdentite, fournisseur, verifier_jeton_identite
 from ..services import auth_service
+from ..services.auth_service import RefusConnexion
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+router_moi = APIRouter(tags=["auth"])
+
+# Motifs de refus du jeton qui relèvent d'une requête rejouée ou forgée.
+_MOTIFS_ETAT = {"nonce_invalide"}
 
 
-@router.post("/login", response_model=TokenPair)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # Le champ `username` du formulaire OAuth2 porte l'email.
-    user = auth_service.authenticate(db, form.username, form.password)
-    return auth_service.issue_tokens(db, user)
+def _cookie(response: Response, nom: str, valeur: str, chemin: str, max_age: int) -> None:
+    response.set_cookie(
+        nom, valeur, max_age=max_age, path=chemin,
+        httponly=True, secure=settings.cookie_secure, samesite="lax",
+    )
 
 
-@router.post("/refresh", response_model=TokenPair)
-def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
-    return auth_service.rotate_refresh(db, body.refresh_token)
+def _effacer(response: Response, nom: str, chemin: str) -> None:
+    response.delete_cookie(nom, path=chemin, httponly=True, secure=settings.cookie_secure, samesite="lax")
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Révoque tous les refresh tokens de l'utilisateur (toutes ses sessions)."""
-    auth_service.revoke_all_refresh(db, user.id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+def poser_session(response: Response, acces: str, rafraichissement: str | None = None) -> None:
+    _cookie(response, COOKIE_ACCES, acces, CHEMIN_ACCES, int(sec.access_ttl().total_seconds()))
+    if rafraichissement is not None:
+        _cookie(
+            response, COOKIE_RAFRAICHISSEMENT, rafraichissement, CHEMIN_RAFRAICHISSEMENT,
+            int(sec.refresh_ttl().total_seconds()),
+        )
 
 
-@router.get("/me", response_model=UserOut)
-def me(user: User = Depends(get_current_user)):
-    return UserOut.from_user(user)
+def effacer_session(response: Response) -> None:
+    _effacer(response, COOKIE_ACCES, CHEMIN_ACCES)
+    _effacer(response, COOKIE_RAFRAICHISSEMENT, CHEMIN_RAFRAICHISSEMENT)
 
 
-@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
-def change_my_password(
-    body: PasswordChange,
-    user: User = Depends(get_current_user),
+# --- Parcours Google -------------------------------------------------------
+
+@router.get("/google/demarrer", dependencies=[Depends(publique)])
+def demarrer():
+    """Tire `state`, `nonce` et le couple PKCE ; les garde dans un cookie de
+    courte durée et renvoie le navigateur chez Google."""
+    if not settings.fournisseur_factice and not (
+        settings.google_client_id and settings.google_client_secret
+    ):
+        # Sans client OAuth, Google afficherait « Missing required parameter:
+        # client_id » : on reste sur la page de connexion avec un message.
+        logger.error(
+            "Connexion Google impossible : GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET "
+            "doivent être définis dans .env (voir README, « Authentification »)."
+        )
+        return RedirectResponse(
+            f"{settings.app_url}/connexion?erreur=echec_google", status_code=status.HTTP_302_FOUND
+        )
+    state, nonce = sec.random_token(), sec.random_token()
+    verifier, challenge = sec.pkce_pair()
+    response = RedirectResponse(
+        fournisseur().url_autorisation(state, nonce, challenge), status_code=status.HTTP_302_FOUND
+    )
+    _cookie(
+        response, COOKIE_OAUTH, sec.create_oauth_token(state, nonce, verifier),
+        CHEMIN_OAUTH, int(sec.OAUTH_TTL.total_seconds()),
+    )
+    return response
+
+
+@router.get("/google/retour", dependencies=[Depends(publique)])
+def retour(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
     db: Session = Depends(get_db),
 ):
-    auth_service.change_password(db, user, body.current_password, body.new_password)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    def refus(code_erreur: str, motif: str, utilisateur_id=None) -> RedirectResponse:
+        db.rollback()
+        journal.inscrire(
+            db, "connexion", journal.REFUS, request=request,
+            auteur_id=utilisateur_id, detail=f"{code_erreur}: {motif}",
+        )
+        response = RedirectResponse(
+            f"{settings.app_url}/connexion?erreur={code_erreur}", status_code=status.HTTP_302_FOUND
+        )
+        _effacer(response, COOKIE_OAUTH, CHEMIN_OAUTH)
+        return response
+
+    # 1. La transaction doit venir de CE navigateur : state identique au cookie.
+    try:
+        transaction = sec.decode_token(request.cookies.get(COOKIE_OAUTH) or "", sec.OAUTH)
+    except sec.TokenError:
+        return refus("etat_invalide", "cookie_oauth_absent_ou_expire")
+    if not state or not hmac.compare_digest(state.encode(), str(transaction.get("state", "")).encode()):
+        return refus("etat_invalide", "state_different")
+    if error:
+        # Refus de consentement ou erreur côté Google.
+        return refus("echec_google", f"google_error={error[:60]}")
+    if not code:
+        return refus("echec_google", "code_absent")
+
+    # 2. Échange du code (avec le code_verifier PKCE) puis vérification du jeton.
+    fourn = fournisseur()
+    try:
+        jeton = fourn.echanger_code(code, transaction["cv"])
+        claims = verifier_jeton_identite(fourn, jeton, transaction["nonce"])
+    except ErreurEchange as exc:
+        return refus("echec_google", str(exc))
+    except ErreurJetonIdentite as exc:
+        if exc.motif == "adresse_non_verifiee":
+            return refus("adresse_non_verifiee", exc.motif)
+        return refus("etat_invalide" if exc.motif in _MOTIFS_ETAT else "echec_google", exc.motif)
+
+    # 3. Rattachement à un compte existant — jamais de création ici.
+    try:
+        utilisateur, detail = auth_service.rattacher_identite(db, claims)
+    except RefusConnexion as exc:
+        return refus(exc.code, exc.motif, exc.utilisateur_id)
+
+    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur)
+    journal.inscrire(
+        db, "connexion", journal.SUCCES, request=request,
+        auteur_id=utilisateur.id, detail=detail, commit=False,
+    )
+    db.commit()
+
+    response = RedirectResponse(f"{settings.app_url}/", status_code=status.HTTP_302_FOUND)
+    _effacer(response, COOKIE_OAUTH, CHEMIN_OAUTH)
+    poser_session(response, acces, rafraichissement)
+    return response
+
+
+# --- Session ---------------------------------------------------------------
+
+@router.post("/rafraichir", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(publique)])
+def rafraichir(request: Request, db: Session = Depends(get_db)):
+    """Nouveau jeton d'accès à partir du cookie de rafraîchissement."""
+    acces, _ = auth_service.rafraichir(db, request.cookies.get(COOKIE_RAFRAICHISSEMENT))
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    poser_session(response, acces)
+    return response
+
+
+@router.post("/deconnexion", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(publique)])
+def deconnexion(request: Request, db: Session = Depends(get_db)):
+    """Révoque la session côté serveur et efface les deux cookies. Répond 204
+    même sans session valide : le navigateur doit toujours être nettoyé."""
+    session = auth_service.session_depuis_rafraichissement(
+        db, request.cookies.get(COOKIE_RAFRAICHISSEMENT)
+    )
+    if session is None:
+        # Cookie de rafraîchissement absent : on se rabat sur la session du jeton d'accès.
+        try:
+            payload = sec.decode_token(request.cookies.get(COOKIE_ACCES) or "", sec.ACCESS)
+            session = auth_service.session_depuis_id(db, payload.get("sid"))
+        except sec.TokenError:
+            session = None
+    if session is not None and session.date_revocation is None:
+        auth_service.revoquer_session(session)
+        journal.inscrire(
+            db, "deconnexion", journal.SUCCES, request=request,
+            auteur_id=session.utilisateur_id, commit=False,
+        )
+        db.commit()
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    effacer_session(response)
+    return response
+
+
+@router_moi.get("/moi", response_model=UtilisateurOut)
+def moi(utilisateur: Utilisateur = Depends(session_ouverte)):
+    """Profil, rôle et permissions de l'utilisateur connecté."""
+    return UtilisateurOut.depuis(utilisateur)

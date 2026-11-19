@@ -68,20 +68,25 @@ services:
       # URLs présignées servies par le proxy nginx du frontend (`/storage/`).
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-/storage}
       INFERENCE_URL: http://inference:8001
-      # --- Authentification (voir README, section « Authentification ») ---
-      # APP_ENV=production refuse de démarrer avec le JWT_SECRET par défaut.
+      # --- Authentification Google (voir README, section « Authentification ») ---
+      # Aucun mot de passe : la connexion passe uniquement par Google.
+      # APP_ENV=production refuse de démarrer sans JWT_SECRET ni client Google.
       APP_ENV: ${APP_ENV:-development}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
-      MAX_FAILED_LOGINS: ${MAX_FAILED_LOGINS:-5}
-      LOCKOUT_MINUTES: ${LOCKOUT_MINUTES:-15}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000"]}
-      # Administrateur initial, créé au premier démarrage s'il n'existe aucun
-      # admin actif. Sans ADMIN_PASSWORD, un mot de passe est généré et affiché
-      # une seule fois dans `docker compose logs backend`.
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # `google` ; `fake` (fournisseur de remplacement) n'est accepté qu'avec APP_ENV=test.
+      IDENTITY_PROVIDER: ${IDENTITY_PROVIDER:-google}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # À déclarer EXACTEMENT dans la console Google (passe par le proxy nginx).
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/v1/auth/google/retour}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      # Domaine Google Workspace autorisé ; vide = toute adresse ayant un compte.
+      GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
+      # Adresse Google de l'administrateur initial (créé par le jeu de départ).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
     depends_on:
       db:
         condition: service_healthy
@@ -94,9 +99,7 @@ services:
 
   frontend:
     build: ./frontend
-    environment:
-      # Injecté au build ; le proxy nginx renvoie /api vers le backend.
-      VITE_API_BASE: /api
+    # Le proxy nginx renvoie /api/ vers le backend : même origine, cookies de session inclus.
     depends_on:
       - backend
     ports:

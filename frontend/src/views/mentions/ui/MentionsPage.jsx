@@ -12,8 +12,8 @@ export function MentionsPage() {
       </Head>
       <main className="doc">
         <header>
-          <Logo href="/" />
-          <Link href="/">← Retour à l&apos;accueil</Link>
+          <Logo href="/decouvrir" />
+          <Link href="/decouvrir">← Retour à l&apos;accueil</Link>
         </header>
         <h1>Mentions légales</h1>
         <section>

@@ -3,6 +3,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "change-me-in-prod"
 
+# Environnements reconnus. `test` est le seul qui autorise le fournisseur
+# d'identité de remplacement (voir `identity.py`).
+ENVIRONNEMENTS = {"development", "test", "production"}
+FOURNISSEURS = {"google", "fake"}
+
 
 class Settings(BaseSettings):
     # pydantic-settings lit automatiquement les variables d'environnement
@@ -18,33 +23,69 @@ class Settings(BaseSettings):
     s3_public_url: str = ""
     inference_url: str = "http://inference:8001"
 
-    # --- Authentification -------------------------------------------------
-    # `development` tolère le secret par défaut ; `production` le refuse au
-    # démarrage (voir `_check_production_secret`).
+    # --- Session -----------------------------------------------------------
+    # `development` tolère le secret par défaut ; `production` le refuse.
     app_env: str = "development"
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
-    max_failed_logins: int = 5
-    lockout_minutes: int = 15
-    # Coût bcrypt. 12 est un défaut raisonnable ; les tests le baissent.
-    bcrypt_rounds: int = 12
+    # Attribut `Secure` des cookies. Les navigateurs l'acceptent sur
+    # http://localhost ; ne le désactiver que pour un accès HTTP par IP.
+    cookie_secure: bool = True
     # Origines autorisées pour le CORS. Variable d'environnement au format
     # JSON : ALLOWED_ORIGINS='["http://localhost:3000"]'.
     allowed_origins: list[str] = ["http://localhost:3000"]
 
+    # --- Connexion Google (OAuth 2.0 + OpenID Connect) ---------------------
+    # `google` en temps normal ; `fake` = fournisseur de remplacement pour les
+    # tests automatisés, refusé hors APP_ENV=test.
+    identity_provider: str = "google"
+    google_client_id: str = ""
+    # Ne vit que dans l'environnement du serveur : jamais dans le dépôt ni
+    # dans le code de l'interface.
+    google_client_secret: str = ""
+    # Doit figurer EXACTEMENT dans la console Google (une URI par
+    # environnement). Passe par le proxy nginx du frontend : les cookies sont
+    # ainsi posés sur l'origine de l'application.
+    google_redirect_uri: str = "http://localhost:3000/api/v1/auth/google/retour"
+    # Origine de l'interface : destination après connexion et en cas d'échec.
+    app_url: str = "http://localhost:3000"
+    # Domaine Google Workspace autorisé (ex. « cabinet.fr »). Vide : toute
+    # adresse Google dont un compte existe peut se connecter.
+    google_allowed_domain: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
-    def _check_production_secret(self):
-        if self.app_env.lower() == "production":
+    def _verifier_coherence(self):
+        env = self.app_env.lower()
+        if env not in ENVIRONNEMENTS:
+            raise ValueError(f"APP_ENV inconnu : {self.app_env!r} ({', '.join(sorted(ENVIRONNEMENTS))}).")
+        provider = self.identity_provider.lower()
+        if provider not in FOURNISSEURS:
+            raise ValueError(f"IDENTITY_PROVIDER inconnu : {self.identity_provider!r}.")
+        if provider == "fake" and env != "test":
+            raise ValueError(
+                "IDENTITY_PROVIDER=fake n'est autorisé qu'avec APP_ENV=test : "
+                "le fournisseur de remplacement laisserait entrer n'importe qui."
+            )
+        if env == "production":
             if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 32:
                 raise ValueError(
                     "JWT_SECRET doit être défini (32 caractères minimum, aléatoire) "
                     "quand APP_ENV=production."
                 )
+            if not self.google_client_id or not self.google_client_secret:
+                raise ValueError(
+                    "GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET sont obligatoires "
+                    "quand APP_ENV=production."
+                )
         return self
+
+    @property
+    def fournisseur_factice(self) -> bool:
+        return self.identity_provider.lower() == "fake"
 
 
 settings = Settings()

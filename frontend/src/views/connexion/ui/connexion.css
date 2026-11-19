@@ -18,41 +18,32 @@
   .auth-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-4); min-width: 0; }
   .auth-form .input { border: 1px solid #E2E8F0; border-radius: 10px; }
   .auth-form .input:focus, .auth-form .input:focus-visible { outline: none; border-color: #0E7490; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.5); }
-  .pw-wrap { position: relative; }
-  .pw-wrap .input { padding-right: 52px; }
-  .pw-toggle { position: absolute; right: 2px; top: 0; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; cursor: pointer; color: var(--color-muted); border-radius: 10px; }
-  .pw-toggle:hover { color: var(--color-ink); }
-  .pw-toggle svg { width: 20px; height: 20px; }
-  .remember { display: flex; align-items: center; gap: var(--space-2); font-size: 14px; color: var(--color-ink); cursor: pointer; min-height: 32px; }
-  .remember input { width: 18px; height: 18px; accent-color: #0E7490; margin: 0; }
-  .auth-form .btn-connexion, .auth-form .btn-google { width: 100%; min-height: 44px; }
+  /* Bouton « Continuer avec Google » : consignes de marque Google (fond blanc,
+     bordure #747775, texte #1F1F1F, Roboto à défaut police système, logo 18 px). */
+  .gsi-btn { width: 100%; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 0 16px; background: #FFFFFF; border: 1px solid #747775; border-radius: 10px; color: #1F1F1F; font-family: Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: .25px; cursor: pointer; transition: background-color .2s, box-shadow .2s; }
+  .gsi-btn .g-logo { width: 18px; height: 18px; flex: none; }
+  .gsi-btn:hover:not(:disabled) { background: #F8FAFF; box-shadow: 0 1px 2px rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15); }
+  .gsi-btn:active:not(:disabled) { background: #EEF1F6; }
+  /* Même anneau de focus que le reste de la carte, prioritaire sur l'ombre du survol. */
+  .auth-card .gsi-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0F2A43, 0 0 0 6px #22D3EE; }
+  .gsi-btn:disabled { cursor: progress; background: rgba(255, 255, 255, .61); border-color: rgba(31, 31, 31, .12); color: rgba(31, 31, 31, .6); }
+  .gsi-spinner { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid rgba(31, 31, 31, .18); border-top-color: #4285F4; animation: spin .8s linear infinite; }
+  .auth-notices { display: grid; gap: var(--space-3); }
+  .auth-notices:empty { display: none; }
+  /* Encart neutre (erreur passagère) : ni rouge ni alarmant, avec « Réessayer ». */
+  .auth-neutral { display: flex; gap: var(--space-3); padding: var(--space-4); border: 1px solid #E2E8F0; border-radius: 12px; background: #F8FAFC; color: #0F2A43; font-size: 14px; line-height: 1.5; }
+  .auth-neutral > svg { width: 20px; height: 20px; flex: none; margin-top: 1px; color: #64748B; }
+  .auth-neutral strong { display: block; font-weight: 600; margin-bottom: 2px; }
+  .auth-neutral p { margin: 0 0 var(--space-3); color: #334155; }
   .hint-g { font-size: 12px; color: #64748B; margin: calc(var(--space-2) * -1) 0 0; }
   .panel-v { display: grid; gap: var(--space-4); align-content: start; }
   .panel-v[hidden] { display: none; }
   .panel-v h1:focus { outline: none; }
-  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
-  .rules li { display: flex; align-items: center; gap: var(--space-2); color: #64748B; }
-  .rules .mk { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1.5px solid var(--color-border-strong); display: grid; place-items: center; }
-  .rules .mk svg { width: 11px; height: 11px; display: none; }
-  .rules li.ok { color: var(--color-success); }
-  .rules li.ok .mk { background: var(--color-success); border-color: var(--color-success); color: #fff; }
-  .rules li.ok .mk svg { display: block; }
-  .meter { display: grid; gap: 4px; }
-  .meter-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  .meter-bar span { height: 6px; border-radius: 3px; background: var(--color-subtle); border: 1px solid var(--color-border); }
-  .meter[data-lvl="1"] .meter-bar span:nth-child(-n+1) { background: var(--color-danger); border-color: var(--color-danger); }
-  .meter[data-lvl="2"] .meter-bar span:nth-child(-n+2) { background: var(--color-warning); border-color: var(--color-warning); }
-  .meter[data-lvl="3"] .meter-bar span:nth-child(-n+3) { background: var(--color-info); border-color: var(--color-info); }
-  .meter[data-lvl="4"] .meter-bar span:nth-child(-n+4) { background: var(--color-success); border-color: var(--color-success); }
-  .retour a { color: #0E7490; text-decoration: underline; text-underline-offset: 3px; font-size: 14px; }
-  .oubli { text-align: center; font-size: 14px; }
-  .oubli a { color: #0E7490; text-decoration: underline; text-underline-offset: 3px; }
   .auth-foot { margin-top: auto; font-size: 12px; color: #64748B; line-height: 1.5; }
   /* Focus visible : anneau marine + cyan (le cyan seul ne se voit pas sur blanc) */
-  .auth-card a:focus-visible, .auth-card button:focus-visible, .auth-card .remember input:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0F2A43, 0 0 0 6px #22D3EE; }
+  .auth-card a:focus-visible, .auth-card button:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0F2A43, 0 0 0 6px #22D3EE; }
   .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: spin .8s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 6px; }
 
-  .countdown { font-family: var(--font-mono); font-weight: 600; }
 
   /* Colonne droite : photo, voile, message, fragments d'interface */
   .auth-photo { position: relative; min-width: 0; overflow: hidden; background: #0F2A43; }
@@ -94,5 +85,5 @@
     .photo-msg h2 { font-size: 22px; }
     .auth-form { padding: 24px 20px; }
   }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .spinner, .gsi-spinner { animation: none; } }
 }

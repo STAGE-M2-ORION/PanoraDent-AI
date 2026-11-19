@@ -1,15 +1,339 @@
-import io
-from datetime import timedelta
+"""Sprint 1 — critères d'acceptation de l'authentification Google.
 
+Les six premiers cas sont ceux qui, mal traités, laissent entrer n'importe qui.
+"""
+import io
+import time
+from urllib.parse import parse_qs, urlparse
+
+import pytest
+from fastapi.routing import APIRoute
 from PIL import Image
+from pydantic import ValidationError
+from sqlalchemy import select
 
 from app import auth_security as sec
-from app.auth_models import RefreshToken, User, utcnow
-from app.permissions import PERMISSIONS
+from app.auth_deps import COOKIE_ACCES, COOKIE_OAUTH, COOKIE_RAFRAICHISSEMENT, publique, session_ouverte
+from app.auth_models import Journal, SessionUtilisateur, StatutUtilisateur, Utilisateur
+from app.config import Settings
+from app.identity import FournisseurGoogle, fournisseur, sub_factice
+from app.main import app
+from app.permissions import PERMISSIONS, PRACTITIONER_ROLE, VIEWER_ROLE
 from app.routers import analyses as analyses_router
 
-from .conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bearer, login
+from .conftest import ADMIN_EMAIL, BASE, connexion, demarrer, erreur
 
+
+def _set_cookies(r) -> dict[str, str]:
+    """En-têtes Set-Cookie par nom de cookie."""
+    return {h.split("=", 1)[0]: h for h in r.headers.get_list("set-cookie")}
+
+
+def _user(db, email) -> Utilisateur:
+    db.expire_all()
+    return db.scalar(select(Utilisateur).where(Utilisateur.email == email))
+
+
+def _nb_sessions(db) -> int:
+    db.expire_all()
+    return len(db.scalars(select(SessionUtilisateur)).all())
+
+
+def _journal(db, action=None) -> list[Journal]:
+    db.expire_all()
+    q = select(Journal).order_by(Journal.date)
+    if action:
+        q = q.where(Journal.action == action)
+    return db.scalars(q).all()
+
+
+# --- 1. Démarrage ----------------------------------------------------------
+
+def test_demarrer_porte_state_nonce_challenge_et_pose_le_state_en_cookie(client):
+    r = client.get(f"{BASE}/auth/google/demarrer", follow_redirects=False)
+    assert r.status_code == 302
+    params = parse_qs(urlparse(r.headers["location"]).query)
+    assert params["state"][0] and params["nonce"][0] and params["code_challenge"][0]
+
+    cookie = _set_cookies(r)[COOKIE_OAUTH].lower()
+    assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
+    tx = sec.decode_token(client.cookies.get(COOKIE_OAUTH), sec.OAUTH)
+    assert tx["state"] == params["state"][0]
+    assert tx["nonce"] == params["nonce"][0]
+    assert sec.pkce_challenge(tx["cv"]) == params["code_challenge"][0]
+
+
+def test_url_google_complete_avec_pkce_s256():
+    url = FournisseurGoogle().url_autorisation("s", "n", "c")
+    parsed = urlparse(url)
+    q = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+    assert parsed.netloc == "accounts.google.com"
+    assert q["response_type"] == "code" and q["code_challenge_method"] == "S256"
+    assert q["state"] == "s" and q["nonce"] == "n" and q["code_challenge"] == "c"
+    assert "openid" in q["scope"].split() and "email" in q["scope"].split()
+    assert q["client_id"] and q["redirect_uri"].endswith("/api/v1/auth/google/retour")
+
+
+# --- 2. state ----------------------------------------------------------------
+
+def test_state_different_refuse_sans_session(client, db):
+    r = connexion(client, ADMIN_EMAIL, state="un-autre-state")
+    assert erreur(r) == "etat_invalide"
+    assert COOKIE_ACCES not in _set_cookies(r)
+    assert _nb_sessions(db) == 0
+
+
+def test_retour_sans_cookie_de_transaction_refuse(client, nouveau_client, db):
+    params = demarrer(client)
+    autre_navigateur = nouveau_client()  # n'a pas le cookie : attaque par fixation de session
+    fake = fournisseur()
+    code = fake.emettre_code(fake.revendications(ADMIN_EMAIL, params["nonce"]), params["code_challenge"])
+    r = autre_navigateur.get(
+        f"{BASE}/auth/google/retour", params={"code": code, "state": params["state"]}, follow_redirects=False
+    )
+    assert erreur(r) == "etat_invalide"
+    assert _nb_sessions(db) == 0
+
+
+# --- 3 à 6. Les six contrôles du jeton d'identité --------------------------
+
+def test_aud_d_un_autre_client_refuse(client, db):
+    r = connexion(client, ADMIN_EMAIL, aud="autre-application.apps.googleusercontent.com")
+    assert erreur(r) == "echec_google"
+    assert _nb_sessions(db) == 0
+    assert "aud_invalide" in _journal(db, "connexion")[-1].detail
+
+
+def test_jeton_expire_puis_signature_invalide_refuses(client, nouveau_client, db):
+    passe = int(time.time()) - 3600
+    r = connexion(client, ADMIN_EMAIL, iat=passe - 300, exp=passe)
+    assert erreur(r) == "echec_google"
+    assert "jeton_expire" in _journal(db, "connexion")[-1].detail
+
+    r = connexion(nouveau_client(), ADMIN_EMAIL, cle="etrangere")
+    assert erreur(r) == "echec_google"
+    assert "signature_invalide" in _journal(db, "connexion")[-1].detail
+    assert _nb_sessions(db) == 0
+
+
+def test_emetteur_autre_que_google_refuse(client, db):
+    assert erreur(connexion(client, ADMIN_EMAIL, iss="https://attaquant.example")) == "echec_google"
+    assert _nb_sessions(db) == 0
+
+
+def test_nonce_different_refuse(client, db):
+    r = connexion(client, ADMIN_EMAIL, nonce="nonce-d-une-ancienne-demande")
+    assert erreur(r) == "etat_invalide"
+    assert _nb_sessions(db) == 0
+
+
+def test_email_non_verifie_refuse(client, db):
+    assert erreur(connexion(client, ADMIN_EMAIL, email_verified=False)) == "adresse_non_verifiee"
+    assert _nb_sessions(db) == 0
+
+
+def test_pkce_code_verifier_obligatoire(client, db):
+    """Un code intercepté ne sert à rien sans le code_verifier de CE navigateur."""
+    params = demarrer(client)
+    fake = fournisseur()
+    code = fake.emettre_code(fake.revendications(ADMIN_EMAIL, params["nonce"]), "challenge-d-un-autre")
+    r = client.get(
+        f"{BASE}/auth/google/retour", params={"code": code, "state": params["state"]}, follow_redirects=False
+    )
+    assert erreur(r) == "echec_google"
+    assert _nb_sessions(db) == 0
+
+
+def test_refus_de_consentement_chez_google(client):
+    params = demarrer(client)
+    r = client.get(
+        f"{BASE}/auth/google/retour",
+        params={"error": "access_denied", "state": params["state"]},
+        follow_redirects=False,
+    )
+    assert erreur(r) == "echec_google"
+
+
+# --- 7. Adresse inconnue ---------------------------------------------------
+
+def test_adresse_inconnue_refusee_et_aucun_compte_cree(client, db):
+    avant = len(db.scalars(select(Utilisateur)).all())
+    r = connexion(client, "inconnu@gmail.example.org")
+    assert erreur(r) == "compte_inconnu"
+    db.expire_all()
+    assert len(db.scalars(select(Utilisateur)).all()) == avant
+    ligne = _journal(db, "connexion")[-1]
+    assert ligne.resultat == "refus" and "adresse_inconnue" in ligne.detail
+
+
+# --- 8. Compte désactivé ---------------------------------------------------
+
+def test_compte_desactive_refuse(admin, creer_compte, nouveau_client, db):
+    compte = creer_compte("dr.martin@cabinet.example.org")
+    r = admin.patch(f"{BASE}/utilisateurs/{compte['id']}", json={"statut": "desactive"})
+    assert r.status_code == 200 and r.json()["statut"] == "desactive"
+    assert erreur(connexion(nouveau_client(), "dr.martin@cabinet.example.org")) == "compte_desactive"
+
+
+# --- 9. Première connexion -------------------------------------------------
+
+def test_premiere_connexion_enregistre_sub_et_pose_les_cookies(client, db):
+    assert _user(db, ADMIN_EMAIL).google_sub is None
+    r = connexion(client, ADMIN_EMAIL, given_name="Lionel", family_name="Rakoto")
+    assert erreur(r) is None
+    assert r.headers["location"] == "http://localhost:3000/"
+
+    u = _user(db, ADMIN_EMAIL)
+    assert u.google_sub == sub_factice(ADMIN_EMAIL)
+    assert u.derniere_connexion is not None
+    assert (u.prenom, u.nom) == ("Lionel", "Rakoto")  # repris de Google car vides
+
+    cookies = _set_cookies(r)
+    for nom in (COOKIE_ACCES, COOKIE_RAFRAICHISSEMENT):
+        attrs = cookies[nom].lower()
+        assert "httponly" in attrs and "secure" in attrs and "samesite=lax" in attrs
+    assert "max-age=900" in cookies[COOKIE_ACCES].lower()
+    assert f"max-age={7 * 24 * 3600}" in cookies[COOKIE_RAFRAICHISSEMENT].lower()
+
+    acces = sec.decode_token(client.cookies.get(COOKIE_ACCES), sec.ACCESS)
+    assert acces["sub"] == str(u.id) and acces["role"] == "Administrateur"
+    assert set(acces["permissions"]) == set(PERMISSIONS)
+
+    moi = client.get(f"{BASE}/moi")
+    assert moi.status_code == 200
+    assert moi.json()["email"] == ADMIN_EMAIL and moi.json()["role"]["libelle"] == "Administrateur"
+    assert _journal(db, "connexion")[-1].resultat == "succes"
+
+
+def test_noms_saisis_par_l_administrateur_ne_sont_pas_ecrases(creer_compte, nouveau_client, db):
+    creer_compte("dr.durand@cabinet.example.org", nom="Durand", prenom="Alice")
+    c = nouveau_client()
+    assert erreur(connexion(c, "dr.durand@cabinet.example.org", given_name="Ali", family_name="D.")) is None
+    u = _user(db, "dr.durand@cabinet.example.org")
+    assert (u.prenom, u.nom) == ("Alice", "Durand")
+
+
+def test_sub_connu_avec_nouvelle_adresse_met_la_ligne_a_jour(client, nouveau_client, db):
+    assert erreur(connexion(client, ADMIN_EMAIL)) is None
+    sub = _user(db, ADMIN_EMAIL).google_sub
+    r = connexion(nouveau_client(), "admin.nouvelle@cabinet.example.org", sub=sub)
+    assert erreur(r) is None
+    assert _user(db, "admin.nouvelle@cabinet.example.org").google_sub == sub
+    assert _user(db, ADMIN_EMAIL) is None
+
+
+# --- 10. Adresse connue, autre sub ------------------------------------------
+
+def test_adresse_connue_avec_un_autre_sub_refusee_et_journalisee(client, nouveau_client, db):
+    assert erreur(connexion(client, ADMIN_EMAIL)) is None
+    r = connexion(nouveau_client(), ADMIN_EMAIL, sub="un-autre-compte-google")
+    assert erreur(r) == "compte_inconnu"
+    ligne = _journal(db, "connexion")[-1]
+    assert ligne.resultat == "refus" and "sub_different" in ligne.detail
+    assert ligne.auteur_id == _user(db, ADMIN_EMAIL).id
+    assert _user(db, ADMIN_EMAIL).google_sub == sub_factice(ADMIN_EMAIL)
+
+
+# --- 11. 401 sans jeton ; rafraîchissement après déconnexion ----------------
+
+def test_routes_protegees_sans_jeton_401(client):
+    for methode, url in (
+        ("get", f"{BASE}/moi"),
+        ("get", f"{BASE}/analyses"),
+        ("get", f"{BASE}/model/versions"),
+        ("get", f"{BASE}/utilisateurs"),
+        ("post", f"{BASE}/utilisateurs"),
+        ("get", f"{BASE}/roles"),
+    ):
+        r = getattr(client, methode)(url)
+        assert r.status_code == 401, url
+        assert r.json()["code"] == "non_authentifie" and r.json()["message"]
+
+
+def test_rafraichir_puis_deconnexion_revoque_des_deux_cotes(admin, db):
+    rafraichissement = admin.cookies.get(COOKIE_RAFRAICHISSEMENT)
+    acces = admin.cookies.get(COOKIE_ACCES)
+
+    r = admin.post(f"{BASE}/auth/rafraichir")
+    assert r.status_code == 204 and COOKIE_ACCES in _set_cookies(r)
+
+    r = admin.post(f"{BASE}/auth/deconnexion")
+    assert r.status_code == 204
+    cookies = _set_cookies(r)
+    assert 'max-age=0' in cookies[COOKIE_ACCES].lower() and 'max-age=0' in cookies[COOKIE_RAFRAICHISSEMENT].lower()
+    assert _journal(db, "deconnexion")[-1].resultat == "succes"
+
+    # Un jeton volé avant la déconnexion ne sert plus à rien.
+    admin.cookies.set(COOKIE_RAFRAICHISSEMENT, rafraichissement, path="/api/v1/auth")
+    admin.cookies.set(COOKIE_ACCES, acces, path="/api")
+    r = admin.post(f"{BASE}/auth/rafraichir")
+    assert r.status_code == 401 and r.json()["code"] == "session_expiree"
+    assert admin.get(f"{BASE}/moi").status_code == 401
+
+
+def test_rafraichir_sans_cookie_ou_session_expiree(nouveau_client, admin, db):
+    assert nouveau_client().post(f"{BASE}/auth/rafraichir").status_code == 401
+    for s in db.scalars(select(SessionUtilisateur)):
+        s.date_expiration = s.date_expiration.replace(year=2000)
+    db.commit()
+    assert admin.post(f"{BASE}/auth/rafraichir").status_code == 401
+
+
+def test_jeton_de_rafraichissement_refuse_comme_jeton_d_acces(admin):
+    admin.cookies.set(COOKIE_ACCES, admin.cookies.get(COOKIE_RAFRAICHISSEMENT), path="/api")
+    assert admin.get(f"{BASE}/moi").status_code == 401
+
+
+def test_desactivation_coupe_la_session_immediatement(admin, connecte, db):
+    praticien = connecte("dr.leroy@cabinet.example.org")
+    assert praticien.get(f"{BASE}/moi").status_code == 200
+    uid = _user(db, "dr.leroy@cabinet.example.org").id
+    admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    assert praticien.get(f"{BASE}/moi").status_code == 401
+    assert praticien.post(f"{BASE}/auth/rafraichir").status_code == 401
+
+
+# --- 12. Création de compte ------------------------------------------------
+
+def test_creation_de_compte_403_201_409(admin, connecte, db):
+    praticien = connecte("dr.petit@cabinet.example.org")
+    roles = {r["libelle"]: r["id"] for r in admin.get(f"{BASE}/roles").json()}
+    corps = {"nom": "Bernard", "prenom": "Paul", "email": "Dr.Bernard@Cabinet.example.org",
+             "role_id": roles[VIEWER_ROLE]}
+
+    r = praticien.post(f"{BASE}/utilisateurs", json=corps)
+    assert r.status_code == 403 and r.json()["code"] == "acces_refuse"
+
+    r = admin.post(f"{BASE}/utilisateurs", json=corps)
+    assert r.status_code == 201
+    compte = r.json()
+    assert compte["email"] == "dr.bernard@cabinet.example.org"  # stockée en minuscules
+    assert compte["role"]["libelle"] == VIEWER_ROLE and compte["statut"] == "actif"
+    assert {"analysis:read", "model:read"} == set(compte["permissions"])
+    assert "google_sub" not in compte
+
+    r = admin.post(f"{BASE}/utilisateurs", json={**corps, "email": "DR.BERNARD@cabinet.example.org"})
+    assert r.status_code == 409 and r.json()["code"] == "adresse_deja_prise"
+
+    ligne = _journal(db, "creation_compte")[-1]
+    assert "dr.bernard@cabinet.example.org" in ligne.detail
+    assert ligne.auteur_id == _user(db, ADMIN_EMAIL).id
+
+    liste = admin.get(f"{BASE}/utilisateurs").json()
+    assert "dr.bernard@cabinet.example.org" in {u["email"] for u in liste}
+
+
+def test_creation_de_compte_champ_invalide_422(admin):
+    roles = admin.get(f"{BASE}/roles").json()
+    r = admin.post(f"{BASE}/utilisateurs", json={"email": "pas-une-adresse", "role_id": roles[0]["id"]})
+    assert r.status_code == 422
+    assert r.json()["code"] == "champ_invalide" and "email" in r.json()["message"]
+    r = admin.post(f"{BASE}/utilisateurs", json={"email": "x@cabinet.example.org",
+                                                 "role_id": "00000000-0000-0000-0000-000000000000"})
+    assert r.status_code == 422 and r.json()["code"] == "champ_invalide"
+
+
+# --- Autorisation par permission ------------------------------------------
 
 def _png() -> bytes:
     buf = io.BytesIO()
@@ -17,69 +341,15 @@ def _png() -> bytes:
     return buf.getvalue()
 
 
-# --- Connexion et profil ---------------------------------------------------
-
-def test_login_ok_and_me_returns_admin_with_all_permissions(client):
-    r = login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["token_type"] == "bearer" and body["access_token"] and body["refresh_token"]
-
-    me = client.get("/api/auth/me", headers=bearer(body["access_token"]))
-    assert me.status_code == 200
-    data = me.json()
-    assert data["role"] == "admin"
-    assert len(data["permissions"]) == 8 == len(PERMISSIONS)
-    assert "hashed_password" not in data
-
-
-def test_login_is_case_insensitive_on_email(client):
-    assert login(client, ADMIN_EMAIL.upper(), ADMIN_PASSWORD).status_code == 200
-
-
-def test_login_error_is_uniform(client):
-    unknown = login(client, "nobody@panoradent.test.dev", "whatever-123")
-    wrong = login(client, ADMIN_EMAIL, "wrong-password")
-    assert unknown.status_code == wrong.status_code == 401
-    assert unknown.json() == wrong.json()
-
-
-def test_no_public_registration(client):
-    r = client.post("/api/users", json={"email": "x@panoradent.test.dev", "password": "password-123", "role_id": "x"})
-    assert r.status_code == 401
-
-
-# --- Accès protégé ---------------------------------------------------------
-
-def test_routes_require_a_token(client):
-    assert client.get("/api/analyses").status_code == 401
-    assert client.post("/api/analyses", files={"file": ("a.png", _png(), "image/png")}).status_code == 401
-    assert client.get("/api/model/versions").status_code == 401
-    assert client.get("/api/users").status_code == 401
-    assert client.get("/api/auth/me").status_code == 401
-
-
-def test_health_stays_public(client):
-    assert client.get("/api/health").status_code == 200
-
-
-def test_garbage_and_refresh_tokens_are_rejected_as_access(client):
-    assert client.get("/api/auth/me", headers=bearer("not-a-jwt")).status_code == 401
-    refresh = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()["refresh_token"]
-    assert client.get("/api/auth/me", headers=bearer(refresh)).status_code == 401
-
-
-def test_viewer_cannot_create_analysis(client, make_user):
-    email, pwd = make_user("viewer", "viewer@panoradent.test.dev")
-    h = bearer(login(client, email, pwd).json()["access_token"])
-    r = client.post("/api/analyses", headers=h, files={"file": ("a.png", _png(), "image/png")})
+def test_lecteur_ne_cree_pas_d_analyse_mais_lit(connecte):
+    lecteur = connecte("lecteur@cabinet.example.org", VIEWER_ROLE)
+    r = lecteur.post(f"{BASE}/analyses", files={"file": ("a.png", _png(), "image/png")})
     assert r.status_code == 403
-    assert client.get("/api/analyses", headers=h).status_code == 200  # analysis:read
-    assert client.get("/api/users", headers=h).status_code == 403
+    assert lecteur.get(f"{BASE}/analyses").status_code == 200
+    assert lecteur.get(f"{BASE}/utilisateurs").status_code == 403
 
 
-def test_practitioner_analysis_flow_still_works(client, make_user, monkeypatch):
-    """Le flux import → anonymisation → inférence → persistance reste intact."""
+def test_flux_d_analyse_du_praticien(connecte, monkeypatch):
     stored = {}
     monkeypatch.setattr(analyses_router.storage, "ensure_bucket", lambda: None)
     monkeypatch.setattr(analyses_router.storage, "put", lambda k, d, c: stored.setdefault(k, d))
@@ -90,227 +360,190 @@ def test_practitioner_analysis_flow_still_works(client, make_user, monkeypatch):
             {"label": "tooth", "fdi": 11, "confidence": 0.9, "bbox": [1, 2, 3, 4]}]}
 
     monkeypatch.setattr(analyses_router.inference_client, "infer", fake_infer)
-
-    email, pwd = make_user("practitioner", "dr@panoradent.test.dev")
-    h = bearer(login(client, email, pwd).json()["access_token"])
-    r = client.post("/api/analyses", headers=h, files={"file": ("a.png", _png(), "image/png")})
+    praticien = connecte("dr.moreau@cabinet.example.org")
+    r = praticien.post(f"{BASE}/analyses", files={"file": ("a.png", _png(), "image/png")})
     assert r.status_code == 200, r.text
-    analysis = r.json()
-    assert analysis["detections"][0]["fdi"] == 11 and stored
-    assert client.get(f"/api/analyses/{analysis['id']}", headers=h).status_code == 200
-    assert client.get(f"/api/analyses/{analysis['id']}/image", headers=h).status_code == 200
+    analyse = r.json()
+    assert analyse["detections"][0]["fdi"] == 11 and stored
+    assert praticien.get(f"{BASE}/analyses/{analyse['id']}").status_code == 200
 
 
-# --- Refresh, rotation, logout ---------------------------------------------
+def test_toute_route_porte_un_garde_ou_la_marque_publique():
+    """Échoue si une route n'exige ni session/permission ni n'est marquée publique."""
+    def appels(dependant):
+        for dep in dependant.dependencies:
+            yield dep.call
+            yield from appels(dep)
 
-def test_refresh_rotation_invalidates_the_old_token(client):
-    first = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()
-    r = client.post("/api/auth/refresh", json={"refresh_token": first["refresh_token"]})
-    assert r.status_code == 200
-    second = r.json()
-    assert second["refresh_token"] != first["refresh_token"]
-
-    # L'ancien est révoqué ; sa réutilisation est refusée…
-    assert client.post("/api/auth/refresh", json={"refresh_token": first["refresh_token"]}).status_code == 401
-    # …et coupe aussi la nouvelle session (détection de réutilisation).
-    assert client.post("/api/auth/refresh", json={"refresh_token": second["refresh_token"]}).status_code == 401
-
-
-def test_refresh_rejects_access_token_and_expired_token(client, db):
-    pair = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()
-    assert client.post("/api/auth/refresh", json={"refresh_token": pair["access_token"]}).status_code == 401
-
-    stored = db.query(RefreshToken).one()
-    stored.expires_at = utcnow() - timedelta(minutes=1)
-    db.commit()
-    assert client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]}).status_code == 401
+    sans_garde = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        calls = set(appels(route.dependant))
+        if publique not in calls and session_ouverte not in calls:
+            sans_garde.append(f"{sorted(route.methods)} {route.path}")
+    assert not sans_garde, f"Routes sans garde : {sans_garde}"
 
 
-def test_logout_revokes_all_sessions(client):
-    a = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()
-    b = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()
-    assert client.post("/api/auth/logout", headers=bearer(a["access_token"])).status_code == 204
-    for pair in (a, b):
-        assert client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]}).status_code == 401
+def test_routes_publiques_attendues():
+    """La liste des routes publiques est fermée : en ajouter une est un choix conscient."""
+    publiques = set()
+    for route in app.routes:
+        if isinstance(route, APIRoute) and publique in {d.call for d in route.dependant.dependencies}:
+            publiques.add(route.path)
+    assert publiques == {
+        "/", "/api/v1/health",
+        "/api/v1/auth/google/demarrer", "/api/v1/auth/google/retour",
+        "/api/v1/auth/rafraichir", "/api/v1/auth/deconnexion",
+        "/api/v1/auth/fake/autoriser", "/api/v1/auth/fake/valider",
+    }
 
 
-def test_change_password_revokes_sessions_and_changes_login(client):
-    pair = login(client, ADMIN_EMAIL, ADMIN_PASSWORD).json()
-    h = bearer(pair["access_token"])
-    bad = client.post("/api/auth/me/password", headers=h, json={"current_password": "nope-nope", "new_password": "brand-new-pass-1"})
-    assert bad.status_code == 400
-    ok = client.post("/api/auth/me/password", headers=h, json={"current_password": ADMIN_PASSWORD, "new_password": "brand-new-pass-1"})
-    assert ok.status_code == 204
-    assert client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]}).status_code == 401
-    assert login(client, ADMIN_EMAIL, ADMIN_PASSWORD).status_code == 401
-    assert login(client, ADMIN_EMAIL, "brand-new-pass-1").status_code == 200
+# --- Garde-fous ------------------------------------------------------------
+
+def test_fournisseur_factice_refuse_hors_environnement_de_test():
+    for env in ("development", "production"):
+        with pytest.raises(ValidationError):
+            Settings(app_env=env, identity_provider="fake",
+                     jwt_secret="x" * 40, google_client_id="a", google_client_secret="b")
 
 
-# --- Verrouillage ----------------------------------------------------------
-
-def test_lockout_after_five_failures_then_423(client, db):
-    for _ in range(5):
-        assert login(client, ADMIN_EMAIL, "wrong-password").status_code == 401
-    # Verrouillé : même le bon mot de passe est refusé.
-    r = login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
-    assert r.status_code == 423
-
-    # Le verrou expire.
-    user = db.query(User).filter_by(email=ADMIN_EMAIL).one()
-    user.locked_until = utcnow() - timedelta(seconds=1)
-    db.commit()
-    assert login(client, ADMIN_EMAIL, ADMIN_PASSWORD).status_code == 200
+def test_production_exige_secret_et_client_google():
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", identity_provider="google", jwt_secret="x" * 40, google_client_id="")
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", identity_provider="google", jwt_secret="court",
+                 google_client_id="a", google_client_secret="b")
+    Settings(app_env="production", identity_provider="google", jwt_secret="x" * 40,
+             google_client_id="a", google_client_secret="b")
 
 
-def test_successful_login_resets_failure_counter(client):
-    for _ in range(4):
-        login(client, ADMIN_EMAIL, "wrong-password")
-    assert login(client, ADMIN_EMAIL, ADMIN_PASSWORD).status_code == 200
-    for _ in range(4):
-        assert login(client, ADMIN_EMAIL, "wrong-password").status_code == 401
-    assert login(client, ADMIN_EMAIL, ADMIN_PASSWORD).status_code == 200
+def test_pas_de_suppression_ni_de_retrait_du_dernier_admin(admin, db):
+    uid = _user(db, ADMIN_EMAIL).id
+    roles = {r["libelle"]: r["id"] for r in admin.get(f"{BASE}/roles").json()}
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    assert r.status_code == 400 and r.json()["code"] == "dernier_administrateur"
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"role_id": roles[PRACTITIONER_ROLE]})
+    assert r.status_code == 400
+    assert admin.delete(f"{BASE}/utilisateurs/{uid}").status_code == 405
 
 
-# --- Administration des comptes --------------------------------------------
-
-def test_cannot_delete_or_demote_last_admin(client, admin_headers, db, make_user):
-    admin = db.query(User).filter_by(email=ADMIN_EMAIL).one()
-    # Soi-même : refusé.
-    assert client.delete(f"/api/users/{admin.id}", headers=admin_headers).status_code == 400
-    # Désactivation et rétrogradation du dernier admin : refusées.
-    assert client.patch(f"/api/users/{admin.id}", headers=admin_headers, json={"is_active": False}).status_code == 400
-    viewer_role = [r for r in client.get("/api/roles", headers=admin_headers).json() if r["name"] == "viewer"][0]
-    assert client.patch(f"/api/users/{admin.id}", headers=admin_headers, json={"role_id": viewer_role["id"]}).status_code == 400
-
-    # Avec un second admin, un admin peut supprimer l'autre — mais pas lui-même.
-    make_user("admin", "second@panoradent.test.dev")
-    second = db.query(User).filter_by(email="second@panoradent.test.dev").one()
-    assert client.delete(f"/api/users/{second.id}", headers=admin_headers).status_code == 204
+def test_aucune_colonne_de_mot_de_passe():
+    from app.database import Base
+    colonnes = {c.name for t in Base.metadata.tables.values() for c in t.columns}
+    assert not {c for c in colonnes if "password" in c or "mot_de_passe" in c}
 
 
-def test_last_admin_deletion_by_another_admin_is_400(client, db, make_user):
-    make_user("admin", "second@panoradent.test.dev", "second-password-1")
-    h2 = bearer(login(client, "second@panoradent.test.dev", "second-password-1").json()["access_token"])
-    first = db.query(User).filter_by(email=ADMIN_EMAIL).one()
-    second = db.query(User).filter_by(email="second@panoradent.test.dev").one()
-    assert client.delete(f"/api/users/{first.id}", headers=h2).status_code == 204
-    # `second` est maintenant le dernier : même s'il se ciblait, c'est refusé.
-    assert client.delete(f"/api/users/{second.id}", headers=h2).status_code == 400
+def test_jeu_de_depart_rejouable(db):
+    from app import seed_auth
+    for _ in range(3):
+        perms = seed_auth.seed_permissions(db)
+        roles = seed_auth.seed_roles(db, perms)
+        seed_auth.seed_admin(db, roles["Administrateur"], ADMIN_EMAIL)
+        db.commit()
+    assert len(db.scalars(select(Utilisateur)).all()) == 1
+    assert {r.libelle for r in roles.values()} == {"Administrateur", "Praticien", "Lecteur"}
+    assert _user(db, ADMIN_EMAIL).statut == StatutUtilisateur.actif
 
 
-def test_duplicate_email_conflicts_and_email_is_lowercased(client, admin_headers, make_user, db):
-    make_user("viewer", "Mixed.Case@panoradent.test.dev")
-    assert db.query(User).filter_by(email="mixed.case@panoradent.test.dev").count() == 1
-    role = [r for r in client.get("/api/roles", headers=admin_headers).json() if r["name"] == "viewer"][0]
-    r = client.post("/api/users", headers=admin_headers, json={
-        "email": "MIXED.case@panoradent.test.dev", "password": "password-123", "role_id": role["id"]})
-    assert r.status_code == 409
+# --- Rôles (sprint 2, déjà en place) ---------------------------------------
 
-
-def test_short_password_rejected(client, admin_headers):
-    r = client.post("/api/users", headers=admin_headers, json={"email": "a@panoradent.test.dev", "password": "short", "role_id": "x"})
-    assert r.status_code == 422
-
-
-def test_deactivated_user_loses_access_immediately(client, admin_headers, make_user, db):
-    email, pwd = make_user("viewer", "v@panoradent.test.dev")
-    pair = login(client, email, pwd).json()
-    user = db.query(User).filter_by(email=email).one()
-    assert client.patch(f"/api/users/{user.id}", headers=admin_headers, json={"is_active": False}).status_code == 200
-    assert client.get("/api/auth/me", headers=bearer(pair["access_token"])).status_code == 401
-    assert client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]}).status_code == 401
-    assert login(client, email, pwd).status_code == 401
-
-
-# --- Rôles -----------------------------------------------------------------
-
-def test_roles_crud_and_validation(client, admin_headers):
-    perms = client.get("/api/permissions", headers=admin_headers).json()
-    assert {p["code"] for p in perms} == set(PERMISSIONS)
-
-    bad = client.post("/api/roles", headers=admin_headers, json={"name": "tech", "permissions": ["nope:nope"]})
-    assert bad.status_code == 400
-
-    r = client.post("/api/roles", headers=admin_headers, json={"name": "tech", "permissions": ["analysis:read"]})
-    assert r.status_code == 201
-    role = r.json()
-    assert role["permissions"] == ["analysis:read"] and role["is_system"] is False
-
-    # PATCH remplace l'ensemble des permissions.
-    upd = client.patch(f"/api/roles/{role['id']}", headers=admin_headers, json={"permissions": ["model:read", "report:generate"]})
-    assert upd.json()["permissions"] == ["model:read", "report:generate"]
-
-    assert client.post("/api/roles", headers=admin_headers, json={"name": "tech"}).status_code == 409
-    assert client.delete(f"/api/roles/{role['id']}", headers=admin_headers).status_code == 204
-    assert client.get(f"/api/roles/{role['id']}", headers=admin_headers).status_code == 404
-
-
-def test_system_roles_are_protected(client, admin_headers):
-    roles = {r["name"]: r for r in client.get("/api/roles", headers=admin_headers).json()}
-    assert set(roles) >= {"admin", "practitioner", "viewer"}
-    assert len(roles["admin"]["permissions"]) == 8
-    assert set(roles["viewer"]["permissions"]) == {"analysis:read", "model:read"}
+def test_roles_systeme_et_crud(admin):
+    roles = {r["libelle"]: r for r in admin.get(f"{BASE}/roles").json()}
+    assert len(roles["Administrateur"]["permissions"]) == 8
+    assert set(roles["Lecteur"]["permissions"]) == {"analysis:read", "model:read"}
+    assert set(roles["Praticien"]["permissions"]) == {
+        "analysis:create", "analysis:read", "analysis:delete",
+        "detection:review", "report:generate", "model:read",
+    }
     for role in roles.values():
-        if role["is_system"]:
-            assert client.delete(f"/api/roles/{role['id']}", headers=admin_headers).status_code == 400
-    assert client.patch(f"/api/roles/{roles['viewer']['id']}", headers=admin_headers, json={"name": "other"}).status_code == 400
-    assert client.patch(f"/api/roles/{roles['admin']['id']}", headers=admin_headers, json={"permissions": ["analysis:read"]}).status_code == 400
+        assert admin.delete(f"{BASE}/roles/{role['id']}").status_code == 400
+
+    r = admin.post(f"{BASE}/roles", json={"libelle": "Assistant", "permissions": ["analysis:read"]})
+    assert r.status_code == 201
+    rid = r.json()["id"]
+    assert admin.post(f"{BASE}/roles", json={"libelle": "assistant"}).status_code == 409
+    assert admin.post(f"{BASE}/roles", json={"libelle": "X2", "permissions": ["nope:nope"]}).status_code == 422
+    r = admin.patch(f"{BASE}/roles/{rid}", json={"permissions": ["model:read"]})
+    assert r.json()["permissions"] == ["model:read"]
+    assert admin.delete(f"{BASE}/roles/{rid}").status_code == 204
 
 
-def test_cannot_delete_role_in_use(client, admin_headers, make_user):
-    make_user("viewer", "v@panoradent.test.dev")
-    custom = client.post("/api/roles", headers=admin_headers, json={"name": "custom", "permissions": ["analysis:read"]}).json()
-    assert client.post("/api/users", headers=admin_headers, json={
-        "email": "c@panoradent.test.dev", "password": "password-123", "role_id": custom["id"]}).status_code == 201
-    assert client.delete(f"/api/roles/{custom['id']}", headers=admin_headers).status_code == 400
+def test_demarrer_sans_client_google_reste_sur_la_connexion(client, monkeypatch):
+    """Sans client OAuth configuré, pas d'envoi chez Google avec une URL invalide."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "identity_provider", "google")
+    monkeypatch.setattr(settings, "google_client_id", "")
+    r = client.get(f"{BASE}/auth/google/demarrer", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "http://localhost:3000/connexion?erreur=echec_google"
 
 
-def test_role_permission_change_applies_to_users(client, admin_headers, make_user):
-    custom = client.post("/api/roles", headers=admin_headers, json={"name": "custom", "permissions": ["analysis:read"]}).json()
-    client.post("/api/users", headers=admin_headers, json={
-        "email": "c@panoradent.test.dev", "password": "password-123", "role_id": custom["id"]})
-    h = bearer(login(client, "c@panoradent.test.dev", "password-123").json()["access_token"])
-    assert client.get("/api/model/versions", headers=h).status_code == 403
-    client.patch(f"/api/roles/{custom['id']}", headers=admin_headers, json={"permissions": ["analysis:read", "model:read"]})
-    assert client.get("/api/model/versions", headers=h).status_code == 200
+# --- Photo de profil -------------------------------------------------------
+
+def _image(fmt="PNG", taille=(600, 400)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", taille, (200, 30, 30)).save(buf, format=fmt)
+    return buf.getvalue()
 
 
-def test_role_endpoints_require_role_manage(client, make_user):
-    email, pwd = make_user("practitioner", "dr@panoradent.test.dev")
-    h = bearer(login(client, email, pwd).json()["access_token"])
-    assert client.get("/api/roles", headers=h).status_code == 403
-    assert client.get("/api/permissions", headers=h).status_code == 403
+@pytest.fixture()
+def stockage(monkeypatch):
+    """Stockage objet en mémoire à la place de MinIO."""
+    from app.routers import photos
+    objets = {}
+    monkeypatch.setattr(photos.storage, "ensure_bucket", lambda: None)
+    monkeypatch.setattr(photos.storage, "put", lambda k, d, c: objets.__setitem__(k, d))
+    monkeypatch.setattr(photos.storage, "get", lambda k: objets[k])
+    monkeypatch.setattr(photos.storage, "delete", lambda k: objets.pop(k, None))
+    return objets
 
 
-# --- Sécurité des primitives ------------------------------------------------
-
-def test_password_hash_handles_long_passwords_and_wrong_input():
-    long_pw = "a" * 200
-    h = sec.hash_password(long_pw)
-    assert sec.verify_password(long_pw, h)
-    assert not sec.verify_password("a" * 199, h)  # au-delà de 72 octets, la différence compte
-    assert not sec.verify_password("x", "not-a-bcrypt-hash")
+def test_photo_google_reprise_a_la_connexion(client, db):
+    photo = "https://lh3.googleusercontent.com/a/ACg8ocJ-photo=s96-c"
+    assert erreur(connexion(client, ADMIN_EMAIL, picture=photo)) is None
+    moi = client.get(f"{BASE}/moi").json()
+    assert moi["photo_url"] == photo and moi["photo_source"] == "google"
 
 
-def test_tokens_have_expected_claims_and_types():
-    access = sec.create_access_token("u1")
-    claims = sec.decode_token(access, sec.ACCESS)
-    assert claims["sub"] == "u1" and claims["type"] == "access" and {"iat", "exp", "jti"} <= set(claims)
-    refresh, jti, exp = sec.create_refresh_token("u1")
-    assert sec.decode_token(refresh, sec.REFRESH)["jti"] == jti and exp
-    try:
-        sec.decode_token(refresh, sec.ACCESS)
-    except sec.TokenError:
-        pass
-    else:
-        raise AssertionError("un refresh ne doit pas être accepté comme access")
+def test_photo_google_hors_domaine_google_ignoree(client):
+    assert erreur(connexion(client, ADMIN_EMAIL, picture="https://attaquant.example/x.png")) is None
+    assert client.get(f"{BASE}/moi").json()["photo_url"] is None
+    assert erreur(connexion(client, ADMIN_EMAIL, picture="http://lh3.googleusercontent.com/a")) is None
+    assert client.get(f"{BASE}/moi").json()["photo_url"] is None
 
 
-def test_user_manager_can_list_roles_but_not_edit_them(client, admin_headers, make_user):
-    custom = client.post("/api/roles", headers=admin_headers, json={"name": "hr", "permissions": ["user:manage"]}).json()
-    client.post("/api/users", headers=admin_headers, json={
-        "email": "hr@panoradent.test.dev", "password": "password-123", "role_id": custom["id"]})
-    h = bearer(login(client, "hr@panoradent.test.dev", "password-123").json()["access_token"])
-    assert client.get("/api/roles", headers=h).status_code == 200
-    assert client.post("/api/roles", headers=h, json={"name": "x"}).status_code == 403
-    assert client.get("/api/permissions", headers=h).status_code == 403
+def test_photo_importee_prioritaire_puis_retiree(client, nouveau_client, stockage):
+    google = "https://lh3.googleusercontent.com/a/photo"
+    assert erreur(connexion(client, ADMIN_EMAIL, picture=google)) is None
+
+    r = client.put(f"{BASE}/moi/photo", files={"fichier": ("moi.jpg", _image("JPEG"), "image/jpeg")})
+    assert r.status_code == 200, r.text
+    moi = r.json()
+    assert moi["photo_source"] == "importee" and moi["photo_url"].startswith(f"{BASE}/photos/")
+    (cle, contenu), = stockage.items()
+    with Image.open(io.BytesIO(contenu)) as img:
+        assert img.format == "WEBP" and img.size == (256, 256)
+
+    image = client.get(moi["photo_url"])
+    assert image.status_code == 200 and image.headers["content-type"] == "image/webp"
+    assert nouveau_client().get(moi["photo_url"]).status_code == 401  # jamais sans session
+
+    # Un nouvel import remplace l'ancien fichier et change l'URL.
+    r2 = client.put(f"{BASE}/moi/photo", files={"fichier": ("b.png", _image("PNG"), "image/png")})
+    assert r2.json()["photo_url"] != moi["photo_url"] and len(stockage) == 1
+
+    r = client.delete(f"{BASE}/moi/photo")
+    assert r.status_code == 200
+    assert r.json()["photo_url"] == google and r.json()["photo_source"] == "google"
+    assert stockage == {}
+
+
+def test_photo_refuse_les_fichiers_qui_ne_sont_pas_des_images(client, stockage):
+    assert erreur(connexion(client, ADMIN_EMAIL)) is None
+    for nom, contenu in (("x.png", b"pas une image"), ("x.gif", _image("GIF")), ("vide.png", b"")):
+        r = client.put(f"{BASE}/moi/photo", files={"fichier": (nom, contenu, "image/png")})
+        assert r.status_code == 422 and r.json()["code"] == "image_invalide", nom
+    r = client.put(f"{BASE}/moi/photo", files={"fichier": ("gros.png", b"0" * (5 * 1024 * 1024 + 1), "image/png")})
+    assert r.status_code == 413
+    assert stockage == {}

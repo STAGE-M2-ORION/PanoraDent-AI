@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { deleteRole, fetchPermissions, fetchRoles, updateRole } from "@/entities/role";
-import { Permission, SystemRole, roleLabel } from "@/entities/session";
+import { Permission, SYSTEM_ROLE_ORDER, SystemRole, roleLabel } from "@/entities/session";
 import { fetchUsers } from "@/entities/user";
 import { CreateRoleModal, SENSITIVE_PERMISSIONS, orderedPermissions, permissionLabel } from "@/features/manage-roles";
 import { toAppError } from "@/shared/api";
-import { initials, useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, Button, Icon, IconAction, KpiRing } from "@/shared/ui";
+import { useAsyncResource } from "@/shared/lib";
+import { Alert, Badge, Button, Icon, IconAction, KpiRing, UserPhoto } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-const SYSTEM_ORDER = [SystemRole.ADMIN, SystemRole.PRACTITIONER, SystemRole.VIEWER];
 const ROLE_META = {
   [SystemRole.ADMIN]: { icon: "shield", desc: "Gère les comptes, les rôles et la supervision. Non modifiable." },
   [SystemRole.PRACTITIONER]: { icon: "tooth", desc: "Dépose, relit et clôture ses analyses, génère les comptes rendus." },
@@ -37,7 +36,7 @@ export function AdminRolesPage() {
   }, [data]);
 
   const ordered = useMemo(
-    () => [...roles].sort((a, b) => (a.isSystem === b.isSystem ? SYSTEM_ORDER.indexOf(a.name) - SYSTEM_ORDER.indexOf(b.name) || a.name.localeCompare(b.name) : a.isSystem ? -1 : 1)),
+    () => [...roles].sort((a, b) => (a.isSystem === b.isSystem ? SYSTEM_ROLE_ORDER.indexOf(a.name) - SYSTEM_ROLE_ORDER.indexOf(b.name) || a.name.localeCompare(b.name) : a.isSystem ? -1 : 1)),
     [roles],
   );
   const perms = orderedPermissions(catalog);
@@ -155,7 +154,7 @@ export function AdminRolesPage() {
         <div className="role-grid">
           {ordered.map((r, k) => {
             const n = permsOf(r).filter((p) => perms.includes(p)).length;
-            const meta = ROLE_META[r.name] ?? { icon: "sparkle", desc: r.description || "Rôle personnalisé." };
+            const meta = ROLE_META[r.name] ?? { icon: "sparkle", desc: "Rôle personnalisé." };
             const members = users.filter((u) => u.roleId === r.id).slice(0, 4);
             return (
               <article key={r.id} className={`dcard role-tile${r.isSystem ? "" : " custom"}`} aria-labelledby={`rt-${k}`}>
@@ -175,7 +174,7 @@ export function AdminRolesPage() {
                     )}
                   </div>
                 </div>
-                <p className="role-desc">{r.isSystem ? meta.desc : r.description || meta.desc}</p>
+                <p className="role-desc">{meta.desc}</p>
                 <div className="role-perms">
                   <div className="prog-top">
                     <span className="prog-name">Permissions accordées</span>
@@ -193,7 +192,7 @@ export function AdminRolesPage() {
                       <span className="av-stack" aria-hidden="true">
                         {members.map((u) => (
                           <span key={u.id} className="av">
-                            {initials(u.fullName || u.email)}
+                            <UserPhoto src={u.photoUrl} name={u.fullName || u.email} />
                           </span>
                         ))}
                       </span>

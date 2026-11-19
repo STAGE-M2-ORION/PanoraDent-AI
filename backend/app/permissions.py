@@ -17,7 +17,7 @@ MODEL_READ = "model:read"
 USER_MANAGE = "user:manage"
 ROLE_MANAGE = "role:manage"
 
-# code -> description affichée dans l'interface d'administration.
+# code -> libellé affiché dans l'interface d'administration.
 PERMISSIONS: dict[str, str] = {
     ANALYSIS_CREATE: "Importer une panoramique et lancer une analyse",
     ANALYSIS_READ: "Consulter les analyses et leurs détections",
@@ -29,30 +29,22 @@ PERMISSIONS: dict[str, str] = {
     ROLE_MANAGE: "Gérer les rôles et leurs permissions",
 }
 
-ADMIN_ROLE = "admin"
-PRACTITIONER_ROLE = "practitioner"
-VIEWER_ROLE = "viewer"
+# Libellés des trois rôles système (colonne `role.libelle`).
+ADMIN_ROLE = "Administrateur"
+PRACTITIONER_ROLE = "Praticien"
+VIEWER_ROLE = "Lecteur"
 
 # Permissions qui, ensemble, permettent de continuer à administrer la
 # plateforme. Un « administrateur » au sens des garde-fous (dernier admin) est
 # un compte actif dont le rôle porte les deux.
 ADMIN_CAPABILITIES = frozenset({USER_MANAGE, ROLE_MANAGE})
 
-# nom -> (description, permissions)
-SYSTEM_ROLES: dict[str, tuple[str, frozenset[str]]] = {
-    ADMIN_ROLE: (
-        "Administrateur : toutes les permissions",
-        frozenset(PERMISSIONS),
-    ),
-    PRACTITIONER_ROLE: (
-        "Praticien : analyse, revue des détections et rapports",
-        frozenset({
-            ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_DELETE,
-            DETECTION_REVIEW, REPORT_GENERATE, MODEL_READ,
-        }),
-    ),
-    VIEWER_ROLE: (
-        "Lecteur : consultation seule",
-        frozenset({ANALYSIS_READ, MODEL_READ}),
-    ),
+# libellé -> permissions
+SYSTEM_ROLES: dict[str, frozenset[str]] = {
+    ADMIN_ROLE: frozenset(PERMISSIONS),
+    PRACTITIONER_ROLE: frozenset({
+        ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_DELETE,
+        DETECTION_REVIEW, REPORT_GENERATE, MODEL_READ,
+    }),
+    VIEWER_ROLE: frozenset({ANALYSIS_READ, MODEL_READ}),
 }

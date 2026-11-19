@@ -1,178 +1,110 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DetSwatch } from "@/entities/detection";
-import { PasswordInput, PasswordStrength, SessionStatus, evaluatePassword, requestPasswordReset, useCurrentUser } from "@/entities/session";
-import { SignInForm } from "@/features/sign-in";
-import { ErrorCode, toAppError } from "@/shared/api";
-import { Alert, Button, Icon } from "@/shared/ui";
+import { SessionEndReason, SessionStatus, homePathFor, startGoogleSignIn, useCurrentUser } from "@/entities/session";
+import { Alert, GoogleMark, Icon } from "@/shared/ui";
 
-/** Panneaux de la colonne de gauche : la photo, elle, ne bouge pas. */
-const PANELS = ["login", "reset", "sent", "nouveau", "expire", "succes"];
+/**
+ * Codes d'échec renvoyés par le backend dans `?erreur=` au retour de Google.
+ * `retry` : erreur passagère, on propose de recommencer (encart neutre) ;
+ * sinon, le blocage relève de l'administrateur ou de Google (encart rouge).
+ */
+const ERRORS = {
+  compte_inconnu: {
+    title: "Aucun compte pour cette adresse Google",
+    text: "Cette adresse n’est associée à aucun compte PanoraDent AI. Demandez à l’administrateur de votre cabinet de vous créer un compte avec cette adresse Google, puis reconnectez-vous.",
+  },
+  compte_desactive: {
+    title: "Compte désactivé",
+    text: "Votre compte a été désactivé. Contactez l’administrateur de votre cabinet pour qu’il le réactive.",
+  },
+  adresse_non_verifiee: {
+    title: "Adresse Google non vérifiée",
+    text: "Google n’a pas confirmé que cette adresse e-mail vous appartient. Vérifiez-la depuis les paramètres de votre compte Google, puis reconnectez-vous.",
+  },
+  etat_invalide: {
+    retry: true,
+    title: "La connexion n’a pas abouti",
+    text: "La demande de connexion a expiré ou a été interrompue. Cela arrive si la page est restée ouverte longtemps ou si plusieurs onglets se connectent en même temps.",
+  },
+  echec_google: {
+    retry: true,
+    title: "La connexion n’a pas abouti",
+    text: "Google n’a pas pu confirmer votre identité, par exemple si vous avez annulé ou si la connexion a été coupée.",
+  },
+};
 
-/** Destination après connexion : `?next=` s'il pointe dans l'application. */
-function safeNext(next) {
-  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/connexion") ? next : "/tableau-de-bord";
-}
+/** Messages d'arrivée (`?etat=`), posés par la garde de route et la déconnexion. */
+const ARRIVALS = {
+  [SessionEndReason.EXPIRED]: { tone: "info", icon: "clock", text: "Votre session a expiré. Reconnectez-vous pour reprendre." },
+  [SessionEndReason.SIGNED_OUT]: { tone: "success", icon: "check", text: "Vous êtes déconnecté." },
+};
 
-function PanelTitle({ id, children, focus }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (focus) ref.current?.focus();
-  }, [focus]);
+const queryValue = (value) => (typeof value === "string" ? value : "");
+
+/**
+ * Bouton « Continuer avec Google », conforme aux consignes de marque Google :
+ * fond blanc, bordure #747775, texte #1F1F1F, logo « G » officiel. Il déclenche
+ * une VRAIE navigation vers le backend (jamais un fetch).
+ */
+function GoogleButton({ pending, onClick }) {
   return (
-    <h1 id={id} tabIndex={-1} ref={ref}>
-      {children}
-    </h1>
-  );
-}
-
-function ResetPanel({ initialEmail, onSent, onBack, focus }) {
-  const [email, setEmail] = useState(initialEmail);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState(null);
-  const submit = async (event) => {
-    event.preventDefault();
-    setPending(true);
-    setError(null);
-    try {
-      await requestPasswordReset(email.trim());
-      onSent();
-    } catch (cause) {
-      const appError = toAppError(cause);
-      setError(
-        appError.code === ErrorCode.NOT_FOUND
-          ? "La réinitialisation par e-mail n’est pas encore disponible sur ce serveur. Contactez l’administrateur de votre cabinet : il peut définir un nouveau mot de passe depuis la gestion des comptes."
-          : appError.message,
-      );
-    } finally {
-      setPending(false);
-    }
-  };
-  return (
-    <div className="panel-v">
-      <PanelTitle id="t-reset" focus={focus}>
-        Mot de passe oublié
-      </PanelTitle>
-      <p className="sous">Saisissez l’adresse e-mail de votre compte. Nous vous enverrons un lien de réinitialisation.</p>
-      {error ? (
-        <Alert tone="warning" icon="info" role="alert">
-          {error}
-        </Alert>
-      ) : null}
-      <form onSubmit={submit} noValidate style={{ display: "grid", gap: "var(--space-4)" }}>
-        <div className="field">
-          <label className="label" htmlFor="r-mail">
-            Adresse e-mail
-          </label>
-          <input className="input" id="r-mail" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <Button className="btn-connexion" type="submit" disabled={pending || !email.trim()}>
-          Envoyer le lien
-        </Button>
-      </form>
-      <p className="retour">
-        <a href="#connexion" onClick={(e) => (e.preventDefault(), onBack())}>
-          Retour à la connexion
-        </a>
-      </p>
-    </div>
-  );
-}
-
-function NewPasswordPanel({ onDone, focus }) {
-  const [pw, setPw] = useState("");
-  const [pw2, setPw2] = useState("");
-  const [show, setShow] = useState({ a: false, b: false });
-  const { valid } = evaluatePassword(pw);
-  const mismatch = Boolean(pw2) && pw2 !== pw;
-  return (
-    <div className="panel-v">
-      <PanelTitle id="t-nouveau" focus={focus}>
-        Choisir un nouveau mot de passe
-      </PanelTitle>
-      <p className="sous">Ce lien est à usage unique.</p>
-      <form
-        noValidate
-        style={{ display: "grid", gap: "var(--space-3)" }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (valid && !mismatch && pw2) onDone();
-        }}
-      >
-        <div className="field">
-          <label className="label" htmlFor="n-pw">
-            Nouveau mot de passe
-          </label>
-          <PasswordInput
-            id="n-pw"
-            autoComplete="new-password"
-            aria-describedby="rules meter-txt"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            visible={show.a}
-            onToggle={() => setShow((s) => ({ ...s, a: !s.a }))}
-          />
-        </div>
-        <PasswordStrength value={pw} />
-        <div className="field">
-          <label className="label" htmlFor="n-pw2">
-            Confirmer le mot de passe
-          </label>
-          <PasswordInput
-            id="n-pw2"
-            autoComplete="new-password"
-            aria-describedby="n-err"
-            aria-invalid={mismatch ? "true" : "false"}
-            value={pw2}
-            onChange={(e) => setPw2(e.target.value)}
-            visible={show.b}
-            onToggle={() => setShow((s) => ({ ...s, b: !s.b }))}
-            label="la confirmation"
-          />
-          <span className="error-text" id="n-err" role="alert" hidden={!mismatch}>
-            Les deux mots de passe ne correspondent pas.
-          </span>
-        </div>
-        <Button className="btn-connexion" type="submit" disabled={!(valid && !mismatch && pw2)}>
-          Enregistrer le nouveau mot de passe
-        </Button>
-      </form>
-    </div>
+    <button type="button" className="gsi-btn" onClick={onClick} disabled={pending} aria-describedby="hint-g">
+      {pending ? <span className="gsi-spinner" aria-hidden="true" /> : <GoogleMark />}
+      <span>{pending ? "Redirection vers Google…" : "Continuer avec Google"}</span>
+    </button>
   );
 }
 
 /**
- * Écran de connexion : carte en deux colonnes (formulaire 36 %, photo 64 %).
- * `?etat=` : `deconnecte`, `expiree`, `oubli`, `nouveau`, `expire`, `succes`.
+ * Écran de connexion : carte en deux colonnes (connexion 36 %, photo 64 %).
+ * La connexion passe exclusivement par Google : aucun mot de passe.
+ *
+ * - `?erreur=<code>` : échec renvoyé par le backend au retour de Google ;
+ * - `?etat=expiree` | `deconnecte` : bandeau d'arrivée.
+ *
+ * Déjà connecté : redirection vers la page d'arrivée du rôle.
  */
 export function ConnexionPage() {
   const router = useRouter();
-  const { status } = useCurrentUser();
-  const etat = typeof router.query.etat === "string" ? router.query.etat : "";
-  const [panel, setPanel] = useState("login");
-  const [focusPanel, setFocusPanel] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
-  const [arrival, setArrival] = useState("");
+  const { status, user } = useCurrentUser();
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState({ error: null, arrival: null });
 
+  // Lu après hydratation : les messages entrent dans la région `aria-live`
+  // déjà présente, ils sont donc annoncés par les lecteurs d'écran.
   useEffect(() => {
     if (!router.isReady) return;
-    if (etat === "oubli") setPanel("reset");
-    else if (PANELS.includes(etat)) setPanel(etat);
-    setArrival(etat);
-  }, [router.isReady, etat]);
+    const code = queryValue(router.query.erreur);
+    setNotice({
+      error: code ? { code, ...(ERRORS[code] ?? ERRORS.echec_google) } : null,
+      arrival: ARRIVALS[queryValue(router.query.etat)] ?? null,
+    });
+  }, [router.isReady, router.query.erreur, router.query.etat]);
 
-  // Déjà connecté (onglet rouvert) : direction l'application.
+  // Retour arrière depuis Google : la page peut sortir du cache du navigateur
+  // avec le bouton encore « en cours ».
   useEffect(() => {
-    if (status === SessionStatus.AUTHENTICATED && router.isReady) router.replace(safeNext(router.query.next));
-  }, [status, router]);
+    const onPageShow = (event) => {
+      if (event.persisted) setPending(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
-  const show = (name) => {
-    setPanel(name);
-    setFocusPanel(true);
+  useEffect(() => {
+    if (status === SessionStatus.AUTHENTICATED) router.replace(homePathFor(user));
+  }, [status, user, router]);
+
+  const signIn = () => {
+    setPending(true);
+    startGoogleSignIn();
   };
+
+  const { error, arrival } = notice;
 
   return (
     <div className="v-connexion">
@@ -182,85 +114,45 @@ export function ConnexionPage() {
       <main className="auth-page">
         <div className="auth-card">
           <div className="auth-form">
-            <Link className="auth-logo" href="/" aria-label="PanoraDent AI, accueil">
+            <Link className="auth-logo" href="/decouvrir" aria-label="PanoraDent AI, présentation">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/Logo_clair_transparent.svg" alt="PanoraDent AI" />
             </Link>
 
-            {panel === "login" ? (
-              <div className="panel-v">
-                <PanelTitle id="t-login" focus={focusPanel}>
-                  Connexion
-                </PanelTitle>
-                <p className="sous">Accès réservé aux praticiens et au personnel autorisé.</p>
-                <SignInForm
-                  arrival={arrival}
-                  onSignedIn={() => router.replace(safeNext(router.query.next))}
-                  onForgot={(email) => {
-                    setResetEmail(email);
-                    show("reset");
-                  }}
-                />
+            <div className="panel-v">
+              <h1>Connexion</h1>
+              <p className="sous">Accès réservé aux praticiens et au personnel autorisé.</p>
+
+              <div className="auth-notices" aria-live="polite" aria-atomic="true">
+                {arrival && !error ? (
+                  <Alert tone={arrival.tone} icon={arrival.icon}>
+                    {arrival.text}
+                  </Alert>
+                ) : null}
+                {error && !error.retry ? (
+                  <Alert tone="danger" icon="alert" title={error.title} data-erreur={error.code}>
+                    {error.text}
+                  </Alert>
+                ) : null}
+                {error?.retry ? (
+                  <div className="auth-neutral" data-erreur={error.code}>
+                    <Icon name="info" />
+                    <div>
+                      <strong>{error.title}</strong>
+                      <p>{error.text}</p>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={signIn} disabled={pending}>
+                        Réessayer
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
 
-            {panel === "reset" ? <ResetPanel initialEmail={resetEmail} focus={focusPanel} onSent={() => show("sent")} onBack={() => show("login")} /> : null}
-
-            {panel === "sent" ? (
-              <div className="panel-v">
-                <PanelTitle id="t-sent" focus={focusPanel}>
-                  Vérifiez votre messagerie
-                </PanelTitle>
-                <Alert tone="success" icon="mail" role="status">
-                  Si un compte correspond à cette adresse, un lien de réinitialisation valable 30 minutes vient d’être envoyé.
-                </Alert>
-                <p className="sous">Rien reçu ? Vérifiez vos courriers indésirables, ou contactez l’administrateur de votre cabinet.</p>
-                <Button variant="secondary" className="btn-connexion" onClick={() => show("login")}>
-                  Retour à la connexion
-                </Button>
-              </div>
-            ) : null}
-
-            {panel === "nouveau" ? <NewPasswordPanel focus={focusPanel} onDone={() => show("succes")} /> : null}
-
-            {panel === "expire" ? (
-              <div className="panel-v">
-                <PanelTitle id="t-expire" focus={focusPanel}>
-                  Lien expiré
-                </PanelTitle>
-                <Alert tone="danger" icon="alert" title="Ce lien n’est plus valable." role="alert">
-                  Il a expiré (validité de 30 minutes) ou a déjà été utilisé.
-                </Alert>
-                <Button className="btn-connexion" onClick={() => show("reset")}>
-                  Demander un nouveau lien
-                </Button>
-                <p className="retour">
-                  <a href="#connexion" onClick={(e) => (e.preventDefault(), show("login"))}>
-                    Retour à la connexion
-                  </a>
-                </p>
-              </div>
-            ) : null}
-
-            {panel === "succes" ? (
-              <div className="panel-v">
-                <PanelTitle id="t-succes" focus={focusPanel}>
-                  Mot de passe modifié
-                </PanelTitle>
-                <Alert tone="success" icon="check" role="status">
-                  Mot de passe modifié. Toutes vos sessions ouvertes ont été fermées.
-                </Alert>
-                <Button
-                  className="btn-connexion"
-                  onClick={() => {
-                    setArrival("mot-de-passe-modifie");
-                    show("login");
-                  }}
-                >
-                  Aller à la connexion
-                </Button>
-              </div>
-            ) : null}
+              <GoogleButton pending={pending} onClick={signIn} />
+              <p className="hint-g" id="hint-g">
+                L’accès est réservé aux comptes créés par l’administrateur de votre cabinet. Utilisez l’adresse Google enregistrée sur votre compte.
+              </p>
+            </div>
 
             <p className="auth-foot">Prototype d’aide à la décision — non certifié. © 2026 PanoraDent AI.</p>
           </div>
@@ -280,7 +172,7 @@ export function ConnexionPage() {
                 sous contrôle
               </h2>
               <p>Détection et numérotation des anomalies sur radiographies panoramiques. Le praticien garde la décision.</p>
-              <Link href="/">Découvrir la plateforme ›</Link>
+              <Link href="/decouvrir">Découvrir la plateforme ›</Link>
             </div>
             <div className="float float-import" aria-hidden="true">
               <Icon name="upload" />

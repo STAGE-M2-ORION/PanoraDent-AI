@@ -1,14 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  clearTokens,
-  getAccessToken,
-  getRefreshToken,
-  setSessionExpiredHandler,
-  setTokens,
-} from "@/shared/api";
+import { setSessionExpiredHandler } from "@/shared/api";
 
-import { fetchMe, requestLogin, requestLogout } from "../api/session-api";
+import { fetchMe, requestLogout } from "../api/session-api";
 
 export const SessionStatus = {
   LOADING: "loading",
@@ -25,12 +19,15 @@ export const SessionEndReason = {
 const SessionContext = createContext(null);
 
 /**
- * Détient la session pour toute l'application. Au montage, si une session peut
- * exister (jeton de rafraîchissement dans l'onglet), on charge le profil : le
- * client HTTP rafraîchit seul le jeton d'accès au premier 401.
+ * Détient la session pour toute l'application. La session vit dans des
+ * cookies `httpOnly` invisibles du JavaScript : au montage, on demande
+ * simplement `GET /moi` — le client HTTP tente seul un rafraîchissement sur
+ * 401. Réponse → `authenticated`, échec → `anonymous`.
  */
 export function SessionProvider({ children }) {
   const [state, setState] = useState({ status: SessionStatus.LOADING, user: null, endReason: null });
+  const statusRef = useRef(state.status);
+  statusRef.current = state.status;
 
   const setAnonymous = useCallback(
     (endReason = null) => setState({ status: SessionStatus.ANONYMOUS, user: null, endReason }),
@@ -39,70 +36,60 @@ export function SessionProvider({ children }) {
 
   useEffect(() => {
     // Rafraîchissement impossible en cours de route : la garde de route renvoie
-    // vers /connexion, qui annonce l'expiration.
-    setSessionExpiredHandler(() => setAnonymous(SessionEndReason.EXPIRED));
+    // vers /connexion, qui annonce l'expiration. Au démarrage (pas encore de
+    // session connue), ce n'est pas une expiration : simple visiteur anonyme.
+    setSessionExpiredHandler(() => {
+      if (statusRef.current === SessionStatus.AUTHENTICATED) setAnonymous(SessionEndReason.EXPIRED);
+    });
 
     let cancelled = false;
-    if (!getAccessToken() && !getRefreshToken()) {
-      setAnonymous();
-    } else {
-      fetchMe()
-        .then((user) => {
-          if (!cancelled) setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
-        })
-        .catch(() => {
-          if (!cancelled) {
-            clearTokens();
-            setAnonymous();
-          }
-        });
-    }
+    fetchMe()
+      .then((user) => {
+        if (!cancelled) setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
+      })
+      .catch(() => {
+        if (!cancelled) setAnonymous();
+      });
     return () => {
       cancelled = true;
       setSessionExpiredHandler(null);
     };
   }, [setAnonymous]);
 
-  const login = useCallback(async (email, password, { remember = false } = {}) => {
-    const tokens = await requestLogin(email.trim(), password);
-    setTokens(tokens, { persist: remember });
-    try {
-      const user = await fetchMe();
-      setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
-      return user;
-    } catch (error) {
-      clearTokens();
-      throw error;
-    }
-  }, []);
-
   const logout = useCallback(async () => {
     try {
       await requestLogout();
     } catch {
-      /* session déjà expirée côté serveur : on vide quand même le client */
+      /* le serveur répond toujours 204 ; en cas de panne réseau, on vide quand même le client */
     }
-    clearTokens();
     setAnonymous(SessionEndReason.SIGNED_OUT);
   }, [setAnonymous]);
+
+  /** Remplace le profil courant (après un changement de photo, par exemple). */
+  const setUser = useCallback(
+    (user) => setState((prev) => (prev.status === SessionStatus.AUTHENTICATED ? { ...prev, user } : prev)),
+    [],
+  );
 
   const value = useMemo(() => {
     const permissions = state.user?.permissions ?? [];
     return {
       ...state,
-      login,
       logout,
+      setUser,
       can: (code) => permissions.includes(code),
       canAny: (codes) => codes.some((code) => permissions.includes(code)),
     };
-  }, [state, login, logout]);
+  }, [state, logout, setUser]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
 /**
- * Utilisateur courant : `{ status, user, endReason, login, logout, can, canAny }`,
- * avec `user = { email, fullName, role, permissions, … }` (null hors session).
+ * Utilisateur courant : `{ status, user, endReason, logout, setUser, can, canAny }`,
+ * avec `user = { email, nom, prenom, fullName, role, roleId, permissions, … }`
+ * (null hors session). Il n'y a pas de `login` : la connexion est une
+ * navigation vers Google (`startGoogleSignIn`).
  */
 export function useCurrentUser() {
   const context = useContext(SessionContext);

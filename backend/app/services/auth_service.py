@@ -1,295 +1,315 @@
-"""Logique métier d'authentification et d'administration des comptes/rôles.
+"""Logique métier : rattachement d'une identité Google à un compte, sessions,
+administration des comptes et des rôles.
 
-Les erreurs sont levées en `HTTPException` : ce module n'est appelé que par des
-routeurs, il n'y a pas de couche intermédiaire à protéger.
+Les erreurs destinées à l'API sont levées en `ApiError` (forme unique
+`{code, message}`) ; les refus de connexion en `RefusConnexion`, que la route
+de retour traduit en redirection `/connexion?erreur=<code>`.
 """
-from datetime import timedelta
+import uuid
+from datetime import datetime
+from urllib.parse import urlparse
 
-from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import auth_security as sec
-from ..auth_models import Permission, RefreshToken, Role, User, utcnow
-from ..auth_schemas import RoleCreate, RoleUpdate, UserCreate, UserUpdate
+from ..auth_models import (
+    Permission, Role, SessionUtilisateur, StatutUtilisateur, Utilisateur, maintenant,
+)
+from ..auth_schemas import (
+    RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
+)
 from ..config import settings
+from ..errors import ApiError
 from ..permissions import ADMIN_CAPABILITIES, ADMIN_ROLE
 
-# Message volontairement identique pour « email inconnu », « mauvais mot de
-# passe » et « compte désactivé » : ne pas révéler quels comptes existent.
-INVALID_CREDENTIALS = "Identifiants invalides"
-_DUMMY_HASH = sec.hash_password("dummy-password-for-timing")
 
-
-def normalize_email(email: str) -> str:
+def normaliser_email(email: str) -> str:
     return email.strip().lower()
 
 
-def _unauthorized(detail: str) -> HTTPException:
-    return HTTPException(
-        status.HTTP_401_UNAUTHORIZED, detail, headers={"WWW-Authenticate": "Bearer"}
+def par_email(db: Session, email: str) -> Utilisateur | None:
+    return db.scalar(select(Utilisateur).where(func.lower(Utilisateur.email) == normaliser_email(email)))
+
+
+# --- Connexion Google ------------------------------------------------------
+
+class RefusConnexion(Exception):
+    """`code` part dans l'URL (et devient un message à l'écran) ; `motif`, plus
+    précis, ne va qu'au journal."""
+
+    def __init__(self, code: str, motif: str, utilisateur_id: uuid.UUID | None = None):
+        super().__init__(motif)
+        self.code = code
+        self.motif = motif
+        self.utilisateur_id = utilisateur_id
+
+
+def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, str]:
+    """Trouve le compte correspondant à un jeton d'identité DÉJÀ VÉRIFIÉ.
+
+    Règle : le `sub` Google identifie l'utilisateur dès qu'il est connu (une
+    adresse peut changer, le `sub` jamais). Sinon l'adresse sert, une seule
+    fois, à rattacher le `sub`. Aucun compte n'est jamais créé ici.
+
+    Renvoie `(utilisateur, détail pour le journal)` ; ne valide pas la
+    transaction (l'appelant ouvre la session puis valide).
+    """
+    sub = str(claims["sub"])
+    email = normaliser_email(str(claims["email"]))
+    detail = f"adresse={email}"
+
+    domaine = settings.google_allowed_domain.strip().lower()
+    if domaine and str(claims.get("hd", "")).lower() != domaine:
+        raise RefusConnexion("compte_inconnu", f"domaine_refuse {detail}")
+
+    utilisateur = db.scalar(select(Utilisateur).where(Utilisateur.google_sub == sub))
+    nouvelle_adresse = None
+    if utilisateur is not None:
+        if utilisateur.email != email:
+            autre = par_email(db, email)
+            if autre is not None and autre.id != utilisateur.id:
+                raise RefusConnexion(
+                    "compte_inconnu", f"adresse_deja_associee_a_un_autre_compte {detail}", utilisateur.id
+                )
+            nouvelle_adresse = email
+    else:
+        utilisateur = par_email(db, email)
+        if utilisateur is None:
+            raise RefusConnexion("compte_inconnu", f"adresse_inconnue {detail}")
+        if utilisateur.google_sub is not None and utilisateur.google_sub != sub:
+            # Même adresse, autre compte Google : on ne remplace pas une
+            # identité établie sans l'administrateur.
+            raise RefusConnexion("compte_inconnu", f"sub_different {detail}", utilisateur.id)
+
+    if not utilisateur.actif:
+        raise RefusConnexion("compte_desactive", f"compte_desactive {detail}", utilisateur.id)
+
+    if nouvelle_adresse is not None:
+        detail += f" ancienne_adresse={utilisateur.email}"
+        utilisateur.email = nouvelle_adresse
+    if utilisateur.google_sub is None:
+        utilisateur.google_sub = sub
+        detail += " premiere_connexion"
+    if not utilisateur.prenom.strip():
+        utilisateur.prenom = str(claims.get("given_name") or "")[:120]
+    if not utilisateur.nom.strip():
+        utilisateur.nom = str(claims.get("family_name") or "")[:120]
+    utilisateur.photo_google = photo_google(claims)
+    utilisateur.derniere_connexion = maintenant()
+    return utilisateur, detail
+
+
+def photo_google(claims: dict) -> str | None:
+    """URL de la photo du compte Google, seulement si elle est servie en HTTPS
+    par Google : l'interface l'affiche telle quelle dans une balise <img>."""
+    url = str(claims.get("picture") or "")
+    hote = urlparse(url).hostname or ""
+    if url.startswith("https://") and len(url) <= 1024 and (
+        hote == "googleusercontent.com" or hote.endswith(".googleusercontent.com")
+    ):
+        return url
+    return None
+
+
+# --- Sessions --------------------------------------------------------------
+
+def ouvrir_session(db: Session, utilisateur: Utilisateur) -> tuple[str, str, datetime]:
+    """Crée la ligne de session et renvoie `(accès, rafraîchissement, expiration)`.
+    Ne valide pas la transaction."""
+    expiration = maintenant() + sec.refresh_ttl()
+    session = SessionUtilisateur(utilisateur_id=utilisateur.id, date_expiration=expiration)
+    db.add(session)
+    db.flush()
+    acces = sec.create_access_token(
+        utilisateur.id, session.id, utilisateur.role.libelle, utilisateur.permission_codes
     )
+    return acces, sec.create_refresh_token(session.id, expiration), expiration
 
 
-# --- Authentification ------------------------------------------------------
-
-def authenticate(db: Session, email: str, password: str) -> User:
-    user = db.scalar(select(User).where(User.email == normalize_email(email)))
-    if user is None:
-        # Même coût de calcul qu'un vrai échec, pour ne pas trahir l'inexistence.
-        sec.verify_password(password, _DUMMY_HASH)
-        raise _unauthorized(INVALID_CREDENTIALS)
-
-    now = utcnow()
-    if user.locked_until is not None:
-        if user.locked_until > now:
-            minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
-            raise HTTPException(
-                status.HTTP_423_LOCKED,
-                f"Compte verrouillé après trop d'échecs. Réessayez dans {minutes} min.",
-            )
-        # Verrou expiré : on repart de zéro.
-        user.locked_until = None
-        user.failed_attempts = 0
-
-    if not sec.verify_password(password, user.hashed_password):
-        user.failed_attempts += 1
-        if user.failed_attempts >= settings.max_failed_logins:
-            user.locked_until = now + timedelta(minutes=settings.lockout_minutes)
-            user.failed_attempts = 0
-        db.commit()
-        raise _unauthorized(INVALID_CREDENTIALS)
-
-    if not user.is_active:
-        raise _unauthorized(INVALID_CREDENTIALS)
-
-    user.failed_attempts = 0
-    user.locked_until = None
-    user.last_login_at = now
-    db.commit()
-    return user
+def session_depuis_rafraichissement(db: Session, jeton: str | None) -> SessionUtilisateur | None:
+    """Session désignée par un jeton de rafraîchissement, valide ou non."""
+    if not jeton:
+        return None
+    try:
+        payload = sec.decode_token(jeton, sec.REFRESH)
+        return db.get(SessionUtilisateur, uuid.UUID(payload["sub"]))
+    except (sec.TokenError, ValueError):
+        return None
 
 
-def issue_tokens(db: Session, user: User) -> dict:
-    access = sec.create_access_token(user.id)
-    refresh, jti, exp = sec.create_refresh_token(user.id)
-    db.add(RefreshToken(jti=jti, user_id=user.id, expires_at=exp.replace(tzinfo=None)))
-    db.commit()
-    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+def session_depuis_id(db: Session, session_id) -> SessionUtilisateur | None:
+    try:
+        return db.get(SessionUtilisateur, uuid.UUID(str(session_id)))
+    except (ValueError, TypeError):
+        return None
 
 
-def revoke_all_refresh(db: Session, user_id: str) -> None:
-    for token in db.scalars(
-        select(RefreshToken).where(
-            RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False)
+def rafraichir(db: Session, jeton: str | None) -> tuple[str, Utilisateur]:
+    """Nouveau jeton d'accès pour une session valide ; 401 sinon."""
+    session = session_depuis_rafraichissement(db, jeton)
+    if session is None or not session.valide():
+        raise ApiError(401, "session_expiree", "Votre session a expiré. Reconnectez-vous.")
+    utilisateur = session.utilisateur
+    if not utilisateur.actif:
+        raise ApiError(401, "session_expiree", "Votre session a expiré. Reconnectez-vous.")
+    acces = sec.create_access_token(
+        utilisateur.id, session.id, utilisateur.role.libelle, utilisateur.permission_codes
+    )
+    return acces, utilisateur
+
+
+def revoquer_session(session: SessionUtilisateur) -> None:
+    if session.date_revocation is None:
+        session.date_revocation = maintenant()
+
+
+def revoquer_sessions(db: Session, utilisateur_id: uuid.UUID) -> None:
+    for session in db.scalars(
+        select(SessionUtilisateur).where(
+            SessionUtilisateur.utilisateur_id == utilisateur_id,
+            SessionUtilisateur.date_revocation.is_(None),
         )
     ):
-        token.revoked = True
-    db.commit()
-
-
-def rotate_refresh(db: Session, refresh_token: str) -> dict:
-    """Valide le refresh en base (via son jti), le révoque et en émet un neuf."""
-    try:
-        payload = sec.decode_token(refresh_token, sec.REFRESH)
-    except sec.TokenError:
-        raise _unauthorized("Session expirée")
-
-    stored = db.scalar(select(RefreshToken).where(RefreshToken.jti == payload["jti"]))
-    if stored is None or stored.user_id != payload["sub"]:
-        raise _unauthorized("Session expirée")
-    if stored.revoked:
-        # Réutilisation d'un jeton déjà tourné : il a probablement fuité.
-        # On coupe toutes les sessions de ce compte.
-        revoke_all_refresh(db, stored.user_id)
-        raise _unauthorized("Session expirée")
-    if stored.expires_at <= utcnow():
-        raise _unauthorized("Session expirée")
-
-    user = db.get(User, stored.user_id)
-    if user is None or not user.is_active:
-        raise _unauthorized("Session expirée")
-
-    stored.revoked = True
-    db.flush()
-    return issue_tokens(db, user)
+        revoquer_session(session)
 
 
 # --- Garde-fous « dernier administrateur » ---------------------------------
 
-def _is_admin_role(role: Role, permissions: set[str] | None = None) -> bool:
+def _est_role_admin(role: Role, permissions: set[str] | None = None) -> bool:
     codes = permissions if permissions is not None else set(role.permission_codes)
     return ADMIN_CAPABILITIES <= codes
 
 
-def _active_admins(db: Session) -> list[User]:
+def _admins_actifs(db: Session) -> list[Utilisateur]:
     return [
-        u for u in db.scalars(select(User).where(User.is_active.is_(True)))
-        if _is_admin_role(u.role)
+        u for u in db.scalars(select(Utilisateur).where(Utilisateur.statut == StatutUtilisateur.actif))
+        if _est_role_admin(u.role)
     ]
 
 
-def ensure_not_last_admin(db: Session, user: User) -> None:
-    """Refuse l'opération si `user` est le dernier administrateur actif."""
-    if not user.is_active or not _is_admin_role(user.role):
+def _dernier_admin() -> ApiError:
+    return ApiError(
+        400, "dernier_administrateur",
+        "Opération refusée : c'est le dernier administrateur actif.",
+    )
+
+
+def verifier_pas_dernier_admin(db: Session, utilisateur: Utilisateur) -> None:
+    if not utilisateur.actif or not _est_role_admin(utilisateur.role):
         return
-    others = [u for u in _active_admins(db) if u.id != user.id]
-    if not others:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Opération refusée : c'est le dernier administrateur actif.",
-        )
+    if not [u for u in _admins_actifs(db) if u.id != utilisateur.id]:
+        raise _dernier_admin()
 
 
-# --- Utilisateurs ----------------------------------------------------------
+# --- Comptes ---------------------------------------------------------------
 
-def _get_role(db: Session, role_id: str) -> Role:
+def _role(db: Session, role_id: uuid.UUID) -> Role:
     role = db.get(Role, role_id)
     if role is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Rôle inconnu")
+        raise ApiError(422, "champ_invalide", "Champ invalide : role_id (rôle inconnu).")
     return role
 
 
-def create_user(db: Session, data: UserCreate) -> User:
-    email = normalize_email(data.email)
-    if db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Un compte existe déjà pour cet email")
-    role = _get_role(db, data.role_id)
-    user = User(
-        email=email,
-        full_name=data.full_name.strip(),
-        hashed_password=sec.hash_password(data.password),
-        role_id=role.id,
+def creer_utilisateur(db: Session, data: UtilisateurCreation) -> Utilisateur:
+    email = normaliser_email(data.email)
+    if par_email(db, email) is not None:
+        raise ApiError(409, "adresse_deja_prise", "Un compte existe déjà pour cette adresse.")
+    role = _role(db, data.role_id)
+    utilisateur = Utilisateur(
+        email=email, nom=data.nom.strip(), prenom=data.prenom.strip(), role_id=role.id
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    db.add(utilisateur)
+    db.flush()
+    db.refresh(utilisateur)
+    return utilisateur
 
 
-def update_user(db: Session, user: User, data: UserUpdate) -> User:
-    new_role = _get_role(db, data.role_id) if data.role_id is not None else None
-
-    removes_admin = (
-        (data.is_active is False)
-        or (new_role is not None and not _is_admin_role(new_role))
+def modifier_utilisateur(db: Session, utilisateur: Utilisateur, data: UtilisateurModification) -> Utilisateur:
+    nouveau_role = _role(db, data.role_id) if data.role_id is not None else None
+    retire_admin = (
+        data.statut == StatutUtilisateur.desactive
+        or (nouveau_role is not None and not _est_role_admin(nouveau_role))
     )
-    if removes_admin:
-        ensure_not_last_admin(db, user)
+    if retire_admin:
+        verifier_pas_dernier_admin(db, utilisateur)
 
-    if data.full_name is not None:
-        user.full_name = data.full_name.strip()
-    if new_role is not None:
-        user.role_id = new_role.id
-    if data.is_active is not None:
-        user.is_active = data.is_active
-        if not data.is_active:
-            revoke_all_refresh(db, user.id)
-    if data.password is not None:
-        user.hashed_password = sec.hash_password(data.password)
-        user.failed_attempts = 0
-        user.locked_until = None
-        revoke_all_refresh(db, user.id)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-def change_password(db: Session, user: User, current: str, new: str) -> None:
-    if not sec.verify_password(current, user.hashed_password):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mot de passe actuel incorrect")
-    user.hashed_password = sec.hash_password(new)
-    db.commit()
-    revoke_all_refresh(db, user.id)  # toutes les sessions doivent se reconnecter
-
-
-def delete_user(db: Session, user: User, actor: User) -> None:
-    if user.id == actor.id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Vous ne pouvez pas supprimer votre propre compte")
-    ensure_not_last_admin(db, user)
-    db.delete(user)
-    db.commit()
+    if data.nom is not None:
+        utilisateur.nom = data.nom.strip()
+    if data.prenom is not None:
+        utilisateur.prenom = data.prenom.strip()
+    if nouveau_role is not None:
+        utilisateur.role_id = nouveau_role.id
+    if data.statut is not None:
+        utilisateur.statut = data.statut
+        if data.statut == StatutUtilisateur.desactive:
+            revoquer_sessions(db, utilisateur.id)
+    db.flush()
+    db.refresh(utilisateur)
+    return utilisateur
 
 
 # --- Rôles -----------------------------------------------------------------
 
-def _resolve_permissions(db: Session, codes: list[str]) -> list[Permission]:
-    wanted = set(codes)
-    found = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(wanted)))}
-    unknown = sorted(wanted - found.keys())
-    if unknown:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Permissions inconnues : {', '.join(unknown)}"
-        )
-    return list(found.values())
+def _permissions(db: Session, codes: list[str]) -> list[Permission]:
+    voulues = set(codes)
+    trouvees = {p.code: p for p in db.scalars(select(Permission).where(Permission.code.in_(voulues)))}
+    inconnues = sorted(voulues - trouvees.keys())
+    if inconnues:
+        raise ApiError(422, "champ_invalide", f"Permissions inconnues : {', '.join(inconnues)}.")
+    return list(trouvees.values())
 
 
-def _ensure_name_free(db: Session, name: str, except_id: str | None = None) -> None:
-    other = db.scalar(select(Role).where(Role.name == name))
-    if other is not None and other.id != except_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Un rôle porte déjà ce nom")
+def _libelle_libre(db: Session, libelle: str, sauf: uuid.UUID | None = None) -> None:
+    autre = db.scalar(select(Role).where(func.lower(Role.libelle) == libelle.lower()))
+    if autre is not None and autre.id != sauf:
+        raise ApiError(409, "libelle_deja_pris", "Un rôle porte déjà ce libellé.")
 
 
-def create_role(db: Session, data: RoleCreate) -> Role:
-    name = data.name.strip()
-    _ensure_name_free(db, name)
-    role = Role(
-        name=name,
-        description=data.description.strip(),
-        is_system=False,
-        permissions=_resolve_permissions(db, data.permissions),
-    )
+def creer_role(db: Session, data: RoleCreation) -> Role:
+    libelle = data.libelle.strip()
+    _libelle_libre(db, libelle)
+    role = Role(libelle=libelle, systeme=False, permissions=_permissions(db, data.permissions))
     db.add(role)
     db.commit()
     db.refresh(role)
     return role
 
 
-def update_role(db: Session, role: Role, data: RoleUpdate) -> Role:
-    if role.is_system:
-        if data.name is not None and data.name.strip() != role.name:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un rôle système ne peut pas être renommé")
-        if role.name == ADMIN_ROLE and data.permissions is not None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Les permissions du rôle admin sont fixes (toutes les permissions)",
-            )
+def modifier_role(db: Session, role: Role, data: RoleModification) -> Role:
+    if role.systeme:
+        if data.libelle is not None and data.libelle.strip() != role.libelle:
+            raise ApiError(400, "role_systeme", "Un rôle système ne peut pas être renommé.")
+        if role.libelle == ADMIN_ROLE and data.permissions is not None:
+            raise ApiError(400, "role_systeme", "Les permissions du rôle Administrateur sont fixes.")
 
-    if data.name is not None:
-        _ensure_name_free(db, data.name.strip(), except_id=role.id)
+    if data.libelle is not None:
+        _libelle_libre(db, data.libelle.strip(), sauf=role.id)
 
     if data.permissions is not None:
-        new_perms = _resolve_permissions(db, data.permissions)
-        new_codes = {p.code for p in new_perms}
-        # Retirer une capacité d'administration à un rôle qui porte le dernier
+        nouvelles = _permissions(db, data.permissions)
+        codes = {p.code for p in nouvelles}
+        # Retirer une capacité d'administration au rôle qui porte le dernier
         # administrateur actif verrouillerait la plateforme.
-        if _is_admin_role(role) and not _is_admin_role(role, new_codes):
-            holders = [u for u in role.users if u.is_active]
-            if holders:
-                others = [u for u in _active_admins(db) if u.role_id != role.id]
-                if not others:
-                    raise HTTPException(
-                        status.HTTP_400_BAD_REQUEST,
-                        "Opération refusée : ce rôle porte le dernier administrateur actif.",
-                    )
-        role.permissions = new_perms
+        if _est_role_admin(role) and not _est_role_admin(role, codes):
+            if [u for u in role.utilisateurs if u.actif]:
+                if not [u for u in _admins_actifs(db) if u.role_id != role.id]:
+                    raise _dernier_admin()
+        role.permissions = nouvelles
 
-    if data.name is not None:
-        role.name = data.name.strip()
-    if data.description is not None:
-        role.description = data.description.strip()
+    if data.libelle is not None:
+        role.libelle = data.libelle.strip()
     db.commit()
     db.refresh(role)
     return role
 
 
-def delete_role(db: Session, role: Role) -> None:
-    if role.is_system:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Un rôle système ne peut pas être supprimé")
-    if role.users:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Rôle encore attribué à {len(role.users)} utilisateur(s)",
+def supprimer_role(db: Session, role: Role) -> None:
+    if role.systeme:
+        raise ApiError(400, "role_systeme", "Un rôle système ne peut pas être supprimé.")
+    if role.utilisateurs:
+        raise ApiError(
+            400, "role_utilise", f"Rôle encore attribué à {len(role.utilisateurs)} utilisateur(s)."
         )
     db.delete(role)
     db.commit()

@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 
 import { createRole } from "@/entities/role";
-import { ErrorCode, toAppError } from "@/shared/api";
+import { toAppError } from "@/shared/api";
 import { Alert, Button, Modal } from "@/shared/ui";
 
 import { PERMISSION_GROUPS, SENSITIVE_PERMISSIONS, permissionLabel } from "../model/permission-groups";
 
-/** Création d'un rôle personnalisé : nom, description, permissions groupées. */
+/** Création d'un rôle personnalisé : libellé et permissions groupées. */
 export function CreateRoleModal({ open, catalog, onClose, onCreated }) {
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [checked, setChecked] = useState([]);
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
@@ -17,7 +16,6 @@ export function CreateRoleModal({ open, catalog, onClose, onCreated }) {
   useEffect(() => {
     if (open) {
       setName("");
-      setDescription("");
       setChecked([]);
       setError(null);
     }
@@ -34,10 +32,10 @@ export function CreateRoleModal({ open, catalog, onClose, onCreated }) {
     }
     setPending(true);
     try {
-      onCreated(await createRole({ name: name.trim(), description: description.trim(), permissions: checked }));
+      onCreated(await createRole({ name: name.trim(), permissions: checked }));
     } catch (cause) {
       const appError = toAppError(cause);
-      setError(appError.code === ErrorCode.CONFLICT ? "Ce nom est déjà utilisé par un rôle." : appError.message);
+      setError(appError.message);
     } finally {
       setPending(false);
     }
@@ -55,12 +53,6 @@ export function CreateRoleModal({ open, catalog, onClose, onCreated }) {
           <p className="error-text" id="r-name-err" hidden={!error}>
             {error}
           </p>
-        </div>
-        <div className="field">
-          <label className="label" htmlFor="r-desc">
-            Description
-          </label>
-          <textarea className="textarea" id="r-desc" style={{ minHeight: 64 }} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
 
         {PERMISSION_GROUPS.map((group) => (

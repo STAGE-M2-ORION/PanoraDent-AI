@@ -1,0 +1,13 @@
+# Stack de test de bout en bout (Playwright) avec le fournisseur d'identité de
+# remplacement à la place de Google. NE JAMAIS utiliser hors tests :
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+#   cd frontend && npm run test:e2e
+# Le backend refuse IDENTITY_PROVIDER=fake si APP_ENV n'est pas « test ».
+services:
+  backend:
+    environment:
+      APP_ENV: test
+      IDENTITY_PROVIDER: fake
+      GOOGLE_CLIENT_ID: e2e-client.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ""
+      ADMIN_EMAIL: admin@e2e.example.org

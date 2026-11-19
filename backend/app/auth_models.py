@@ -1,101 +1,154 @@
-"""Modèles RBAC : permissions, rôles, utilisateurs, jetons de rafraîchissement.
+"""Modèle d'authentification : utilisateur, rôle, permission, session, journal.
 
-Aucune donnée patient ici : seulement des comptes de praticiens/administrateurs.
+L'authentification passe uniquement par Google : AUCUNE colonne ne porte de mot
+de passe. Les identifiants sont des UUID générés par l'application (ils ne
+révèlent ni l'ordre ni le nombre de comptes).
+
 Importer ce module enregistre les tables sur `Base.metadata` (Alembic).
 """
+import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text,
+    Boolean, Column, DateTime, Enum, ForeignKey, Index, String, Table, Text, Uuid, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
 
-def _uuid() -> str:
-    return str(uuid.uuid4())
+def maintenant() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def utcnow() -> datetime:
-    """UTC naïf, comme le reste du schéma (`models.py`)."""
-    return datetime.utcnow()
+def en_utc(dt: datetime | None) -> datetime | None:
+    """SQLite (tests) relit les `timestamptz` sans fuseau : on les recale en UTC."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-role_permissions = Table(
-    "role_permissions",
+class StatutUtilisateur(str, enum.Enum):
+    actif = "actif"
+    desactive = "desactive"
+
+
+role_permission = Table(
+    "role_permission",
     Base.metadata,
-    Column("role_id", String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
-    Column("permission_id", String, ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", Uuid, ForeignKey("role.id", ondelete="CASCADE"), primary_key=True),
+    Column("permission_code", String(64), ForeignKey("permission.code", ondelete="CASCADE"), primary_key=True),
 )
 
 
 class Permission(Base):
-    __tablename__ = "permissions"
+    __tablename__ = "permission"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    code: Mapped[str] = mapped_column(String, unique=True, index=True)
-    description: Mapped[str] = mapped_column(Text, default="")
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    libelle: Mapped[str] = mapped_column(String(255), default="")
 
 
 class Role(Base):
-    __tablename__ = "roles"
+    __tablename__ = "role"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(String, unique=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    libelle: Mapped[str] = mapped_column(String(80), unique=True)
+    # Rôle système : ni supprimable, ni renommable.
+    systeme: Mapped[bool] = mapped_column(Boolean, default=False)
 
     permissions: Mapped[list[Permission]] = relationship(
-        secondary=role_permissions, lazy="selectin", order_by=Permission.code
+        secondary=role_permission, lazy="selectin", order_by=Permission.code
     )
-    users: Mapped[list["User"]] = relationship(back_populates="role")
+    utilisateurs: Mapped[list["Utilisateur"]] = relationship(back_populates="role")
 
     @property
     def permission_codes(self) -> list[str]:
         return [p.code for p in self.permissions]
 
 
-class User(Base):
-    __tablename__ = "users"
+class Utilisateur(Base):
+    __tablename__ = "utilisateur"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    # Toujours stocké en minuscules (voir auth_service).
-    email: Mapped[str] = mapped_column(String, unique=True, index=True)
-    full_name: Mapped[str] = mapped_column(String, default="")
-    hashed_password: Mapped[str] = mapped_column(String)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    role_id: Mapped[str] = mapped_column(ForeignKey("roles.id"))
-    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Repris de Google à la première connexion si l'administrateur les a laissés vides.
+    nom: Mapped[str] = mapped_column(String(120), default="")
+    prenom: Mapped[str] = mapped_column(String(120), default="")
+    # Adresse Google attendue, toujours stockée en minuscules.
+    email: Mapped[str] = mapped_column(String(255), unique=True)
+    # Identifiant stable du compte Google, rempli à la première connexion.
+    # Ensuite c'est lui qui identifie l'utilisateur : l'adresse peut changer.
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("role.id", ondelete="RESTRICT"))
+    statut: Mapped[StatutUtilisateur] = mapped_column(
+        Enum(
+            StatutUtilisateur,
+            name="statut_utilisateur",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        default=StatutUtilisateur.actif,
+    )
+    derniere_connexion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    date_creation: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=maintenant)
+    # Photo de profil : celle du compte Google (revendication `picture`,
+    # reprise à chaque connexion) et, prioritaire, celle importée à la main
+    # (clé dans le stockage objet).
+    photo_google: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    photo_cle: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    role: Mapped[Role] = relationship(back_populates="users", lazy="joined")
-    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    role: Mapped[Role] = relationship(back_populates="utilisateurs", lazy="joined")
+    sessions: Mapped[list["SessionUtilisateur"]] = relationship(
+        back_populates="utilisateur", cascade="all, delete-orphan", passive_deletes=True
     )
 
-    def has_permission(self, code: str) -> bool:
-        return any(p.code == code for p in self.role.permissions)
+    @property
+    def actif(self) -> bool:
+        return self.statut == StatutUtilisateur.actif
 
     @property
     def permission_codes(self) -> list[str]:
         return self.role.permission_codes
 
+    def a_permission(self, code: str) -> bool:
+        return code in self.permission_codes
 
-class RefreshToken(Base):
-    """Un refresh token émis, identifié par son `jti`. Rotation à chaque usage :
-    le jeton présenté est révoqué et remplacé."""
-    __tablename__ = "refresh_tokens"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    jti: Mapped[str] = mapped_column(String, unique=True, index=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+# Unicité insensible à la casse, en plus de la contrainte simple.
+Index("ux_utilisateur_email_minuscules", func.lower(Utilisateur.email), unique=True)
 
-    user: Mapped[User] = relationship(back_populates="refresh_tokens")
+
+class SessionUtilisateur(Base):
+    """Une session ouverte par une connexion Google réussie. Le jeton de
+    rafraîchissement porte son `id` ; la déconnexion la marque révoquée."""
+    __tablename__ = "session"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    utilisateur_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("utilisateur.id", ondelete="CASCADE"), index=True
+    )
+    date_creation: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=maintenant)
+    date_expiration: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    date_revocation: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    utilisateur: Mapped[Utilisateur] = relationship(back_populates="sessions")
+
+    def valide(self, instant: datetime | None = None) -> bool:
+        instant = instant or maintenant()
+        return self.date_revocation is None and en_utc(self.date_expiration) > instant
+
+
+class Journal(Base):
+    """Connexions, refus (avec leur motif), créations de compte, déconnexions.
+    L'écran de consultation viendra plus tard ; les lignes existent dès maintenant."""
+    __tablename__ = "journal"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=maintenant, index=True)
+    action: Mapped[str] = mapped_column(String(50))
+    auteur_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+    adresse_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    resultat: Mapped[str] = mapped_column(String(20))
+    # Motif d'un refus, adresse présentée, compte créé… Jamais de jeton.
+    detail: Mapped[str] = mapped_column(Text, default="")

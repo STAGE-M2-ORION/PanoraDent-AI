@@ -1,5 +1,5 @@
 /**
- * Présentation des permissions du catalogue backend (`permissions.py`) :
+ * Présentation des permissions du catalogue backend (`GET /permissions`) :
  * regroupement, libellés courts de la matrice, permissions sensibles.
  */
 export const PERMISSION_GROUPS = [
@@ -31,7 +31,7 @@ export function orderedPermissions(catalog) {
   return [...known.filter((c) => codes.includes(c)), ...codes.filter((c) => !known.includes(c))];
 }
 
-/** Libellé court (matrice) ; à défaut, la description du catalogue. */
+/** Libellé court (matrice) ; à défaut, le libellé du catalogue. */
 export function permissionLabel(code, catalog = []) {
-  return MATRIX_LABELS[code] ?? catalog.find((p) => p.code === code)?.description ?? code;
+  return MATRIX_LABELS[code] ?? catalog.find((p) => p.code === code)?.label ?? code;
 }

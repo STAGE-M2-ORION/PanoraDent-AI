@@ -3,7 +3,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-from ..auth_deps import require_permission
+from ..auth_deps import exiger
 from ..database import get_db
 from ..models import Analysis, Detection
 from ..permissions import ANALYSIS_CREATE, ANALYSIS_READ, REPORT_GENERATE
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/analyses", tags=["analyses"])
 async def create_analysis(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _=Depends(require_permission(ANALYSIS_CREATE)),
+    _=Depends(exiger(ANALYSIS_CREATE)),
 ):
     raw = await file.read()
     if not raw:
@@ -59,7 +59,7 @@ async def create_analysis(
 
 @router.get("", response_model=list[AnalysisSummary])
 def list_analyses(
-    db: Session = Depends(get_db), _=Depends(require_permission(ANALYSIS_READ))
+    db: Session = Depends(get_db), _=Depends(exiger(ANALYSIS_READ))
 ):
     rows = db.execute(select(Analysis).order_by(Analysis.created_at.desc())).scalars().all()
     return [
@@ -76,7 +76,7 @@ def list_analyses(
 def get_analysis(
     analysis_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission(ANALYSIS_READ)),
+    _=Depends(exiger(ANALYSIS_READ)),
 ):
     a = db.get(Analysis, analysis_id)
     if not a:
@@ -88,7 +88,7 @@ def get_analysis(
 def get_image_url(
     analysis_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission(ANALYSIS_READ)),
+    _=Depends(exiger(ANALYSIS_READ)),
 ):
     a = db.get(Analysis, analysis_id)
     if not a:
@@ -100,7 +100,7 @@ def get_image_url(
 def build_report(
     analysis_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission(REPORT_GENERATE)),
+    _=Depends(exiger(REPORT_GENERATE)),
 ):
     a = db.get(Analysis, analysis_id)
     if not a:

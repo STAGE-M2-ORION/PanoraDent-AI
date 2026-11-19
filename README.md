@@ -47,7 +47,7 @@ docker compose up --build   # ou : make up
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
-| Connexion | http://localhost:3000/connexion | `ADMIN_EMAIL` / `ADMIN_PASSWORD` du `.env` (voir [Authentification](#authentification-et-rôles)) |
+| Connexion | http://localhost:3000/connexion | compte Google `ADMIN_EMAIL` du `.env` (voir [Authentification](#authentification-et-rôles)) |
 | Poste d'analyse | http://localhost:3000/analyse | session requise |
 | Administration | http://localhost:3000/admin/comptes | rôle avec `user:manage` / `role:manage` |
 | Design system | http://localhost:3000/design-system | — |
@@ -57,29 +57,23 @@ docker compose up --build   # ou : make up
 | PostgreSQL | `localhost:5432` | `panoradent` / `panoradent` |
 
 ```bash
-curl http://localhost:8000/api/health
+curl http://localhost:8000/api/v1/health
 # {"status":"ok","inference_reachable":true,"inference_mode":"mock"}
 ```
 
 En mode `mock`, le poste de lecture affiche « Mode démonstration du modèle » et la
 supervision marque l'inférence « Dégradé » : les détections affichées sont **factices**.
 
-**Premier essai** : se connecter sur `/connexion` avec `ADMIN_EMAIL` / `ADMIN_PASSWORD`
-(mot de passe généré s'il est vide : `docker compose logs backend | grep seed_auth`),
+**Premier essai** : renseigner `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` et `ADMIN_EMAIL`
+(votre adresse Google) dans `.env`, se connecter sur `/connexion` avec « Continuer avec Google »,
 puis ouvrir « Nouvelle analyse » dans la barre latérale (`/nouvelle-analyse`), importer
 n'importe quel JPG/PNG (ou `.dcm`), « Ouvrir la relecture », puis « Générer le compte rendu »
 › « Télécharger le PDF ». Les objets produits sont visibles dans MinIO (`images/`,
 `reports/`). L'image et le PDF sont servis au navigateur par le proxy nginx
 (`/storage/`, voir [Limites connues](#limites-connues)).
 
-En ligne de commande :
-
-```bash
-TOKEN=$(curl -s -d "username=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" \
-  http://localhost:8000/api/auth/login | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-curl -H "Authorization: Bearer $TOKEN" -F "file=@panoramique.jpg" http://localhost:8000/api/analyses
-curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8000/api/analyses/<id>/report
-```
+La session vit dans des cookies `httpOnly` posés au retour de Google : pour essayer
+l'API, ouvrir une session dans le navigateur, pas avec `curl`.
 
 Les migrations sont appliquées **automatiquement** au démarrage du backend
 (`alembic upgrade head` dans le `CMD`, cf. [backend/Dockerfile](backend/Dockerfile)).
@@ -121,7 +115,7 @@ Compose. Principes :
 
 ### Flux d'une analyse
 
-1. **Import** — `POST /api/analyses` en `multipart/form-data`. Corps vide → `400`.
+1. **Import** — `POST /api/v1/analyses` en `multipart/form-data`. Corps vide → `400`.
 2. **Anonymisation** ([anonymize.py](backend/app/services/anonymize.py)) — format
    détecté par l'extension `.dcm` **ou** la signature `DICM` à l'offset 128.
    DICOM : tags identifiants écrasés, puis seul le `pixel_array` est conservé
@@ -134,7 +128,7 @@ Compose. Principes :
 5. **Persistance** — une ligne `analyses` + N `detections`, créées avec
    `source="model"` et `reviewed=false`.
 6. **Revue praticien** — schéma prêt, API et UI absentes (cf. limites).
-7. **Rapport PDF** — `POST /api/analyses/{id}/report` relit l'image, la ré-annote
+7. **Rapport PDF** — `POST /api/v1/analyses/{id}/report` relit l'image, la ré-annote
    côté serveur, génère un PDF A4 (image, tableau, mention légale), le stocke
    sous `reports/<id>.pdf` et renvoie une URL présignée (1 h). Un second appel
    **écrase** le PDF existant.
@@ -175,11 +169,15 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `MODEL_IMAGE_SIZE` | `640` | Taille d'entrée du modèle — **doit être identique** au `--imgsz` de l'entraînement |
 | `MODEL_CONF_THRESHOLD` | `0.25` | Seuil de confiance en mode réel |
 | `ASSIGN_FDI` | `1` | Numérotation FDI déduite de la géométrie des boîtes |
-| `APP_ENV` | `development` | `production` : le backend **refuse de démarrer** si `JWT_SECRET` est la valeur par défaut ou fait moins de 32 caractères |
+| `APP_ENV` | `development` | `production` : le backend **refuse de démarrer** si `JWT_SECRET` est la valeur par défaut ou fait moins de 32 caractères, ou sans client Google |
 | `JWT_SECRET` | `change-me-in-prod` | **Obligatoire hors développement** : secret long et aléatoire (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@example.com` / *(vide)* | Administrateur initial, créé seulement s'il n'existe aucun admin actif. Mot de passe vide = généré et affiché **une seule fois** dans les logs |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | *(vide)* | Client OAuth de la console Google. **Obligatoires** en production ; le secret ne vit que côté serveur |
+| `GOOGLE_REDIRECT_URI` | `http://localhost:3000/api/v1/auth/google/retour` | URI de retour, déclarée **exactement** dans la console Google |
+| `APP_URL` | `http://localhost:3000` | Destination après connexion (et `/connexion?erreur=…` en cas de refus) |
+| `GOOGLE_ALLOWED_DOMAIN` | *(vide)* | Restreint la connexion à un domaine Google Workspace |
+| `ADMIN_EMAIL` | *(vide)* | **Adresse Google** de l'administrateur initial, créé par le jeu de départ |
+| `IDENTITY_PROVIDER` | `google` | `fake` = fournisseur de remplacement des tests, **refusé hors** `APP_ENV=test` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` | `15` / `7` | Durée de vie des jetons |
-| `MAX_FAILED_LOGINS` / `LOCKOUT_MINUTES` | `5` / `15` | Verrouillage du compte après trop d'échecs |
 | `ALLOWED_ORIGINS` | `["http://localhost:3000"]` | Origines CORS, **au format JSON**. Sans effet derrière nginx (même origine) ; utile avec `next dev` |
 | `DB_PORT` | `5432` | Port PostgreSQL publié sur l'hôte (`5433` si un PostgreSQL local occupe déjà 5432) |
 
@@ -198,28 +196,29 @@ aucun effet.
 
 ## API backend
 
-Routes préfixées par `/api`. Documentation interactive : http://localhost:8000/docs.
+Routes préfixées par `/api/v1`. Documentation interactive : http://localhost:8000/docs.
 
-**Toutes les routes exigent un jeton** (`Authorization: Bearer …`) et la permission
-indiquée, sauf `GET /api/health`, `POST /api/auth/login` et `POST /api/auth/refresh`.
-Sans jeton : `401` ; jeton valide mais permission absente : `403`.
+**Toutes les routes exigent une session** (cookie `pd_acces`) et la permission
+indiquée, sauf celles marquées publiques (`health` et le parcours de connexion).
+Sans session : `401` ; permission absente : `403`. Toute erreur a la forme
+`{"code": "...", "message": "..."}` (message français affichable tel quel).
 Authentification, comptes et rôles : voir [Authentification et rôles](#authentification-et-rôles).
 
 | Méthode | Route | Description |
 |---|---|---|
-| `GET` | `/api/health` | État backend + joignabilité et mode de l'inférence (timeout 3 s, erreurs absorbées) |
-| `POST` | `/api/analyses` | Upload → anonymise, stocke, infère, persiste. Champ `file` |
-| `GET` | `/api/analyses` | Liste des résumés, plus récentes d'abord |
-| `GET` | `/api/analyses/{id}` | Détail + détections |
-| `GET` | `/api/analyses/{id}/image` | URL présignée (1 h) vers le PNG |
-| `POST` | `/api/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée |
-| `GET` | `/api/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
+| `GET` | `/api/v1/health` | État backend + joignabilité et mode de l'inférence (timeout 3 s, erreurs absorbées) |
+| `POST` | `/api/v1/analyses` | Upload → anonymise, stocke, infère, persiste. Champ `file` |
+| `GET` | `/api/v1/analyses` | Liste des résumés, plus récentes d'abord |
+| `GET` | `/api/v1/analyses/{id}` | Détail + détections |
+| `GET` | `/api/v1/analyses/{id}/image` | URL présignée (1 h) vers le PNG |
+| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée |
+| `GET` | `/api/v1/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
 Les routes image et rapport renvoient `{"url": "…"}` — une URL présignée valable
 **3600 s**, pas une redirection ni le binaire.
 
 ```json
-// POST /api/analyses
+// POST /api/v1/analyses
 { "id": "9f1c…", "image_key": "images/9f1c….png", "report_key": null,
   "model_version": "mock-0.0.0", "inference_mode": "mock",
   "width": 1024, "height": 512,
@@ -242,64 +241,102 @@ Schémas : [`backend/app/schemas.py`](backend/app/schemas.py).
 ## Authentification et rôles
 
 Prototype de recherche : l'authentification protège l'accès aux analyses, elle ne
-fait **pas** de cette plateforme un dispositif médical certifié. **Pas
-d'inscription publique** : les comptes sont créés par un administrateur.
-2FA, SSO et journal d'audit sont des travaux futurs.
+fait **pas** de cette plateforme un dispositif médical certifié.
+
+**Google uniquement.** La connexion passe par un compte Google (OAuth 2.0 + OpenID
+Connect, code d'autorisation avec PKCE, mené côté serveur). La plateforme ne
+conserve **aucun mot de passe** : ni mot de passe provisoire, ni réinitialisation.
+**Pas d'inscription publique** : l'administrateur crée le compte avec l'adresse
+Google de l'intéressé ; une adresse inconnue est refusée et aucun compte n'est créé.
+
+**Mise en place.**
+1. Console Google Cloud › API et services › Identifiants › « ID client OAuth »
+   (Application Web). URI de redirection autorisée, **exactement** :
+   `http://localhost:3000/api/v1/auth/google/retour` (développement) et celle du
+   cabinet. Écran de consentement : portées `openid`, `email`, `profile`.
+2. `.env` : `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (côté serveur seulement),
+   `GOOGLE_REDIRECT_URI`, `APP_URL`, et `ADMIN_EMAIL` = **votre adresse Google** :
+   sans elle, personne ne peut ouvrir la première session.
+3. `GOOGLE_ALLOWED_DOMAIN` (optionnel) restreint la connexion au domaine Google
+   Workspace du cabinet ; vide par défaut, pour ne pas exclure un praticien qui
+   utilise une adresse personnelle.
 
 **Premier démarrage.** Après `alembic upgrade head`, le backend lance
-`python -m app.seed_auth` (idempotent) : il insère les permissions, crée les trois
-rôles système et, **s'il n'existe aucun admin actif**, l'administrateur initial
-(`ADMIN_EMAIL`, `ADMIN_PASSWORD`). Sans `ADMIN_PASSWORD`, un mot de passe aléatoire
-est affiché une seule fois :
+`python -m app.seed_auth`, rejouable sans erreur : huit permissions, trois rôles
+système, et le compte administrateur `ADMIN_EMAIL`.
 
-```bash
-docker compose logs backend | grep seed_auth
-```
+**Parcours.** `GET /api/v1/auth/google/demarrer` tire `state`, `nonce` et le couple
+PKCE, les garde dans un cookie de 10 min et redirige chez Google. Au retour
+(`GET /api/v1/auth/google/retour`), le serveur vérifie que `state` est identique au
+cookie, échange le code avec le `code_verifier`, puis vérifie le jeton d'identité :
+signature (clés publiques Google mises en cache et rechargées si une clé inconnue
+se présente), `iss`, `aud` = notre client, `exp`, `nonce`, `email_verified`
+(bibliothèque officielle `google-auth`). Cette route est une navigation : elle
+redirige toujours, vers l'application ou vers `/connexion?erreur=<code>` avec
+`compte_inconnu`, `compte_desactive`, `adresse_non_verifiee`, `etat_invalide` ou
+`echec_google`.
 
-**Modèle.** Une *permission* est une capacité atomique `ressource:action`. Un *rôle*
-est un ensemble de permissions ; un utilisateur a **exactement un rôle**.
+**Identité.** Le `sub` Google est enregistré à la première connexion et identifie
+ensuite l'utilisateur. Un `sub` connu avec une nouvelle adresse met la ligne à jour ;
+une adresse connue avec un autre `sub` est refusée et journalisée.
+
+**Session.** Jeton d'accès 15 min (utilisateur, session, rôle, permissions) et
+jeton de rafraîchissement 7 j (identifiant de session), tous deux en cookies
+`httpOnly; Secure; SameSite=Lax`, jamais lisibles par le JavaScript.
+`POST /api/v1/auth/rafraichir` repose le jeton d'accès ; `POST /api/v1/auth/deconnexion`
+marque la session révoquée et efface les deux cookies. Chaque requête vérifie que
+la session n'est pas révoquée : la déconnexion ou la désactivation d'un compte
+coupe l'accès immédiatement.
+
+**Autorisation.** Une dépendance unique, `exiger("analysis:read")`, décode le jeton,
+charge l'utilisateur, vérifie qu'il est actif et que la permission figure dans son
+rôle. Les routes déclarent la **permission**, jamais le rôle. Un test parcourt toutes
+les routes et échoue si l'une d'elles ne porte ni garde ni marque `publique`.
 
 | Permission | Route(s) protégée(s) |
 |---|---|
-| `analysis:create` | `POST /api/analyses` |
-| `analysis:read` | `GET /api/analyses`, `/{id}`, `/{id}/image` |
+| `analysis:create` | `POST /api/v1/analyses` |
+| `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/image` |
 | `analysis:delete`, `detection:review` | *définies, aucune route pour l'instant* |
-| `report:generate` | `POST /api/analyses/{id}/report` |
-| `model:read` | `GET /api/model/versions` |
-| `user:manage` | `/api/users` (liste, création, modification, suppression) |
-| `role:manage` | `/api/permissions`, `/api/roles` (écriture) — la lecture de `GET /api/roles` est aussi ouverte à `user:manage` pour attribuer un rôle |
+| `report:generate` | `POST /api/v1/analyses/{id}/report` |
+| `model:read` | `GET /api/v1/model/versions` |
+| `user:manage` | `/api/v1/utilisateurs` (liste, création, modification) |
+| `role:manage` | `/api/v1/permissions`, `/api/v1/roles` (écriture) — `GET /api/v1/roles` est aussi ouvert à `user:manage` |
 
 | Rôle système | Permissions |
 |---|---|
-| `admin` | toutes (resynchronisées à chaque démarrage) |
-| `practitioner` | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
-| `viewer` | `analysis:read`, `model:read` |
+| Administrateur | les huit (resynchronisées à chaque démarrage) |
+| Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
+| Lecteur | `analysis:read`, `model:read` |
 
-Les rôles système ne se suppriment ni ne se renomment. Seuls `practitioner` et
-`viewer` sont modifiables, et le seed ne réécrit jamais leurs permissions une fois
-créés. Un administrateur peut créer des rôles sur mesure depuis `/admin/roles`.
+**Endpoints.** `GET /api/v1/moi` ; `GET|POST /api/v1/utilisateurs`,
+`GET|PATCH /api/v1/utilisateurs/{id}` (pas de suppression : on désactive) ;
+`GET /api/v1/permissions`, `GET|POST /api/v1/roles`, `GET|PATCH|DELETE /api/v1/roles/{id}`.
+Garde-fou **dernier administrateur** : impossible de désactiver ou rétrograder le
+dernier compte actif capable de gérer utilisateurs *et* rôles (`400`).
 
-**Endpoints.** `POST /api/auth/login` (formulaire OAuth2 : `username` = email),
-`POST /api/auth/refresh`, `POST /api/auth/logout` (204, révoque toutes les sessions),
-`GET /api/auth/me`, `POST /api/auth/me/password` ; `GET|POST /api/users`,
-`GET|PATCH|DELETE /api/users/{id}` ; `GET /api/permissions`,
-`GET|POST /api/roles`, `GET|PATCH|DELETE /api/roles/{id}`.
+**Photo de profil.** La photo du compte Google (revendication `picture`, acceptée
+seulement en HTTPS depuis `*.googleusercontent.com`) est reprise à chaque connexion.
+Chacun peut importer la sienne depuis `/profil` (`PUT /api/v1/moi/photo`, JPEG/PNG/WebP,
+5 Mo au plus), prioritaire sur Google, ou la retirer (`DELETE /api/v1/moi/photo`).
+L'image est recadrée en 256 × 256 et ré-encodée en WebP (métadonnées EXIF supprimées),
+stockée dans MinIO et servie par `GET /api/v1/photos/{id}` à toute session ouverte.
+Sans photo : initiales.
 
-**Règles de sécurité implémentées**
-- Mots de passe : bcrypt direct avec pré-hachage SHA-256 (pas de limite de 72 octets, pas de passlib).
-- Jeton d'accès court (15 min) ; jeton de rafraîchissement (7 j) **à rotation** : chaque usage le révoque et en émet un neuf. La réutilisation d'un jeton déjà tourné coupe toutes les sessions du compte.
-- Message d'échec **uniforme** (« Identifiants invalides ») : on ne révèle pas si un email existe.
-- Verrouillage : après `MAX_FAILED_LOGINS` échecs, `423` pendant `LOCKOUT_MINUTES`.
-- Désactiver un compte ou changer son mot de passe révoque ses sessions immédiatement.
-- Garde-fou **dernier administrateur** : impossible de supprimer, désactiver ou rétrograder le dernier compte actif capable de gérer utilisateurs *et* rôles (`400`) ; on ne peut pas supprimer son propre compte.
-- CORS restreint à `ALLOWED_ORIGINS` ; secret JWT par défaut refusé quand `APP_ENV=production`.
+**Journal.** Connexions réussies, refus avec leur motif, créations et modifications
+de compte, déconnexions sont inscrits dans la table `journal` (écran prévu plus tard).
 
-**Stockage des jetons côté navigateur.** Le frontend est un export statique sans couche
-serveur : il ne peut pas poser de cookie `httpOnly`. Le jeton d'accès reste **en
-mémoire**, le jeton de rafraîchissement en **`sessionStorage`** (propre à l'onglet,
-effacé à sa fermeture). Un XSS pourrait lire ce dernier ; migrer vers des cookies
-`httpOnly; Secure; SameSite=Strict` posés par le backend est l'évolution prévue
-avant toute mise en production.
+**Limite assumée : connexion hors ligne.** La connexion exige un accès à Internet
+alors que le serveur est installé au cabinet. Si la liaison tombe, les sessions
+déjà ouvertes continuent (jusqu'à 7 jours), mais **personne ne peut en ouvrir une
+nouvelle**. Choix retenu : l'accepter et le documenter, plutôt que de rouvrir un
+compte de secours à mot de passe.
+
+**Tests.** Google refuse l'automatisation : les tests utilisent un fournisseur
+d'identité de remplacement (`IDENTITY_PROVIDER=fake`) qui signe localement ses jetons ;
+le backend refuse de démarrer avec lui hors `APP_ENV=test`. Il prouve la logique,
+pas la configuration de la console Google : une vraie connexion manuelle reste
+nécessaire.
 
 ---
 
@@ -315,10 +352,13 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   `false`), `source` (`model` | `human`). Relation en
   `cascade="all, delete-orphan"`.
 - **`model_versions`** — `version` (unique), `dataset`, `metrics_json`, `notes`.
-- **Authentification** (migration `0002_auth`) : `permissions` (`code` unique), `roles`
-  (`name` unique, `is_system`), `role_permissions` (N-N), `users` (`email` unique en
-  minuscules, `hashed_password`, `role_id`, `failed_attempts`, `locked_until`),
-  `refresh_tokens` (`jti` unique, `revoked`, `expires_at`).
+- **Authentification** (migration `0003_auth_google`, qui remplace `0002`) :
+  `utilisateur` (UUID, `nom`, `prenom`, `email` unique en minuscules, `google_sub`
+  unique, `role_id` restreint, `statut` `actif|desactive`, `derniere_connexion`,
+  `date_creation`), `role` (`libelle` unique, `systeme`), `permission` (`code` clé
+  primaire, `libelle`), `role_permission`, `session` (création, expiration,
+  révocation), `journal` (date, action, auteur, adresse IP, résultat, détail).
+  Aucune colonne de mot de passe.
 
 > Les tables d'analyse ne contiennent aucune donnée identifiante patient : ni nom,
 > ni identifiant, ni date de naissance, ni date d'examen. Les tables
@@ -517,7 +557,7 @@ panoradent-ai/
 
 **Dépendances** — backend : `fastapi`, `sqlalchemy`, `alembic`, `pydantic`,
 `pydicom`, `pillow`, `numpy`, `boto3`, `reportlab`, `httpx`, `python-jose`,
-`bcrypt`, `email-validator`, `pytest`. Inférence : `fastapi`, `pillow`,
+`google-auth`, `email-validator`, `pytest`. Inférence : `fastapi`, `pillow`,
 `numpy`, `pytest` — `ultralytics` et `torch` commentés. Entraînement
 ([`training/requirements.txt`](training/requirements.txt), **jamais installé
 dans un conteneur**) : `ultralytics`, `torch`, `torchvision`, `sqlalchemy`.
@@ -552,12 +592,11 @@ le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko
 Cette configuration vise le **développement local** :
 
 - [x] CORS restreint à `ALLOWED_ORIGINS` (plus de `*`).
-- [ ] Définir `APP_ENV=production` et un `JWT_SECRET` aléatoire (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`, `ADMIN_PASSWORD`.
+- [ ] Définir `APP_ENV=production` et un `JWT_SECRET` aléatoire (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY` ; déclarer l'URI de redirection du cabinet dans la console Google.
 - [ ] Ne plus exposer `5432`, `9000`, `9001`, `8001` sur l'hôte.
 - [ ] Activer HTTPS (terminaison TLS devant nginx).
-- [x] Authentification JWT et contrôle d'accès par rôles (RBAC) — voir plus haut.
-- [ ] Jetons en cookies `httpOnly; Secure; SameSite` (aujourd'hui : accès en mémoire,
-      rafraîchissement en `sessionStorage`).
+- [x] Connexion Google et contrôle d'accès par permissions — voir plus haut.
+- [x] Jetons en cookies `httpOnly; Secure; SameSite=Lax`.
 - [ ] 2FA / SSO, journal d'audit des connexions et des actions (travaux futurs).
 - [ ] Traiter les annotations incrustées dans les pixels.
 - [ ] Héberger dans l'UE (RGPD), chiffrement au repos côté S3.
@@ -570,7 +609,7 @@ Cette configuration vise le **développement local** :
 
 **Fonctionnel** — revue praticien non implémentée (colonnes `reviewed`/`source`
 présentes, aucune route ni UI d'édition) · permissions `detection:review` et `analysis:delete` définies mais sans route correspondante · pas de route
-`DELETE` · frontend mono-page, sans historique bien que `GET /api/analyses`
+`DELETE` · frontend mono-page, sans historique bien que `GET /api/v1/analyses`
 existe · table `model_versions` alimentée uniquement par
 [`training/publish_model.py`](training/publish_model.py), sans page de
 restitution des métriques.
@@ -620,12 +659,12 @@ mode réel emprunte la déduction géométrique.
 1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
 2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
    viewer. Le rapport devient un document validé.
-3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (JWT + RBAC) ; reste 2FA/SSO, audit, cookies `httpOnly`.
-4. **Historique dans l'UI** — `GET /api/analyses` est déjà disponible.
+3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (Google + permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
+4. **Historique dans l'UI** — `GET /api/v1/analyses` est déjà disponible.
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès
    (UFBA-425 immédiat, DENTEX et Tufts à délai) est le vrai chemin critique.
-6. **Page de performance** — `GET /api/model/versions` sert les métriques dès
+6. **Page de performance** — `GET /api/v1/model/versions` sert les métriques dès
    qu'un modèle est publié ; l'UI de restitution reste à écrire.
 7. **Tests d'intégration** — le mock étant déterministe, un test bout-en-bout est
    peu coûteux.
@@ -642,8 +681,8 @@ mode réel emprunte la déduction géométrique.
 | Erreur 500 à l'upload | DICOM sans `pixel_array` exploitable, ou format illisible par Pillow |
 | « Image indisponible » / lien PDF mort | URL présignée non relayée : vérifier `S3_PUBLIC_URL=/storage` (backend) et `location /storage/` dans [nginx.conf](frontend/nginx.conf) |
 | Upload refusé > ~50 Mo | `client_max_body_size` dans [nginx.conf](frontend/nginx.conf) |
-| `504` sur `/api/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` |
-| Bandeau figé après redémarrage d'un service | `/api/health` est relu toutes les 30 s (et au retour sur l'onglet) : patienter, ou recharger |
+| `504` sur `/api/v1/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` |
+| Bandeau figé après redémarrage d'un service | `/api/v1/health` est relu toutes les 30 s (et au retour sur l'onglet) : patienter, ou recharger |
 | `make test` / `make migrate` échouent | Ils utilisent `docker compose exec` : la stack doit tourner |
 | Base incohérente après changement de schéma | `make clean` puis `make up` (⚠️ efface les volumes) |
 | Changement de `NEXT_PUBLIC_API_BASE` sans effet | Variable de build : rebuilder l'image frontend |

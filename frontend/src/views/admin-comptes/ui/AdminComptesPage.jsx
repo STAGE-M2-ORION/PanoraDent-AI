@@ -1,23 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchRoles } from "@/entities/role";
-import { Permission, SystemRole, roleLabel, useCurrentUser } from "@/entities/session";
-import { deleteUser, fetchUsers, updateUser } from "@/entities/user";
-import { CreateUserModal, DeleteUserModal, EditUserModal } from "@/features/manage-users";
+import { Permission, SystemRole, displayName, useCurrentUser } from "@/entities/session";
+import { fetchUsers, updateUser } from "@/entities/user";
+import { CreateUserModal, EditUserModal } from "@/features/manage-users";
 import { toAppError } from "@/shared/api";
-import { formatDate, formatTime, initials, useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, Button, DateCell, Icon, IconAction } from "@/shared/ui";
+import { formatDate, formatTime, useAsyncResource } from "@/shared/lib";
+import { Alert, Badge, Button, DateCell, GoogleMark, Icon, IconAction, UserPhoto } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-const LAST_TIP = "Impossible : c’est le dernier compte administrateur. Créez ou désignez un autre administrateur d’abord.";
 const loadAll = () => Promise.all([fetchUsers(), fetchRoles()]);
 
-function RoleBadge({ role }) {
-  const tone = role === SystemRole.ADMIN ? "primary" : role === SystemRole.PRACTITIONER ? "info" : undefined;
-  return <Badge tone={tone}>{roleLabel(role)}</Badge>;
+const isAdminRole = (u) => u.roleIsSystem && u.role === SystemRole.ADMIN;
+
+function RoleBadge({ user }) {
+  const tone = user.roleIsSystem ? (user.role === SystemRole.ADMIN ? "primary" : user.role === SystemRole.PRACTITIONER ? "info" : undefined) : undefined;
+  return <Badge tone={tone}>{user.role || "—"}</Badge>;
 }
 
-/** Gestion des comptes : recherche, création, modification, activation, suppression. */
+/**
+ * Gestion des comptes : recherche, création, modification (nom, rôle),
+ * activation et désactivation. Il n'y a pas de suppression : un compte qui ne
+ * doit plus entrer est désactivé. Les refus du serveur s'affichent tels quels.
+ */
 export function AdminComptesPage() {
   const { user: me } = useCurrentUser();
   const { data, error, isLoading, reload } = useAsyncResource(loadAll);
@@ -25,8 +30,7 @@ export function AdminComptesPage() {
   const [roles, setRoles] = useState([]);
   const [filters, setFilters] = useState({ q: "", role: "", status: "" });
   const [feedback, setFeedback] = useState(null);
-  const [modal, setModal] = useState({ create: false, edit: null, del: null });
-  const [tip, setTip] = useState(null);
+  const [modal, setModal] = useState({ create: false, edit: null });
 
   useEffect(() => {
     if (data) {
@@ -35,59 +39,35 @@ export function AdminComptesPage() {
     }
   }, [data]);
 
-  const activeAdmins = users.filter((u) => u.role === SystemRole.ADMIN && u.isActive);
-  const isLast = (u) => u.role === SystemRole.ADMIN && u.isActive && activeAdmins.length === 1;
+  const activeAdmins = users.filter((u) => isAdminRole(u) && u.isActive);
+  // Indication seulement : c'est le serveur qui refuse (`dernier_administrateur`).
+  const isLast = (u) => isAdminRole(u) && u.isActive && activeAdmins.length === 1;
   const list = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return users.filter(
       (u) =>
         (!q || `${u.fullName} ${u.email}`.toLowerCase().includes(q)) &&
-        (!filters.role || u.role === filters.role) &&
+        (!filters.role || String(u.roleId) === filters.role) &&
         (!filters.status || (filters.status === "actif" ? u.isActive : !u.isActive)),
     );
   }, [users, filters]);
 
   const say = (tone, title, text) => setFeedback({ tone, title, text });
   const replace = (updated) => setUsers((list0) => list0.map((u) => (u.id === updated.id ? updated : u)));
-  const refused = () => say("danger", "Action refusée", LAST_TIP);
 
   const toggle = async (u) => {
-    if (isLast(u)) return refused();
     try {
       const updated = await updateUser(u.id, { isActive: !u.isActive });
       replace(updated);
-      say("success", updated.isActive ? "Compte réactivé" : "Compte désactivé", `${u.fullName || u.email} ${updated.isActive ? "peut de nouveau se connecter." : "ne peut plus se connecter."} L’action est inscrite au journal d’audit.`);
-    } catch (cause) {
-      say("danger", "Action refusée", toAppError(cause).message);
-    }
-    return undefined;
-  };
-
-  const remove = async (u) => {
-    setModal((m) => ({ ...m, del: null }));
-    try {
-      await deleteUser(u.id);
-      setUsers((list0) => list0.filter((x) => x.id !== u.id));
-      say("success", "Compte supprimé", `${u.fullName || u.email} a été supprimé.`);
+      say(
+        "success",
+        updated.isActive ? "Compte réactivé" : "Compte désactivé",
+        `${displayName(updated)} ${updated.isActive ? "peut de nouveau se connecter avec Google." : "ne peut plus se connecter."} L’action est inscrite au journal d’audit.`,
+      );
     } catch (cause) {
       say("danger", "Action refusée", toAppError(cause).message);
     }
   };
-
-  const tipProps = (u) =>
-    isLast(u)
-      ? {
-          "aria-disabled": "true",
-          title: LAST_TIP,
-          "aria-describedby": "last-admin-desc",
-          onMouseEnter: (e) => setTip({ text: LAST_TIP, rect: e.currentTarget.getBoundingClientRect() }),
-          onMouseLeave: () => setTip(null),
-          onFocus: (e) => setTip({ text: LAST_TIP, rect: e.currentTarget.getBoundingClientRect() }),
-          onBlur: () => setTip(null),
-        }
-      : {};
-
-  const roleNames = [...new Set(roles.map((r) => r.name))];
 
   return (
     <AppShell
@@ -99,9 +79,6 @@ export function AdminComptesPage() {
       className="v-admin-comptes"
       overlay={
         <>
-          <div className="tip" role="tooltip" data-show={tip ? "true" : "false"} style={tip ? { left: Math.max(8, tip.rect.left + tip.rect.width / 2 - 150), top: Math.max(8, tip.rect.top - 64) } : undefined}>
-            {tip?.text}
-          </div>
           <CreateUserModal
             open={modal.create}
             roles={roles}
@@ -109,7 +86,7 @@ export function AdminComptesPage() {
             onCreated={(created) => {
               setUsers((list0) => [...list0, created]);
               setModal((m) => ({ ...m, create: false }));
-              say("success", "Compte créé", `${created.fullName || created.email} a été créé. Transmettez-lui son mot de passe provisoire.`);
+              say("success", "Compte créé", `${displayName(created)} peut désormais se connecter avec « Continuer avec Google », depuis l’adresse ${created.email}.`);
             }}
           />
           <EditUserModal
@@ -120,17 +97,16 @@ export function AdminComptesPage() {
             onSaved={(updated) => {
               replace(updated);
               setModal((m) => ({ ...m, edit: null }));
-              say("success", "Compte modifié", `${updated.fullName || updated.email} a été mis à jour.`);
+              say("success", "Compte modifié", `${displayName(updated)} a été mis à jour.`);
             }}
           />
-          <DeleteUserModal user={modal.del} onClose={() => setModal((m) => ({ ...m, del: null }))} onConfirm={remove} />
         </>
       }
     >
       <div className="page-head">
         <div>
           <h2>Comptes</h2>
-          <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes.</p>
+          <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes. Chacun se connecte avec son compte Google.</p>
         </div>
         <Button onClick={() => setModal((m) => ({ ...m, create: true }))} disabled={!roles.length}>
           <Icon name="plus" />
@@ -155,7 +131,8 @@ export function AdminComptesPage() {
       </div>
 
       <Alert tone="info" role="note" title="Protection du dernier administrateur">
-        Il doit toujours rester au moins un compte administrateur actif. Le dernier compte administrateur ne peut donc être ni désactivé ni supprimé tant qu’un autre administrateur n’existe pas.
+        Il doit toujours rester au moins un compte administrateur actif : le serveur refuse de désactiver le dernier ou de lui retirer son rôle tant qu’un autre administrateur
+        n’existe pas.
       </Alert>
 
       <section className="card card-pad" aria-label="Recherche et filtres" style={{ display: "grid", gap: "var(--space-4)" }}>
@@ -164,7 +141,7 @@ export function AdminComptesPage() {
             <label className="label" htmlFor="q">
               Rechercher un compte
             </label>
-            <input className="input" id="q" type="search" placeholder="Nom ou e-mail" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
+            <input className="input" id="q" type="search" placeholder="Nom ou adresse Google" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
           </div>
           <div className="field">
             <label className="label" htmlFor="f-role">
@@ -172,9 +149,9 @@ export function AdminComptesPage() {
             </label>
             <select className="select" id="f-role" value={filters.role} onChange={(e) => setFilters((f) => ({ ...f, role: e.target.value }))}>
               <option value="">Tous les rôles</option>
-              {roleNames.map((r) => (
-                <option key={r} value={r}>
-                  {roleLabel(r)}
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
                 </option>
               ))}
             </select>
@@ -200,7 +177,7 @@ export function AdminComptesPage() {
           <caption className="sr-only">Liste des comptes</caption>
           <thead>
             <tr>
-              <th scope="col">Nom et e-mail</th>
+              <th scope="col">Nom et adresse Google</th>
               <th scope="col">Rôle</th>
               <th scope="col">Statut</th>
               <th scope="col">Connexion</th>
@@ -212,27 +189,26 @@ export function AdminComptesPage() {
           </thead>
           <tbody>
             {list.map((u) => {
-              const name = u.fullName || u.email;
-              const last = isLast(u);
+              const name = displayName(u);
               return (
                 <tr key={u.id}>
                   <th scope="row">
                     <div className="person">
                       <span className="av" aria-hidden="true">
-                        {initials(name)}
+                        <UserPhoto src={u.photoUrl} name={name} />
                       </span>
                       <div>
                         <strong>{name}</strong>
                         <span className="sub" title={u.email}>
                           {u.email}
                         </span>
-                        {last ? <span className="sub">Dernier administrateur</span> : null}
+                        {isLast(u) ? <span className="sub">Dernier administrateur</span> : null}
                         {u.id === me?.id ? <span className="sub">Votre compte</span> : null}
                       </div>
                     </div>
                   </th>
                   <td data-label="Rôle">
-                    <RoleBadge role={u.role} />
+                    <RoleBadge user={u} />
                   </td>
                   <td data-label="Statut">
                     <div className="cell-col">
@@ -247,43 +223,27 @@ export function AdminComptesPage() {
                   </td>
                   <td data-label="Connexion" className="nowrap">
                     <span className="methods">
-                      <span className="method" title="Connexion par e-mail">
-                        <Icon name="mail" />
-                        <span className="sr-only">E-mail</span>
+                      <span className="method" title="Connexion avec Google">
+                        <GoogleMark />
+                        <span className="sr-only">Google</span>
                       </span>
                     </span>
                   </td>
                   <td data-label="Dernière connexion">{u.lastLoginAt ? <DateCell date={formatDate(u.lastLoginAt)} time={formatTime(u.lastLoginAt)} /> : <span className="muted">Jamais connecté</span>}</td>
                   <td className="td-actions">
                     <div className="row-actions">
-                      <IconAction icon="edit" label={`Modifier ${name}`} title="Modifier le compte" onClick={() => setModal((m) => ({ ...m, edit: u }))} />
+                      <IconAction icon="edit" label={`Modifier ${name} ou changer son rôle`} title="Modifier le compte ou changer de rôle" onClick={() => setModal((m) => ({ ...m, edit: u }))} />
                       <IconAction
                         icon={u.isActive ? "lock" : "unlock"}
                         label={`${u.isActive ? "Désactiver" : "Réactiver"} ${name}`}
                         title={u.isActive ? "Désactiver le compte" : "Réactiver le compte"}
                         onClick={() => toggle(u)}
-                        {...tipProps(u)}
-                      />
-                      <IconAction
-                        icon="trash"
-                        danger
-                        label={`Supprimer ${name}`}
-                        title="Supprimer le compte"
-                        onClick={() => (last ? refused() : setModal((m) => ({ ...m, del: u })))}
-                        {...tipProps(u)}
                       />
                     </div>
                   </td>
                 </tr>
               );
             })}
-            <tr hidden>
-              <td colSpan={6}>
-                <span id="last-admin-desc" className="sr-only">
-                  {LAST_TIP}
-                </span>
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
@@ -296,7 +256,7 @@ export function AdminComptesPage() {
         </div>
       ) : null}
       <p className="muted" style={{ fontSize: "var(--text-xs)" }}>
-        Aucun mot de passe n’est affiché : l’administrateur ne voit jamais les mots de passe choisis par les utilisateurs.
+        Aucun mot de passe : la connexion passe exclusivement par Google, avec l’adresse enregistrée sur le compte.
       </p>
     </AppShell>
   );

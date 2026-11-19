@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from . import auth_models  # noqa: F401  (enregistre les tables RBAC sur Base.metadata)
+
+from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
+from .auth_deps import publique
 from .config import settings
-from .routers import health, analyses, model, auth, users, roles
+from .routers import analyses, auth, fake_idp, health, model, photos, roles, users
+
+API_V1 = "/api/v1"
 
 app = FastAPI(
     title="PanoraDent AI — Backend",
@@ -13,19 +17,24 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,   # ALLOWED_ORIGINS (JSON)
-    allow_credentials=True,
+    allow_credentials=True,                   # cookies de session
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(health.router, prefix="/api")
-app.include_router(analyses.router, prefix="/api")
-app.include_router(model.router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-app.include_router(users.router, prefix="/api")
-app.include_router(roles.router, prefix="/api")
+errors.install(app)
+
+for module in (health, analyses, model, users, roles, photos):
+    app.include_router(module.router, prefix=API_V1)
+app.include_router(auth.router, prefix=API_V1)
+app.include_router(auth.router_moi, prefix=API_V1)
+
+if settings.fournisseur_factice:
+    # Garde-fou redondant avec la validation de `config.py` : jamais hors test.
+    assert settings.app_env.lower() == "test"
+    app.include_router(fake_idp.router, prefix=API_V1)
 
 
-@app.get("/")
+@app.get("/", dependencies=[Depends(publique)])
 def root():
     return {"service": "panoradent-backend", "docs": "/docs"}

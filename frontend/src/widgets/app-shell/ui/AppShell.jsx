@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { fetchModelVersions } from "@/entities/model-version";
 import { SessionStatus, displayName, roleLabel, screenProfile, useCurrentUser } from "@/entities/session";
 import { demoNotifications } from "@/shared/demo";
-import { cx, initials, useAppTheme } from "@/shared/lib";
-import { Avatar, Button, Card, Icon, Logo } from "@/shared/ui";
+import { cx, useAppTheme } from "@/shared/lib";
+import { Avatar, Button, Card, Icon, Logo, UserPhoto } from "@/shared/ui";
 
 import { visibleNavigation } from "../model/navigation";
 
@@ -39,7 +39,7 @@ function Sidebar({ page, open, rail, onNavigate }) {
   return (
     <aside className={rail ? "sidebar rail" : "sidebar"} id="sidebar" data-open={open ? "true" : "false"}>
       <div className="brand">
-        <Logo href="/tableau-de-bord" variant={rail ? "icon" : "dark"} />
+        <Logo href="/" variant={rail ? "icon" : "dark"} />
       </div>
       <nav aria-label="Navigation principale" style={{ display: "grid", gap: 2 }} onClick={onNavigate}>
         {visibleNavigation(can, canAny).map((item) =>
@@ -59,7 +59,7 @@ function Sidebar({ page, open, rail, onNavigate }) {
       </nav>
       <div className="sidebar-foot">
         <div className="user-chip">
-          <Avatar>{initials(name)}</Avatar>
+          <Avatar src={user?.photoUrl} name={name} />
           <span style={{ minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 600, fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
             <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
@@ -71,7 +71,7 @@ function Sidebar({ page, open, rail, onNavigate }) {
           <span className="nav-ic">
             <Icon name="user" />
           </span>
-          <span>Profil et mot de passe</span>
+          <span>Profil</span>
         </Link>
         <button type="button" className="nav-link" onClick={signOut} style={{ background: "none", border: 0, width: "100%", cursor: "pointer", textAlign: "left" }}>
           <span className="nav-ic">
@@ -171,7 +171,7 @@ function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
         <div className="top-actions">
           <Notifications />
           <Link className="icon-btn avatar-btn" href="/profil" aria-label={`Mon profil : ${name}`}>
-            {initials(name)}
+            <UserPhoto src={user?.photoUrl} name={name} />
           </Link>
         </div>
       </div>
@@ -203,8 +203,14 @@ export function Forbidden() {
 /**
  * Structure de l'application connectée, garde de session comprise.
  *
- * - Sans session : renvoie vers `/connexion?next=…` (avec `etat=expiree` si la
- *   session vient d'expirer, `etat=deconnecte` après une déconnexion).
+ * L'export statique (`output: "export"`) interdit le middleware Next : la garde
+ * est donc côté client, ici. Seules les pages qui passent par `AppShell` sont
+ * protégées ; `/connexion`, `/mentions`, `/decouvrir` et les fichiers statiques
+ * ne l'utilisent pas.
+ *
+ * - Sans session : renvoie vers `/connexion` (avec `etat=expiree` si la
+ *   session vient d'expirer, `etat=deconnecte` après une déconnexion). Le
+ *   retour de Google ramène sur `/`, qui oriente selon le rôle.
  * - Sans la permission demandée (`permission` ou `anyOf`) : écran 403 dans la
  *   page — le backend refuse de toute façon, la garde ne sert qu'à l'ergonomie.
  *
@@ -221,9 +227,7 @@ export function AppShell({ page, title, crumbs = "Application", docTitle, permis
 
   useEffect(() => {
     if (status !== SessionStatus.ANONYMOUS) return;
-    const query = { next: router.asPath };
-    if (endReason) query.etat = endReason;
-    router.replace({ pathname: "/connexion", query });
+    router.replace({ pathname: "/connexion", query: endReason ? { etat: endReason } : {} });
   }, [status, endReason, router]);
 
   const head = (

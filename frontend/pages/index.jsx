@@ -1,1 +1,1 @@
-export { AccueilPage as default } from "@/views/accueil";
+export { RacinePage as default } from "@/views/racine";

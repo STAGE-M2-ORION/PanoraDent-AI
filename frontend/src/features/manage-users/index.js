@@ -1,1 +1,1 @@
-export { CreateUserModal, DeleteUserModal, EditUserModal } from "./ui/UserModals";
+export { CreateUserModal, EditUserModal } from "./ui/UserModals";

@@ -6,3 +6,6 @@ node_modules
 out
 .next
 npm-debug.log*
+e2e
+test-results
+playwright-report

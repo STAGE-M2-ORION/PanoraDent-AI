@@ -176,7 +176,7 @@ export function AccueilPage() {
       </div>
       <header className="site-head">
         <div className="container" style={{ position: "relative" }}>
-          <Logo href="/" />
+          <Logo href="/decouvrir" />
           <nav className="site-nav" id="siteNav" aria-label="Navigation principale" data-open={menuOpen ? "true" : "false"} onClick={(e) => e.target.closest("a") && setMenuOpen(false)}>
             <a href="#fonctionnement">Fonctionnement</a>
             <a href="#fiabilite">Fiabilité</a>
@@ -527,7 +527,7 @@ export function AccueilPage() {
         <div className="container">
           <div className="foot-grid">
             <div>
-              <Logo href="/" />
+              <Logo href="/decouvrir" />
               <p className="muted" style={{ marginTop: "var(--space-3)", maxWidth: "42ch" }}>
                 Prototype académique réalisé dans le cadre d&apos;un mémoire, à Toliara (Madagascar). Gratuit, non commercialisé.
               </p>

@@ -1,76 +1,47 @@
-"""Hachage des mots de passe et jetons JWT.
+"""Jetons de la plateforme et primitives du parcours OAuth.
 
-Mots de passe : bcrypt appelé DIRECTEMENT (passlib est incompatible avec
-bcrypt 4.x). bcrypt ne lit que les 72 premiers octets : le mot de passe est
-donc pré-haché en SHA-256 puis encodé en base64 (44 caractères) avant bcrypt.
+Google authentifie ; la plateforme gère la session avec ses propres jetons,
+signés HS256 avec JWT_SECRET et transportés uniquement en cookies httpOnly :
+
+- jeton d'accès (15 min) : identifiant utilisateur, session, rôle, permissions ;
+- jeton de rafraîchissement (7 j) : identifiant de session seulement ;
+- jeton de transaction OAuth (10 min) : state, nonce et code_verifier PKCE,
+  le temps de l'aller-retour chez Google.
 """
 import base64
 import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
 from jose import JWTError, jwt
 
 from .config import settings
 
 ACCESS = "access"
 REFRESH = "refresh"
+OAUTH = "oauth"
+
+OAUTH_TTL = timedelta(minutes=10)
 
 
 class TokenError(Exception):
     """Jeton illisible, expiré, de mauvais type ou falsifié."""
 
 
-# --- Mots de passe ---------------------------------------------------------
-
-def _prehash(password: str) -> bytes:
-    return base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
-
-
-def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt(rounds=settings.bcrypt_rounds)
-    return bcrypt.hashpw(_prehash(password), salt).decode("ascii")
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(_prehash(password), hashed.encode("ascii"))
-    except (ValueError, TypeError):
-        return False
-
-
-# --- JWT -------------------------------------------------------------------
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _encode(sub: str, token_type: str, expires: timedelta) -> tuple[str, str, datetime]:
+def _encode(payload: dict, expires_at: datetime) -> str:
     now = _now()
-    exp = now + expires
-    jti = str(uuid.uuid4())
     payload = {
-        "sub": sub,
-        "type": token_type,
+        **payload,
         "iat": int(now.timestamp()),
-        "exp": int(exp.timestamp()),
-        "jti": jti,
+        "exp": int(expires_at.timestamp()),
+        "jti": str(uuid.uuid4()),
     }
-    token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-    return token, jti, exp
-
-
-def create_access_token(user_id: str) -> str:
-    token, _, _ = _encode(
-        user_id, ACCESS, timedelta(minutes=settings.access_token_expire_minutes)
-    )
-    return token
-
-
-def create_refresh_token(user_id: str) -> tuple[str, str, datetime]:
-    """Renvoie `(token, jti, expiration UTC)` ; le jti est à persister."""
-    return _encode(user_id, REFRESH, timedelta(days=settings.refresh_token_expire_days))
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(token: str, expected_type: str) -> dict:
@@ -79,6 +50,57 @@ def decode_token(token: str, expected_type: str) -> dict:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError as exc:
         raise TokenError("Jeton invalide ou expiré") from exc
-    if payload.get("type") != expected_type or not payload.get("sub") or not payload.get("jti"):
+    if payload.get("type") != expected_type or not payload.get("sub"):
         raise TokenError("Type de jeton incorrect")
     return payload
+
+
+# --- Session ---------------------------------------------------------------
+
+def access_ttl() -> timedelta:
+    return timedelta(minutes=settings.access_token_expire_minutes)
+
+
+def refresh_ttl() -> timedelta:
+    return timedelta(days=settings.refresh_token_expire_days)
+
+
+def create_access_token(user_id: uuid.UUID, session_id: uuid.UUID, role: str, permissions: list[str]) -> str:
+    return _encode(
+        {
+            "type": ACCESS,
+            "sub": str(user_id),
+            "sid": str(session_id),
+            "role": role,
+            "permissions": permissions,
+        },
+        _now() + access_ttl(),
+    )
+
+
+def create_refresh_token(session_id: uuid.UUID, expires_at: datetime) -> str:
+    return _encode({"type": REFRESH, "sub": str(session_id)}, expires_at)
+
+
+# --- Parcours OAuth --------------------------------------------------------
+
+def random_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def pkce_pair() -> tuple[str, str]:
+    """Renvoie `(code_verifier, code_challenge)` selon RFC 7636 (méthode S256)."""
+    verifier = secrets.token_urlsafe(64)  # 86 caractères, dans [43, 128]
+    return verifier, pkce_challenge(verifier)
+
+
+def pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def create_oauth_token(state: str, nonce: str, code_verifier: str) -> str:
+    return _encode(
+        {"type": OAUTH, "sub": "oauth", "state": state, "nonce": nonce, "cv": code_verifier},
+        _now() + OAUTH_TTL,
+    )

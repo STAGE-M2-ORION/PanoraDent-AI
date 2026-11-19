@@ -9,7 +9,7 @@ import { Alert, Button, Modal } from "@/shared/ui";
  * prétendre avoir transmis la demande.
  */
 async function sendAccessRequest(payload) {
-  await httpClient.post("/access-requests", payload, { skipAuth: true });
+  await httpClient.post("/access-requests", payload, { skipRefresh: true });
 }
 
 export function RequestAccessModal({ open, onClose }) {

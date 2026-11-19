@@ -1,106 +1,104 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
 
-from .auth_models import Role, User
-
-PASSWORD_MIN_LENGTH = 8
-
-
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
+from .auth_models import Role, StatutUtilisateur, Utilisateur, en_utc
 
 
 class PermissionOut(BaseModel):
     code: str
-    description: str
+    libelle: str
 
     model_config = {"from_attributes": True}
 
 
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=PASSWORD_MIN_LENGTH)
-    full_name: str = ""
-    role_id: str
+class RoleResume(BaseModel):
+    id: uuid.UUID
+    libelle: str
+    systeme: bool
 
 
-class UserUpdate(BaseModel):
-    """Tous les champs sont optionnels. `password` permet à un administrateur de
-    réinitialiser un mot de passe (révoque les sessions de l'utilisateur)."""
-    full_name: str | None = None
-    role_id: str | None = None
-    is_active: bool | None = None
-    password: str | None = Field(default=None, min_length=PASSWORD_MIN_LENGTH)
-
-
-class PasswordChange(BaseModel):
-    current_password: str
-    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH)
-
-
-class UserOut(BaseModel):
-    id: str
+class UtilisateurOut(BaseModel):
+    id: uuid.UUID
     email: str
-    full_name: str
-    is_active: bool
-    role_id: str
-    role: str
+    nom: str
+    prenom: str
+    statut: StatutUtilisateur
+    role: RoleResume
     permissions: list[str]
-    created_at: datetime
-    last_login_at: datetime | None
+    derniere_connexion: datetime | None
+    date_creation: datetime
+    # URL à afficher telle quelle : photo importée, sinon photo Google, sinon null.
+    photo_url: str | None
+    photo_source: str | None  # "importee" | "google" | None
 
     @classmethod
-    def from_user(cls, user: User) -> "UserOut":
+    def depuis(cls, u: Utilisateur) -> "UtilisateurOut":
+        if u.photo_cle:
+            # La clé change à chaque import : l'URL aussi, le cache navigateur suit.
+            jeton = u.photo_cle.rsplit("/", 1)[-1].split(".", 1)[0]
+            photo_url, photo_source = f"/api/v1/photos/{u.id}?v={jeton}", "importee"
+        elif u.photo_google:
+            photo_url, photo_source = u.photo_google, "google"
+        else:
+            photo_url, photo_source = None, None
         return cls(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            is_active=user.is_active,
-            role_id=user.role_id,
-            role=user.role.name,
-            permissions=user.permission_codes,
-            created_at=user.created_at,
-            last_login_at=user.last_login_at,
+            id=u.id,
+            email=u.email,
+            nom=u.nom,
+            prenom=u.prenom,
+            statut=u.statut,
+            role=RoleResume(id=u.role.id, libelle=u.role.libelle, systeme=u.role.systeme),
+            permissions=u.permission_codes,
+            derniere_connexion=en_utc(u.derniere_connexion),
+            date_creation=en_utc(u.date_creation),
+            photo_url=photo_url,
+            photo_source=photo_source,
         )
 
 
-class RoleCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=50)
-    description: str = ""
+class UtilisateurCreation(BaseModel):
+    """Créé par l'administrateur avec l'adresse Google de l'intéressé. Nom et
+    prénom peuvent rester vides : ils seront repris de Google à la première
+    connexion. Aucun mot de passe : la plateforme n'en conserve aucun."""
+    nom: str = Field(default="", max_length=120)
+    prenom: str = Field(default="", max_length=120)
+    email: EmailStr = Field(max_length=255)
+    role_id: uuid.UUID
+
+
+class UtilisateurModification(BaseModel):
+    nom: str | None = Field(default=None, max_length=120)
+    prenom: str | None = Field(default=None, max_length=120)
+    role_id: uuid.UUID | None = None
+    statut: StatutUtilisateur | None = None
+
+
+class RoleCreation(BaseModel):
+    libelle: str = Field(min_length=2, max_length=80)
     permissions: list[str] = []
 
 
-class RoleUpdate(BaseModel):
+class RoleModification(BaseModel):
     """`permissions`, s'il est fourni, REMPLACE l'ensemble des permissions."""
-    name: str | None = Field(default=None, min_length=2, max_length=50)
-    description: str | None = None
+    libelle: str | None = Field(default=None, min_length=2, max_length=80)
     permissions: list[str] | None = None
 
 
 class RoleOut(BaseModel):
-    id: str
-    name: str
-    description: str
-    is_system: bool
+    id: uuid.UUID
+    libelle: str
+    systeme: bool
     permissions: list[str]
-    user_count: int
-    created_at: datetime
+    nb_utilisateurs: int
 
     @classmethod
-    def from_role(cls, role: Role) -> "RoleOut":
+    def depuis(cls, role: Role) -> "RoleOut":
         return cls(
             id=role.id,
-            name=role.name,
-            description=role.description,
-            is_system=role.is_system,
+            libelle=role.libelle,
+            systeme=role.systeme,
             permissions=role.permission_codes,
-            user_count=len(role.users),
-            created_at=role.created_at,
+            nb_utilisateurs=len(role.utilisateurs),
         )

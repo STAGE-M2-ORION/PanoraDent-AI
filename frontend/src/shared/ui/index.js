@@ -19,7 +19,7 @@ export {
   formatNumber,
   lastMonths,
 } from "./chart";
-export { Alert, Avatar, Badge, Card, Modal, Skeleton, ToastProvider, useToast } from "./feedback";
+export { Alert, Avatar, Badge, Card, Modal, Skeleton, ToastProvider, UserPhoto, useToast } from "./feedback";
 export { Field, Input, Select, Textarea } from "./field";
 export { Icon } from "./icon";
 export { ICON_NAMES } from "./icons";
