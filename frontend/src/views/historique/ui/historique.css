@@ -2,7 +2,7 @@
 
 .v-historique {
   .filters { display: grid; gap: var(--space-4); }
-  .filters-row { display: grid; grid-template-columns: minmax(240px, 2fr) 1fr 1fr; gap: var(--space-4); align-items: end; }
+  .filters-row { display: grid; grid-template-columns: minmax(240px, 2fr) 1fr 1fr 1fr; gap: var(--space-4); align-items: end; }
   .search-wrap { position: relative; }
   .search-wrap svg { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--color-muted); pointer-events: none; }
   .search-wrap .input { padding-left: 40px; }

@@ -1,10 +1,10 @@
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ANALYSIS_STATUS, AnalysisStatus, deleteAnalysis, fetchAnalyses, formatAnalysisNumber } from "@/entities/analysis";
 import { ANOMALY_LABELS, DETECTION_TYPES, TypeChip } from "@/entities/detection";
 import { Permission, useCurrentUser } from "@/entities/session";
-import { ErrorCode, toAppError } from "@/shared/api";
+import { toAppError } from "@/shared/api";
 import { formatDate, useAsyncResource } from "@/shared/lib";
 import { Alert, Badge, Button, Icon, IconAction, IdChip, Modal, NumChip, Pager, WhoChip, paginate, useToast } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
@@ -12,7 +12,7 @@ import { AppShell } from "@/widgets/app-shell";
 const PAGE_SIZE = 10;
 const PERIOD = { today: "Aujourd’hui", 7: "7 jours", 30: "30 jours", custom: "Personnalisée" };
 const STATUS_FILTER = { pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
-const EMPTY_FILTERS = { q: "", period: "all", status: "all", types: [], from: "", to: "" };
+const EMPTY_FILTERS = { q: "", owner: "all", period: "all", status: "all", types: [], from: "", to: "" };
 
 /** Âge en jours d'une date ISO du backend (UTC). */
 function ageInDays(iso) {
@@ -22,9 +22,10 @@ function ageInDays(iso) {
   return Math.max(0, Math.ceil((start - d) / 864e5));
 }
 
-function applyFilters(rows, f) {
+function applyFilters(rows, f, meId) {
   const q = f.q.trim().toLowerCase();
   return rows.filter((r) => {
+    if (f.owner === "mine" && r.depositorId !== meId) return false;
     if (q && !(r.ref.toLowerCase().includes(q) || formatAnalysisNumber(r.number).includes(q))) return false;
     const age = ageInDays(r.createdAt);
     if (f.period === "today" && age > 0) return false;
@@ -41,17 +42,30 @@ function applyFilters(rows, f) {
   });
 }
 
-/** Historique des analyses : recherche, filtres, pagination, suppression. */
+/**
+ * Analyses du cabinet : recherche par référence anonyme, filtres (« Mes
+ * analyses » d'emblée pour qui en dépose), pagination, suppression confirmée
+ * — réservée au déposant et à l'administrateur, le serveur le revérifie.
+ */
 export function HistoriquePage() {
   const router = useRouter();
   const toast = useToast();
-  const { can } = useCurrentUser();
+  const { can, user: me } = useCurrentUser();
   const canCreate = can(Permission.ANALYSIS_CREATE);
-  const canDelete = can(Permission.ANALYSIS_DELETE);
+  const isAdmin = can(Permission.USER_MANAGE) && can(Permission.ROLE_MANAGE);
+  const canDeleteRow = (r) => can(Permission.ANALYSIS_DELETE) && (isAdmin || (r.depositorId && r.depositorId === me?.id));
   const readOnly = !can(Permission.DETECTION_REVIEW);
   const { data, error, isLoading, reload } = useAsyncResource(fetchAnalyses);
   const [rows, setRows] = useState([]);
   const [f, setF] = useState(EMPTY_FILTERS);
+  // « Mes analyses » d'emblée pour qui en dépose, une fois la session connue
+  // (au premier rendu les permissions ne sont pas encore chargées).
+  const ownerDefaulted = useRef(false);
+  useEffect(() => {
+    if (ownerDefaulted.current || !me) return;
+    ownerDefaulted.current = true;
+    if (canCreate) setF((v) => ({ ...v, owner: "mine" }));
+  }, [me, canCreate]);
   const [page, setPage] = useState(1);
   const [pendingDelete, setPendingDelete] = useState(null);
 
@@ -62,13 +76,14 @@ export function HistoriquePage() {
   }, [router.isReady, router.query.q]);
   useEffect(() => setPage(1), [f]);
 
-  const list = useMemo(() => applyFilters(rows, f), [rows, f]);
+  const list = useMemo(() => applyFilters(rows, f, me?.id), [rows, f, me?.id]);
   const { items, pageCount } = paginate(list, page, PAGE_SIZE);
-  const hasFilters = Boolean(f.q.trim() || f.period !== "all" || f.status !== "all" || f.types.length);
+  const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length);
   const set = (patch) => setF((v) => ({ ...v, ...patch }));
 
   const chips = [];
   if (f.q.trim()) chips.push(["q", `Recherche : ${f.q.trim()}`, { q: "" }]);
+  if (f.owner === "mine") chips.push(["owner", "Mes analyses", { owner: "all" }]);
   if (f.period !== "all") chips.push(["period", `Période : ${PERIOD[f.period]}`, { period: "all", from: "", to: "" }]);
   if (f.status !== "all") chips.push(["status", `Statut : ${STATUS_FILTER[f.status]}`, { status: "all" }]);
   f.types.forEach((t) => chips.push([`type:${t}`, `Anomalie : ${DETECTION_TYPES[t].label}`, { types: f.types.filter((x) => x !== t) }]));
@@ -79,10 +94,9 @@ export function HistoriquePage() {
     try {
       await deleteAnalysis(target.id);
       setRows((r) => r.filter((x) => x.id !== target.id));
-      toast(`Analyse n° ${formatAnalysisNumber(target.number)} supprimée. L’opération a été inscrite au journal d’audit.`);
+      toast(`Analyse ${target.ref} supprimée, image et compte rendu compris. L’opération est inscrite au journal d’audit.`);
     } catch (cause) {
-      const err = toAppError(cause);
-      toast(err.code === ErrorCode.NOT_FOUND || err.code === ErrorCode.UNKNOWN ? "La suppression n’est pas encore disponible sur ce serveur." : err.message);
+      toast(toAppError(cause).message);
     }
   };
 
@@ -136,7 +150,7 @@ export function HistoriquePage() {
       <div className="card state-box">
         <Icon name="search" className="ill" />
         <h3>Aucune analyse ne correspond à ces critères.</h3>
-        <p>Vérifiez l’identifiant saisi ou élargissez la période.</p>
+        <p>{f.owner === "mine" ? "Vous n’avez pas encore déposé d’analyse correspondante : affichez celles de tout le cabinet." : "Vérifiez la référence saisie ou élargissez la période."}</p>
         <Button variant="secondary" onClick={() => setF(EMPTY_FILTERS)}>
           Effacer les filtres
         </Button>
@@ -151,10 +165,10 @@ export function HistoriquePage() {
             <tr>
               <th scope="col">Date</th>
               <th scope="col">N°</th>
-              <th scope="col">ID anonyme</th>
+              <th scope="col">Référence</th>
               <th scope="col">Statut de revue</th>
               <th scope="col">Détections</th>
-              <th scope="col">Relu par</th>
+              <th scope="col">Déposée par</th>
               <th scope="col" className="r">
                 Actions
               </th>
@@ -169,11 +183,12 @@ export function HistoriquePage() {
                 <tr key={r.id}>
                   <td data-label="Date" className="nowrap">
                     {formatDate(r.createdAt)}
+                    {r.examDate ? <span className="sub">Examen du {formatDate(r.examDate)}</span> : null}
                   </td>
                   <td data-label="N°">
                     <NumChip>{n}</NumChip>
                   </td>
-                  <td data-label="ID anonyme">
+                  <td data-label="Référence">
                     <IdChip>{r.ref}</IdChip>
                   </td>
                   <td data-label="Statut de revue">
@@ -191,8 +206,8 @@ export function HistoriquePage() {
                       </span>
                     </span>
                   </td>
-                  <td data-label="Relu par">
-                    <WhoChip name={null} />
+                  <td data-label="Déposée par">
+                    <WhoChip name={r.depositorId && r.depositorId === me?.id ? `${r.depositorName ?? ""} (vous)`.trim() : r.depositorName} />
                   </td>
                   <td className="td-actions">
                     <div className="row-actions">
@@ -210,7 +225,7 @@ export function HistoriquePage() {
                           title="Le compte rendu n’est disponible qu’une fois l’analyse clôturée."
                         />
                       )}
-                      {canDelete ? <IconAction icon="trash" danger label={`Supprimer l’analyse n° ${n}`} title="Supprimer" onClick={() => setPendingDelete(r)} /> : null}
+                      {canDeleteRow(r) ? <IconAction icon="trash" danger label={`Supprimer l’analyse ${r.ref}`} title="Supprimer" onClick={() => setPendingDelete(r)} /> : null}
                     </div>
                   </td>
                 </tr>
@@ -234,9 +249,9 @@ export function HistoriquePage() {
       overlay={
         <Modal open={Boolean(pendingDelete)} onClose={() => setPendingDelete(null)} labelledBy="del-title">
           <h2 id="del-title">
-            Supprimer l’analyse n° <span className="mono">{pendingDelete ? formatAnalysisNumber(pendingDelete.number) : ""}</span> ?
+            Supprimer l’analyse <span className="mono">{pendingDelete?.ref ?? ""}</span> ?
           </h2>
-          <p>Cette action est définitive : l’image, les détections et le compte rendu seront effacés. L’opération est inscrite au journal d’audit.</p>
+          <p>Cette action est définitive : l’image anonymisée, ses détections et son compte rendu sont effacés du serveur. L’opération est inscrite au journal d’audit.</p>
           <div className="modal-actions">
             <Button variant="secondary" onClick={() => setPendingDelete(null)}>
               Annuler
@@ -251,7 +266,7 @@ export function HistoriquePage() {
       <div className="page-head">
         <div>
           <h2>Historique des analyses</h2>
-          <p>Retrouvez un examen par son identifiant anonyme, sa date ou son statut.</p>
+          <p>Retrouvez un examen par sa référence anonyme, sa date ou son statut.</p>
         </div>
         <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap" }}>
           {readOnly ? (
@@ -273,12 +288,21 @@ export function HistoriquePage() {
         <div className="filters-row">
           <div className="field search-wrap-col">
             <label className="label" htmlFor="q">
-              Identifiant anonyme ou n° d’analyse
+              Référence anonyme ou n° d’analyse
             </label>
             <div className="search-wrap">
               <Icon name="search" />
-              <input className="input" id="q" type="search" placeholder="Par exemple : 7F3A ou 0042" autoComplete="off" value={f.q} onChange={(e) => set({ q: e.target.value })} />
+              <input className="input" id="q" type="search" placeholder="Par exemple : PDX-2026-0042 ou 0042" autoComplete="off" value={f.q} onChange={(e) => set({ q: e.target.value })} />
             </div>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="owner">
+              Déposées par
+            </label>
+            <select className="select" id="owner" value={f.owner} onChange={(e) => set({ owner: e.target.value })}>
+              <option value="all">Tout le cabinet</option>
+              <option value="mine">Moi</option>
+            </select>
           </div>
           <div className="field">
             <label className="label" htmlFor="period">
