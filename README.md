@@ -364,19 +364,46 @@ second fige la liste des routes publiques.
 | `analysis:delete`, `detection:review` | *définies, aucune route pour l'instant* |
 | `report:generate` | `POST /api/v1/analyses/{id}/report` |
 | `model:read` | `GET /api/v1/model/versions` |
-| `user:manage` | `/api/v1/utilisateurs` (liste, création, modification) |
-| `role:manage` | `/api/v1/permissions`, `/api/v1/roles` (écriture) — `GET /api/v1/roles` est aussi ouvert à `user:manage` |
+| `user:manage` | `/api/v1/utilisateurs` (liste, création, modification), `/{id}/sessions` (liste, fermeture), `/{id}/renvoyer-lien`, `/{id}/reinitialiser-mot-de-passe` |
+| `role:manage` | `/api/v1/roles` en écriture (création, modification, `/{id}/dupliquer`, suppression) — `GET /api/v1/roles` et `GET /api/v1/permissions` sont aussi ouverts à `user:manage` |
 | *session ouverte* | `/api/v1/moi`, `/moi/*`, `/photos/{id}`, `/auth/deconnexion` |
 
 | Rôle système | Permissions |
 |---|---|
-| Administrateur | les huit (resynchronisées à chaque démarrage) |
+| Administrateur | les huit |
 | Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
 | Lecteur | `analysis:read`, `model:read` |
 
+**Rôles.** Les trois rôles système sont **verrouillés** : ni renommés, ni
+modifiés, ni supprimés, quel que soit l'appelant (indicateur `systeme` en base,
+`400 role_systeme`) ; le jeu de départ les resynchronise (permissions et
+description) à chaque démarrage. On les **duplique** pour créer une variante
+personnalisée. Un rôle personnalisé porte un nom unique (insensible à la casse),
+une description et ses permissions ; il ne se supprime que s'il n'est plus
+attribué. Toute écriture sur un rôle est journalisée (avant / après). L'écran
+`/admin/roles` montre la matrice permissions × rôles et, pour chaque rôle, un
+**résumé en clair** de ce qu'il autorise et de ce qu'il n'autorise pas.
+
+**Changement de rôle : immédiat.** Les permissions sont relues en base à chaque
+requête : un compte rétrogradé perd ses droits sur le serveur tout de suite, et
+le jeton rafraîchi porte les nouvelles permissions. Seule la navigation du
+titulaire (barre latérale) change à son chargement suivant.
+
+**Comptes** (`/admin/comptes`). Indicateurs (comptes par rôle, jamais connectés,
+désactivés), recherche, filtres, tri, pagination. **Désactivation et changement de
+rôle exigent un motif** (`422 motif_requis`), inscrit au journal avec le rôle
+avant / après. La fiche d'un compte (`?compte=<id>`) montre ce que son rôle
+autorise, ses modes de connexion (modifiables : retirer un mode efface le mot de
+passe ou le rattachement Google et ferme les sessions), ses sessions ouvertes, et
+permet de **renvoyer le lien de première connexion** ou de **réinitialiser le mot
+de passe** (sessions fermées, lien d'une heure envoyé, nouveau mot de passe imposé
+à la connexion suivante). L'administrateur ne voit ni ne choisit jamais un mot de
+passe.
+
 Garde-fous : impossible de désactiver ou rétrograder le **dernier administrateur
-actif**, ni de se désactiver ou de changer son propre rôle (`400`). Pas de
-suppression de compte : on désactive.
+actif** (vérifié sous verrou de ligne, dans la transaction : deux désactivations
+simultanées se succèdent), ni de se désactiver ou de changer son propre rôle
+(`400`). Pas de suppression de compte : on désactive.
 
 **Journal.** Connexions réussies et refusées avec leur motif, verrouillages,
 demandes et usages de liens, changements de mot de passe, rattachements Google,
@@ -602,7 +629,12 @@ stack complète lancée avec [docker-compose.e2e.yml](docker-compose.e2e.yml) :
 l'administrateur crée un compte praticien avec les deux modes ; le praticien lit
 son lien dans la boîte de test, choisit son mot de passe, remplit son profil,
 passe en thème sombre, se déconnecte, oublie son mot de passe, le réinitialise,
-se reconnecte, puis entre avec Google sur le même compte. Sur un poste qui fait
+se reconnecte, puis entre avec Google sur le même compte
+([parcours-roles.spec.js](frontend/e2e/parcours-roles.spec.js), sprint 2) :
+l'administrateur crée un rôle personnalisé (rôles système verrouillés, nom déjà
+pris refusé), l'attribue avec un motif, le titulaire voit sa navigation changer à
+sa connexion suivante et l'écran « Accès refusé » sur une page qui ne lui est plus
+permise, puis le compte est désactivé avec motif et ne peut plus entrer. Sur un poste qui fait
 déjà tourner la stack de développement, la stack de test est un projet séparé
 (sa propre base) sur le port 3100 :
 
