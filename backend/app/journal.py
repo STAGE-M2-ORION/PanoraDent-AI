@@ -35,15 +35,17 @@ def inscrire(
     utilisateur_id: uuid.UUID | None = None,
     cible: str | None = None,
     details: dict | None = None,
+    ip: str | None = None,
     commit: bool = True,
 ) -> None:
+    """`ip` sert quand il n'y a plus de requête (tâche de fond)."""
     db.add(Journal(
         action=action,
         resultat=resultat,
         utilisateur_id=utilisateur_id,
         cible=cible,
         details=details or {},
-        ip=adresse_ip(request),
+        ip=adresse_ip(request) if request is not None else ip,
     ))
     if commit:
         db.commit()

@@ -8,7 +8,7 @@ redirige toujours, vers l'application en cas de succès, sinon vers
 import hmac
 import logging
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -18,10 +18,12 @@ from ..auth_deps import (
     CHEMIN_ACCES, CHEMIN_OAUTH, CHEMIN_RAFRAICHISSEMENT, COOKIE_ACCES, COOKIE_OAUTH,
     COOKIE_RAFRAICHISSEMENT, publique, session_ouverte,
 )
-from ..auth_models import Utilisateur
-from ..auth_schemas import ConnexionEntree, UtilisateurOut
+from ..auth_models import TypeJeton, Utilisateur
+from ..auth_schemas import (
+    ConnexionEntree, OubliEntree, PremiereConnexionEntree, ReinitialisationEntree, UtilisateurOut,
+)
 from ..config import settings
-from ..database import get_db
+from ..database import get_db, get_session_factory
 from ..identity import ErreurEchange, ErreurJetonIdentite, fournisseur, verifier_jeton_identite
 from ..services import auth_service
 from ..services.auth_service import RefusConnexion
@@ -75,6 +77,54 @@ def connexion(body: ConnexionEntree, request: Request, response: Response, db: S
     db.commit()
     poser_session(response, acces, rafraichissement)
     return UtilisateurOut.depuis(utilisateur)
+
+
+# --- Liens à usage unique ----------------------------------------------------
+
+@router.post("/mot-de-passe/oubli", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(publique)])
+def mot_de_passe_oublie(
+    body: OubliEntree, request: Request, taches: BackgroundTasks,
+    fabrique=Depends(get_session_factory),
+):
+    """Répond TOUJOURS 204, tout de suite : recherche du compte, émission du
+    lien et envoi de l'e-mail se font après la réponse. Une réponse
+    différenciée, ou plus lente quand le compte existe, transformerait ce
+    formulaire en annuaire des comptes."""
+    taches.add_task(
+        auth_service.traiter_demande_reinitialisation, fabrique, body.email, journal.adresse_ip(request)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _session_apres_lien(db: Session, utilisateur: Utilisateur, request: Request, via: TypeJeton) -> Response:
+    """La réussite ouvre directement la session (les autres ont été révoquées)."""
+    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
+    journal.inscrire(
+        db, "connexion", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+        details={"mode": "mot_de_passe", "via": via.value}, commit=False,
+    )
+    db.commit()
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    poser_session(response, acces, rafraichissement)
+    return response
+
+
+@router.post(
+    "/mot-de-passe/reinitialiser", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(publique)]
+)
+def reinitialiser(body: ReinitialisationEntree, request: Request, db: Session = Depends(get_db)):
+    utilisateur = auth_service.definir_mot_de_passe_par_lien(
+        db, body.jeton, TypeJeton.reinitialisation, body.nouveau, request
+    )
+    return _session_apres_lien(db, utilisateur, request, TypeJeton.reinitialisation)
+
+
+@router.post("/premiere-connexion", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(publique)])
+def premiere_connexion(body: PremiereConnexionEntree, request: Request, db: Session = Depends(get_db)):
+    utilisateur = auth_service.definir_mot_de_passe_par_lien(
+        db, body.jeton, TypeJeton.premiere_connexion, body.mot_de_passe, request
+    )
+    return _session_apres_lien(db, utilisateur, request, TypeJeton.premiere_connexion)
 
 
 # --- Parcours Google -------------------------------------------------------

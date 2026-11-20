@@ -110,6 +110,20 @@ class ConnexionEntree(BaseModel):
     mot_de_passe: str = Field(max_length=1024)
 
 
+class OubliEntree(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class ReinitialisationEntree(BaseModel):
+    jeton: str = Field(max_length=256)
+    nouveau: str = Field(max_length=1024)
+
+
+class PremiereConnexionEntree(BaseModel):
+    jeton: str = Field(max_length=256)
+    mot_de_passe: str = Field(max_length=1024)
+
+
 class UtilisateurModification(BaseModel):
     nom: str | None = Field(default=None, max_length=120)
     prenom: str | None = Field(default=None, max_length=120)

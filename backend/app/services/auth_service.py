@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from .. import auth_security as sec
 from .. import journal
 from ..auth_models import (
-    MODE_MOT_DE_PASSE, Permission, Role, SessionUtilisateur, Utilisateur, en_utc, maintenant,
+    MODE_MOT_DE_PASSE, Permission, Role, SessionUtilisateur, TypeJeton, Utilisateur, en_utc,
+    maintenant,
 )
 from ..auth_schemas import (
     RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
@@ -25,6 +26,7 @@ from ..auth_schemas import (
 from ..config import settings
 from ..errors import ApiError
 from ..permissions import ADMIN_CAPABILITIES, ADMIN_ROLE
+from . import courriel, jetons
 
 
 def normaliser_email(email: str) -> str:
@@ -63,7 +65,8 @@ def connexion_mot_de_passe(
     instant = maintenant()
     adresse = normaliser_email(email)
     utilisateur = db.scalar(
-        select(Utilisateur).where(func.lower(Utilisateur.email) == adresse).with_for_update()
+        select(Utilisateur).where(func.lower(Utilisateur.email) == adresse)
+        .with_for_update(of=Utilisateur)  # pas la jointure sur role (refusé par PostgreSQL)
     )
 
     def refus(erreur: ApiError, motif: str, **details) -> ApiError:
@@ -120,6 +123,84 @@ def connexion_mot_de_passe(
     utilisateur.echecs_connexion = 0
     utilisateur.verrouille_jusqu_a = None
     utilisateur.derniere_connexion = instant
+    return utilisateur
+
+
+# --- Liens : mot de passe oublié, réinitialisation, première connexion -----------
+
+def traiter_demande_reinitialisation(fabrique, email: str, ip: str | None) -> None:
+    """Tâche de fond de POST /auth/mot-de-passe/oubli.
+
+    La route répond 204 AVANT d'exécuter ceci : qu'il y ait un compte ou non,
+    la réponse ne varie ni dans son contenu ni dans son temps."""
+    adresse = normaliser_email(email)
+    with fabrique() as db:
+        utilisateur = par_email(db, adresse)
+        motif = (
+            "adresse_inconnue" if utilisateur is None
+            else "compte_desactive" if not utilisateur.actif
+            else "mode_non_autorise" if not utilisateur.autorise(MODE_MOT_DE_PASSE)
+            else ""
+        )
+        if motif:
+            journal.inscrire(
+                db, "demande_reinitialisation", journal.REFUS, ip=ip,
+                utilisateur_id=utilisateur.id if utilisateur else None,
+                details={"motif": motif, "adresse": adresse},
+            )
+            return
+        jeton = jetons.emettre(db, utilisateur, TypeJeton.reinitialisation)
+        journal.inscrire(
+            db, "demande_reinitialisation", journal.SUCCES, ip=ip,
+            utilisateur_id=utilisateur.id, details={"adresse": adresse}, commit=False,
+        )
+        db.commit()
+        message = courriel.reinitialisation(
+            utilisateur.email, utilisateur.prenom, jetons.lien(TypeJeton.reinitialisation, jeton)
+        )
+    courriel.envoyer(message)
+
+
+def definir_mot_de_passe_par_lien(
+    db: Session, jeton: str, type_: TypeJeton, nouveau: str, request: Request | None = None
+) -> Utilisateur:
+    """Première connexion ou réinitialisation : vérifie le lien, applique le
+    nouveau mot de passe, consomme le lien et révoque TOUTES les sessions du
+    compte (si quelqu'un d'autre était entré, il en sort). Ne valide pas la
+    transaction ; l'appelant ouvre ensuite la nouvelle session."""
+    ligne, motif = jetons.trouver(db, jeton, type_)
+    utilisateur = db.get(Utilisateur, ligne.utilisateur_id) if ligne is not None else None
+    if not motif and (utilisateur is None or not utilisateur.actif):
+        motif = "compte_desactive"
+    if not motif and not utilisateur.autorise(MODE_MOT_DE_PASSE):
+        motif = "mode_non_autorise"
+    if motif:
+        db.rollback()
+        journal.inscrire(
+            db, "changement_mot_de_passe", journal.REFUS, request=request,
+            utilisateur_id=utilisateur.id if utilisateur else None,
+            details={"via": type_.value, "motif": motif},
+        )
+        raise jetons.lien_invalide()
+
+    try:
+        sec.verifier_politique(nouveau, utilisateur.email)
+    except sec.MotDePasseTropFaible as exc:
+        # Le lien n'est pas consommé : l'utilisateur corrige et réessaie.
+        db.rollback()
+        raise ApiError(422, "mot_de_passe_trop_faible", str(exc)) from exc
+
+    jetons.consommer(db, ligne)
+    utilisateur.mot_de_passe = sec.hacher_mot_de_passe(nouveau)
+    utilisateur.doit_changer_mdp = False
+    utilisateur.echecs_connexion = 0
+    utilisateur.verrouille_jusqu_a = None
+    utilisateur.derniere_connexion = maintenant()
+    revoquer_sessions(db, utilisateur.id)
+    journal.inscrire(
+        db, "changement_mot_de_passe", journal.SUCCES, request=request,
+        utilisateur_id=utilisateur.id, details={"via": type_.value}, commit=False,
+    )
     return utilisateur
 
 

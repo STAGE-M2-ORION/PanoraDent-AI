@@ -30,7 +30,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import seed_auth
 from app.auth_models import Utilisateur
-from app.database import Base, get_db
+from app.database import Base, get_db, get_session_factory
 from app.identity import fournisseur
 from app.main import app
 from app.permissions import ADMIN_ROLE, PRACTITIONER_ROLE, VIEWER_ROLE
@@ -84,6 +84,7 @@ def nouveau_client(session_factory):
             yield session
 
     app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[get_session_factory] = lambda: session_factory
     clients = []
 
     def _nouveau() -> TestClient:
