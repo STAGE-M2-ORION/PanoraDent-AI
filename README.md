@@ -90,16 +90,30 @@ Les migrations sont appliquées **automatiquement** au démarrage du backend
    navigateur ──▶│  frontend   │ Next.js (export statique) + nginx — 3000
                  └──────┬──────┘
                         │ /api  (proxy nginx → backend:8000)
-                 ┌──────▼──────┐      ┌──────────────┐
-                 │   backend   │─────▶│  inference   │ FastAPI + YOLO — 8001
-                 │  (FastAPI)  │ HTTP │  ISOLÉ       │ (mock si pas de poids)
-                 └───┬─────┬───┘      └──────────────┘
-                     │     │
-          ┌──────────▼─┐ ┌─▼───────────┐
-          │ PostgreSQL │ │   MinIO     │ stockage objet S3
-          │ métadonnées│ │ images+PDF  │ 9000 / 9001
-          └────────────┘ └─────────────┘
+                 ┌──────▼──────┐
+                 │   backend   │ met l'analyse en file, répond aussitôt
+                 │  (FastAPI)  │
+                 └──┬───────┬──┘
+                    │       │
+       ┌────────────▼─┐   ┌─▼────────────┐
+       │  PostgreSQL  │   │    MinIO     │ stockage objet S3 — 9000 / 9001
+       │ métadonnées  │   │  images+PDF  │
+       │   + file     │   └─▲────────────┘
+       └────────────▲─┘     │
+                    │       │
+                 ┌──┴───────┴──┐  HTTP   ┌──────────────┐
+                 │   worker    │────────▶│  inference   │ FastAPI + YOLO — 8001
+                 │ app.worker  │         │  ISOLÉ       │ (mock si pas de poids)
+                 └─────────────┘         └──────────────┘
 ```
+
+Le backend ne joint plus le modèle pendant une requête : il **met l'analyse en
+file** (table `analyses`, colonne `statut`) et répond aussitôt. Le **worker**
+— même image que le backend, autre commande (`python -m app.worker`) — prend
+les analyses une à une (`SELECT … FOR UPDATE SKIP LOCKED` : plusieurs workers
+possibles, jamais deux pour la même analyse), interroge le service
+d'inférence et enregistre les détections. Pas de Redis ni de courtier :
+PostgreSQL suffit au volume d'un cabinet.
 
 Les services se résolvent par leur nom sur le réseau bridge par défaut de
 Compose. Principes :
@@ -126,10 +140,19 @@ Compose. Principes :
    PNG, ce qui supprime l'EXIF.
 3. **Stockage** — PNG anonymisé dans MinIO sous `images/<uuid>.png`. L'original
    n'est **jamais** écrit sur disque.
-4. **Inférence** — le backend `POST` le PNG au service `inference`
-   ([inference_client.py](backend/app/services/inference_client.py), timeout **60 s**).
-5. **Persistance** — une ligne `analyses` + N `detections`, créées avec
-   `source="model"` et `reviewed=false`.
+4. **Mise en file** — la ligne `analyses` est créée au statut `en_file` ; la
+   réponse (`201`) part aussitôt, sans attendre le modèle.
+5. **Traitement** ([worker.py](backend/app/worker.py)) — le worker passe
+   l'analyse `en_cours`, `POST` l'image au service `inference`
+   ([inference_client.py](backend/app/services/inference_client.py), timeout
+   **60 s**), puis enregistre les `detections` (confiance ≥ 0,10, l'écran filtre
+   ensuite) **en fractions de l'image** (0 à 1) avec la version du modèle ;
+   statut `terminee`, durée en millisecondes. Modèle injoignable ou réponse
+   invalide : statut `echouee` et motif lisible ; `POST /{id}/lancer` remet en
+   file sans réimporter. Au démarrage, le worker remet en file les analyses
+   restées `en_cours` (arrêt brutal). En production, le mode mock est refusé.
+   L'interface relit `GET /{id}/statut` toutes les 2 s tant que l'analyse est en
+   file ou en cours.
 6. **Revue praticien** — schéma prêt, API et UI absentes (cf. limites).
 7. **Rapport PDF** — `POST /api/v1/analyses/{id}/report` relit l'image, la ré-annote
    côté serveur, génère un PDF A4 (image, tableau, mention légale), le stocke
@@ -144,6 +167,7 @@ Compose. Principes :
 |---|---|---|---|
 | `frontend` | `./frontend` (node:20-alpine → nginx:alpine) | `3000` → `80` | *aucun* |
 | `backend` | `./backend` (python:3.11-slim) | `8000` | *aucun* |
+| `worker` | `./backend`, commande `python -m app.worker` | *aucun* | *aucun* (journal « Worker prêt. ») |
 | `inference` | `./inference` (python:3.11-slim) | `8001` | `/health`, 10 s, 5 essais |
 | `db` | `postgres:16-alpine` | `5432` | `pg_isready`, 5 s, 10 essais |
 | `minio` | `pgsty/minio:latest` | `9000`, `9001` | `mc ready local`, 5 s, 10 essais |
@@ -220,12 +244,14 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 |---|---|---|
 | `GET` | `/api/v1/health` | État backend + joignabilité et mode de l'inférence (timeout 3 s, erreurs absorbées) |
 | `POST` | `/api/v1/analyses/apercu` | Contrôle et anonymisation, **sans rien stocker** : aperçu avant / après (data URL JPEG) et zones masquées. Champs `fichier`, `masques` (JSON) — `analysis:create` |
-| `POST` | `/api/v1/analyses` | Confirmation : même fichier + `masques`, `date_examen`, `note` ; ré-anonymisation, stockage de la seule image masquée, inférence, `201` — `analysis:create` |
+| `POST` | `/api/v1/analyses` | Confirmation : même fichier + `masques`, `date_examen`, `note` ; ré-anonymisation, stockage de la seule image masquée, **mise en file**, `201` immédiat (statut `en_file`) — `analysis:create` |
 | `GET` | `/api/v1/analyses` | Analyses du cabinet, plus récentes d'abord ; `?mine=true` : les siennes — `analysis:read` |
-| `GET` | `/api/v1/analyses/{id}` | Détail + détections, référence, déposant — `analysis:read` |
+| `GET` | `/api/v1/analyses/{id}` | Détail + détections (boîtes en fractions de l'image), référence, déposant, statut, durée — `analysis:read` |
+| `GET` | `/api/v1/analyses/{id}/statut` | Suivi de la file : `statut` (`en_file`, `en_cours`, `terminee`, `echouee`), `erreur`, `tentatives`, `duree_ms`, `position` (analyses devant celle-ci) — `analysis:read` |
+| `POST` | `/api/v1/analyses/{id}/lancer` | Relance après échec (journalisée) ; déjà en file ou en cours : rien ne change ; terminée : `409` — `analysis:create` |
 | `GET` | `/api/v1/analyses/{id}/image` | URL présignée (1 h) de la version d'affichage ; `?taille=pleine` pour la pleine résolution — `analysis:read` |
 | `DELETE` | `/api/v1/analyses/{id}` | Déposant ou administrateur ; efface image, version d'affichage et compte rendu **puis** la ligne — `analysis:delete` |
-| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée — `report:generate` |
+| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée ; analyse non terminée : `409` — `report:generate` |
 | `GET` | `/api/v1/stockage` | Volume occupé dans le stockage objet, alerte au-delà de `STOCKAGE_ALERTE_GO` — `user:manage` |
 | `GET` | `/api/v1/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
@@ -357,8 +383,8 @@ second fige la liste des routes publiques.
 
 | Permission | Route(s) protégée(s) |
 |---|---|
-| `analysis:create` | `POST /api/v1/analyses` |
-| `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/image` |
+| `analysis:create` | `POST /api/v1/analyses`, `/apercu`, `/{id}/lancer` |
+| `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/statut`, `/{id}/image` |
 | `analysis:delete`, `detection:review` | *définies, aucune route pour l'instant* |
 | `report:generate` | `POST /api/v1/analyses/{id}/report` |
 | `model:read` | `GET /api/v1/model/versions` |
@@ -627,7 +653,13 @@ numérotation est purement géométrique.
 
 **Web** — vitest ([vitest.config.mjs](frontend/vitest.config.mjs)) : client HTTP
 (un seul rafraîchissement partagé, requête rejouée une fois, jamais sur un refus
-d'identifiants), indicateur de robustesse, messages de l'écran de connexion.
+d'identifiants), indicateur de robustesse, messages de l'écran de connexion,
+masques d'anonymisation, puis pour la visionneuse (sprint 4) : boîtes reçues en
+fractions et ramenées aux pixels, statuts de la file, **seuil de confiance
+appliqué sans aucun appel réseau** (client HTTP et `fetch` piégés), **cadres
+alignés sur l'image quel que soit le zoom** (point sous le curseur immobile,
+aller-retour écran ↔ image exact), navigation J / K, raccourcis inactifs dans
+un champ de saisie, contenu et nom de l'export PNG.
 
 **Parcours dans un navigateur** — Playwright
 ([parcours-connexion.spec.js](frontend/e2e/parcours-connexion.spec.js)), contre une
@@ -645,15 +677,30 @@ permise, puis le compte est désactivé avec motif et ne peut plus entrer
 et une image de 400 px sont refusés avec leur message, l'aperçu montre les deux
 inscriptions masquées, un masque se trace puis se retire, l'abandon ne laisse
 aucune analyse, la confirmation donne une référence anonyme retrouvée dans « Mes
-analyses », puis le déposant la supprime. Sur un poste qui fait
+analyses », puis le déposant la supprime
+([parcours-analyse.spec.js](frontend/e2e/parcours-analyse.spec.js), sprint 4) :
+worker arrêté, la confirmation répond aussitôt « En file d'attente » (import et
+historique), puis le worker relancé la traite ; service d'inférence arrêté,
+l'analyse échoue avec son motif, puis « Relancer l'analyse » aboutit sans
+réimporter ; dans la visionneuse, le seuil filtre sans requête vers l'API, un
+cadre garde sa place sur l'image après zoom, J / K / + / 0 / H agissent, et
+l'export PNG est téléchargé sous la seule référence anonyme. Ces étapes
+arrêtent un instant des conteneurs de la stack de test avec la CLI `docker`
+(sautées si elle n'est pas accessible). Sur un poste qui fait
 déjà tourner la stack de développement, la stack de test est un projet séparé
 (sa propre base) sur le port 3100 :
 
 ```bash
 E2E_PORT=3100 docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
-cd frontend && E2E_BASE_URL=http://localhost:3100 npm run test:e2e
+cd frontend && E2E_COMPOSE_PROJECT=panoradent-e2e E2E_BASE_URL=http://localhost:3100 npm run test:e2e
 docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml down -v
 ```
+
+`E2E_COMPOSE_PROJECT` désigne la stack dont le parcours du sprint 4 arrête le
+worker et l'inférence (indispensable quand la stack de développement tourne
+aussi). Repartir d'une base vide (`down -v`) avant de relancer la suite : les
+comptes accumulés par des passages successifs finissent par paginer la liste
+des comptes.
 
 La CI ([ci.yml](.github/workflows/ci.yml)) exécute sur `push` vers `main` et
 chaque pull request : `backend` (pytest), `inference` (pytest), `frontend`
@@ -839,14 +886,13 @@ mode réel emprunte la déduction géométrique.
 2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
    viewer. Le rapport devient un document validé.
 3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
-4. **Historique dans l'UI** — `GET /api/v1/analyses` est déjà disponible.
+4. ~~**Historique dans l'UI**~~ Fait (sprint 3), avec le suivi de la file (sprint 4).
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès
    (UFBA-425 immédiat, DENTEX et Tufts à délai) est le vrai chemin critique.
 6. **Page de performance** — `GET /api/v1/model/versions` sert les métriques dès
    qu'un modèle est publié ; l'UI de restitution reste à écrire.
-7. **Tests d'intégration** — le mock étant déterministe, un test bout-en-bout est
-   peu coûteux.
+7. ~~**Tests d'intégration**~~ Fait : parcours Playwright des sprints 1 à 4 en CI.
 
 ---
 
@@ -860,12 +906,15 @@ mode réel emprunte la déduction géométrique.
 | Erreur 500 à l'upload | DICOM sans `pixel_array` exploitable, ou format illisible par Pillow |
 | « Image indisponible » / lien PDF mort | URL présignée non relayée : vérifier `S3_PUBLIC_URL=/storage` (backend) et `location /storage/` dans [nginx.conf](frontend/nginx.conf) |
 | Upload refusé > ~50 Mo | `client_max_body_size` dans [nginx.conf](frontend/nginx.conf) |
-| `504` sur `/api/v1/analyses` | Inférence plus lente que le timeout nginx : ajouter `proxy_read_timeout` |
+| Analyse bloquée « En file d'attente » | Worker arrêté ou absent : `docker compose ps worker`, `docker compose logs worker` (il doit écrire « Worker prêt. ») ; `docker compose up -d worker` |
+| Analyse « Échec de l'analyse » | Motif affiché et détaillé dans `docker compose logs worker` (le plus souvent : service d'inférence arrêté ou en cours de chargement). Une fois `inference` *healthy*, « Relancer l'analyse » (historique ou page d'analyse) |
+| Analyse restée « Analyse en cours » après un arrêt brutal | Remise en file automatiquement au redémarrage du worker |
 | Bandeau figé après redémarrage d'un service | `/api/v1/health` est relu toutes les 30 s (et au retour sur l'onglet) : patienter, ou recharger |
 | `make test` / `make migrate` échouent | Ils utilisent `docker compose exec` : la stack doit tourner |
 | Base incohérente après changement de schéma | `make clean` puis `make up` (⚠️ efface les volumes) |
 | Changement de `NEXT_PUBLIC_API_BASE` sans effet | Variable de build : rebuilder l'image frontend |
-| `docker compose build` ne construit rien (« additional privileges requested: pass "--allow=fs.read=…" ») | Docker Compose récent passe par *bake*. Construire l'image directement, puis démarrer sans reconstruire : `docker build -t panoradent-ai-backend ./backend` (idem `frontend`), puis `docker compose up -d --no-build` |
+| `docker compose build` ne construit rien (« additional privileges requested: pass "--allow=fs.read=…" ») | Docker Compose récent passe par *bake*. Construire l'image directement, puis démarrer sans reconstruire : `docker build -t panoradent-ai-backend ./backend` (idem `frontend`), **`docker tag panoradent-ai-backend panoradent-ai-worker`** (le worker attend une image à son nom, construite depuis `./backend`), puis `docker compose up -d --no-build` |
+| `docker build` : « failed to resolve source metadata … no such host » | Docker Hub injoignable (pas de réseau) : `DOCKER_BUILDKIT=0 docker build …` construit avec les images de base déjà présentes localement |
 | Google : « Missing required parameter: client_id » | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` absents du `.env` : la page de connexion affiche « La connexion n'a pas abouti » et le backend l'écrit dans ses journaux |
 | Google : `redirect_uri_mismatch` | L'URI de la console Google doit être **exactement** `GOOGLE_REDIRECT_URI` (schéma, port, chemin) |
 | Aucun e-mail reçu (première connexion, mot de passe oublié) | `COURRIEL_MODE=console` : le message et son lien sont dans `docker compose logs backend`. En production : `COURRIEL_MODE=smtp` et `SMTP_*` |
