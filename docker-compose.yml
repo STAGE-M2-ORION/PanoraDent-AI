@@ -1,6 +1,49 @@
 # PanoraDent AI — orchestration locale (CPU par défaut).
 # Lancer : docker compose up --build
 # GPU : docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+# Variables communes au backend et au worker de la file de traitement.
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-panoradent}:${POSTGRES_PASSWORD:-panoradent}@db:5432/${POSTGRES_DB:-panoradent}
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+  S3_BUCKET: ${S3_BUCKET:-panoradent}
+  # URLs présignées servies par le proxy nginx du frontend (`/storage/`).
+  S3_PUBLIC_URL: ${S3_PUBLIC_URL:-/storage}
+  INFERENCE_URL: http://inference:8001
+  # --- Authentification (voir README, section « Authentification ») ---
+  # Deux modes : adresse e-mail + mot de passe, et compte Google.
+  # APP_ENV=production refuse de démarrer sans JWT_SECRET, client Google et SMTP.
+  APP_ENV: ${APP_ENV:-development}
+  JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000"]}
+  # `google` ; `fake` (fournisseur de remplacement) n'est accepté qu'avec APP_ENV=test.
+  IDENTITY_PROVIDER: ${IDENTITY_PROVIDER:-google}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  # À déclarer EXACTEMENT dans la console Google (passe par le proxy nginx).
+  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/v1/auth/google/retour}
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  # Domaine Google Workspace autorisé ; vide = toute adresse ayant un compte.
+  GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
+  # Adresse de l'administrateur initial (créé par le jeu de départ, deux modes).
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+  # Coût bcrypt (12 minimum en production).
+  BCRYPT_COUT: ${BCRYPT_COUT:-12}
+  # E-mails (liens de première connexion et de réinitialisation) :
+  # `console` = affichés dans `docker compose logs backend` ; `smtp` = envoyés.
+  COURRIEL_MODE: ${COURRIEL_MODE:-console}
+  COURRIEL_EXPEDITEUR: ${COURRIEL_EXPEDITEUR:-PanoraDent AI <no-reply@panoradent.local>}
+  SMTP_HOTE: ${SMTP_HOTE:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_UTILISATEUR: ${SMTP_UTILISATEUR:-}
+  SMTP_MOT_DE_PASSE: ${SMTP_MOT_DE_PASSE:-}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+  # Alerte d'administration au-delà de ce volume (Go) dans le stockage objet.
+  STOCKAGE_ALERTE_GO: ${STOCKAGE_ALERTE_GO:-50}
+
 services:
   db:
     image: postgres:16-alpine
@@ -59,47 +102,7 @@ services:
 
   backend:
     build: ./backend
-    environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-panoradent}:${POSTGRES_PASSWORD:-panoradent}@db:5432/${POSTGRES_DB:-panoradent}
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
-      S3_BUCKET: ${S3_BUCKET:-panoradent}
-      # URLs présignées servies par le proxy nginx du frontend (`/storage/`).
-      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-/storage}
-      INFERENCE_URL: http://inference:8001
-      # --- Authentification (voir README, section « Authentification ») ---
-      # Deux modes : adresse e-mail + mot de passe, et compte Google.
-      # APP_ENV=production refuse de démarrer sans JWT_SECRET, client Google et SMTP.
-      APP_ENV: ${APP_ENV:-development}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
-      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-["http://localhost:3000"]}
-      # `google` ; `fake` (fournisseur de remplacement) n'est accepté qu'avec APP_ENV=test.
-      IDENTITY_PROVIDER: ${IDENTITY_PROVIDER:-google}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      # À déclarer EXACTEMENT dans la console Google (passe par le proxy nginx).
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/v1/auth/google/retour}
-      APP_URL: ${APP_URL:-http://localhost:3000}
-      # Domaine Google Workspace autorisé ; vide = toute adresse ayant un compte.
-      GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
-      # Adresse de l'administrateur initial (créé par le jeu de départ, deux modes).
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
-      # Coût bcrypt (12 minimum en production).
-      BCRYPT_COUT: ${BCRYPT_COUT:-12}
-      # E-mails (liens de première connexion et de réinitialisation) :
-      # `console` = affichés dans `docker compose logs backend` ; `smtp` = envoyés.
-      COURRIEL_MODE: ${COURRIEL_MODE:-console}
-      COURRIEL_EXPEDITEUR: ${COURRIEL_EXPEDITEUR:-PanoraDent AI <no-reply@panoradent.local>}
-      SMTP_HOTE: ${SMTP_HOTE:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_UTILISATEUR: ${SMTP_UTILISATEUR:-}
-      SMTP_MOT_DE_PASSE: ${SMTP_MOT_DE_PASSE:-}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      # Alerte d'administration au-delà de ce volume (Go) dans le stockage objet.
-      STOCKAGE_ALERTE_GO: ${STOCKAGE_ALERTE_GO:-50}
+    environment: *backend-env
     depends_on:
       db:
         condition: service_healthy
@@ -109,6 +112,24 @@ services:
         condition: service_started
     ports:
       - "8000:8000"
+
+  # File de traitement : prend les analyses « en file », interroge le modèle,
+  # enregistre les détections. Processus séparé du serveur web ; reprend au
+  # démarrage les analyses restées « en cours ».
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    environment: *backend-env
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      inference:
+        condition: service_started
+      # Les migrations sont appliquées au démarrage du backend.
+      backend:
+        condition: service_started
 
   frontend:
     build: ./frontend

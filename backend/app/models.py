@@ -9,6 +9,15 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+class StatutAnalyse:
+    """Cycle de vie d'une analyse dans la file de traitement."""
+    EN_FILE = "en_file"        # image stockée, en attente du worker
+    EN_COURS = "en_cours"      # prise par le worker
+    TERMINEE = "terminee"      # détections enregistrées
+    ECHOUEE = "echouee"        # erreur : message, relance possible
+    TOUS = (EN_FILE, EN_COURS, TERMINEE, ECHOUEE)
+
+
 class Analysis(Base):
     """Une analyse = une panoramique anonymisée + ses détections.
 
@@ -34,8 +43,17 @@ class Analysis(Base):
     report_key: Mapped[str | None] = mapped_column(String, nullable=True)
     # Zones masquées à l'import, en fractions de l'image : {"auto": [...], "manuelles": [...]}.
     masques: Mapped[dict] = mapped_column(JSON, default=dict)
-    model_version: Mapped[str] = mapped_column(String)
-    inference_mode: Mapped[str] = mapped_column(String)     # mock | real
+    # File de traitement (le statut en base fait foi : le worker reprend au
+    # redémarrage les analyses restées « en cours »).
+    statut: Mapped[str] = mapped_column(String(12), default=StatutAnalyse.EN_FILE, index=True)
+    erreur: Mapped[str] = mapped_column(Text, default="")
+    tentatives: Mapped[int] = mapped_column(Integer, default=0)
+    lance_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    demarre_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    termine_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    duree_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_version: Mapped[str] = mapped_column(String, default="")
+    inference_mode: Mapped[str] = mapped_column(String, default="")  # mock | real
     width: Mapped[int] = mapped_column(Integer)
     height: Mapped[int] = mapped_column(Integer)
 
@@ -57,10 +75,15 @@ class Detection(Base):
     label: Mapped[str] = mapped_column(String)
     fdi: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confidence: Mapped[float] = mapped_column(Float)
-    x: Mapped[int] = mapped_column(Integer)
-    y: Mapped[int] = mapped_column(Integer)
-    w: Mapped[int] = mapped_column(Integer)
-    h: Mapped[int] = mapped_column(Integer)
+    # Boîte en FRACTIONS de la largeur et de la hauteur de l'image (0 à 1) :
+    # zoom, réduction d'affichage et version réduite n'ont aucun effet sur
+    # l'alignement des cadres.
+    x: Mapped[float] = mapped_column(Float)
+    y: Mapped[float] = mapped_column(Float)
+    w: Mapped[float] = mapped_column(Float)
+    h: Mapped[float] = mapped_column(Float)
+    # Version du modèle qui a produit la détection (vide pour un ajout du praticien).
+    model_version: Mapped[str] = mapped_column(String, default="")
     # Révision par le praticien (PRD §5.3) : validé / corrigé / ajouté / supprimé.
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     source: Mapped[str] = mapped_column(String, default="model")  # model | human

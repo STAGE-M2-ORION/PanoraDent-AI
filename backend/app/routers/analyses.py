@@ -6,8 +6,11 @@
 2. `POST /analyses` : le même fichier est renvoyé avec les masques manuels du
    praticien ; il est ré-anonymisé, seule l'image masquée part au stockage
    objet (pleine résolution, plus une version réduite pour l'affichage
-   au-delà de 3 000 px), puis l'analyse par le modèle est lancée (le sprint 4
-   la mettra en file).
+   au-delà de 3 000 px), et l'analyse est MISE EN FILE : la réponse part tout
+   de suite, le worker (`app/worker.py`, processus séparé) interroge le modèle.
+3. `GET /analyses/{id}/statut` : suivi (relu toutes les deux secondes) ;
+   `POST /analyses/{id}/lancer` : relance après échec, sans jamais créer de
+   seconde tâche pour une analyse déjà en file ou en cours.
 
 Le fichier reçu n'est jamais écrit sur le disque : il est lu en mémoire.
 Les clés de stockage sont tirées au hasard, jamais dérivées du nom du fichier
@@ -31,11 +34,11 @@ from ..auth_deps import exiger
 from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
-from ..models import Analysis, Detection
+from ..models import Analysis, StatutAnalyse
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_CREATE, ANALYSIS_DELETE, ANALYSIS_READ, REPORT_GENERATE
-from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, ZoneOut, _nom, analyse_out
+from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, StatutOut, ZoneOut, _nom, analyse_out
 from ..services import anonymize as anon
-from ..services import inference_client, report as report_svc, storage
+from ..services import report as report_svc, storage
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -124,7 +127,7 @@ async def create_analysis(
     db: Session = Depends(get_db),
 ):
     """Confirmation de l'import : ré-anonymisation avec les masques manuels,
-    stockage de la seule image masquée, analyse, enregistrement."""
+    stockage de la seule image masquée, mise en file de l'analyse."""
     if len(note) > NOTE_MAX:
         raise ApiError(422, "champ_invalide", f"La note ne doit pas dépasser {NOTE_MAX} caractères.")
     brut = await _lire_fichier(fichier)
@@ -150,16 +153,6 @@ async def create_analysis(
             except Exception:  # noqa: BLE001
                 logger.exception("Objet orphelin à supprimer : %s", cle)
 
-    try:
-        inference = await inference_client.infer(resultat.png, "image.png")
-    except Exception as exc:  # noqa: BLE001
-        nettoyer()
-        logger.exception("Inférence indisponible")
-        raise ApiError(
-            503, "inference_indisponible",
-            "Le service d'analyse ne répond pas. L'image n'a pas été conservée : réessayez dans un instant.",
-        ) from exc
-
     largeur, hauteur = resultat.taille
     analyse = Analysis(
         utilisateur_id=utilisateur.id,
@@ -167,20 +160,14 @@ async def create_analysis(
         note=note.strip(),
         image_key=cles[0],
         image_affichage_key=cles[1] if affichage else None,
-        model_version=inference.get("model_version", "unknown"),
-        inference_mode=inference.get("mode", "unknown"),
         width=largeur, height=hauteur,
+        statut=StatutAnalyse.EN_FILE,
+        lance_le=datetime.utcnow(),
         masques={
             "auto": [z.en_dict() for z in resultat.zones_auto],
             "manuelles": [z.en_dict() for z in resultat.zones_manuelles],
         },
     )
-    for d in inference.get("detections", []):
-        bbox = d["bbox"]
-        analyse.detections.append(Detection(
-            label=d["label"], fdi=d.get("fdi"), confidence=d["confidence"],
-            x=bbox[0], y=bbox[1], w=bbox[2], h=bbox[3], source="model",
-        ))
     for tentative in range(3):  # deux imports simultanés peuvent viser la même référence
         analyse.reference = _prochaine_reference(db)
         db.add(analyse)
@@ -220,7 +207,7 @@ def list_analyses(
             id=a.id, created_at=a.created_at, reference=a.reference, date_examen=a.date_examen,
             deposant_id=a.utilisateur_id, deposant_nom=_nom(a.deposant),
             model_version=a.model_version, inference_mode=a.inference_mode,
-            n_detections=len(a.detections),
+            n_detections=len(a.detections), statut=a.statut,
             labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
             has_report=a.report_key is not None,
         ) for a in rows
@@ -234,6 +221,54 @@ def get_analysis(
     _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
 ):
     return analyse_out(_ou_404(db, analysis_id))
+
+
+def _position(db: Session, a: Analysis) -> int | None:
+    if a.statut != StatutAnalyse.EN_FILE:
+        return None
+    return db.scalar(
+        select(func.count()).select_from(Analysis)
+        .where(Analysis.statut == StatutAnalyse.EN_FILE, Analysis.lance_le < a.lance_le)
+    ) or 0
+
+
+@router.get("/{analysis_id}/statut", response_model=StatutOut)
+def statut(
+    analysis_id: str,
+    db: Session = Depends(get_db),
+    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+):
+    a = _ou_404(db, analysis_id)
+    return StatutOut(id=a.id, statut=a.statut, erreur=a.erreur or "", tentatives=a.tentatives or 0,
+                     duree_ms=a.duree_ms, position=_position(db, a))
+
+
+@router.post("/{analysis_id}/lancer", response_model=StatutOut)
+def lancer(
+    analysis_id: str,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_CREATE)),
+    db: Session = Depends(get_db),
+):
+    """(Re)met l'analyse en file après un échec. Déjà en file ou en cours :
+    rien ne change (jamais deux tâches pour la même analyse). Terminée : 409."""
+    a = db.scalar(select(Analysis).where(Analysis.id == analysis_id).with_for_update(of=Analysis))
+    if a is None:
+        raise ApiError(404, "introuvable", "Analyse introuvable.")
+    if a.statut == StatutAnalyse.TERMINEE:
+        raise ApiError(409, "deja_terminee", "Cette analyse est déjà terminée.")
+    if a.statut == StatutAnalyse.ECHOUEE:
+        a.statut = StatutAnalyse.EN_FILE
+        a.erreur = ""
+        a.lance_le = datetime.utcnow()
+        journal.inscrire(
+            db, "relance_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+            cible=f"analyse:{a.id}", details={"reference": a.reference, "tentatives": a.tentatives},
+            commit=False,
+        )
+    db.commit()
+    return StatutOut(id=a.id, statut=a.statut, erreur=a.erreur or "", tentatives=a.tentatives or 0,
+                     duree_ms=a.duree_ms, position=_position(db, a))
 
 
 @router.get("/{analysis_id}/image")
@@ -293,9 +328,12 @@ def build_report(
     _: Utilisateur = Depends(exiger(REPORT_GENERATE)),
 ):
     a = _ou_404(db, analysis_id)
+    if a.statut != StatutAnalyse.TERMINEE:
+        raise ApiError(409, "analyse_non_terminee", "L'analyse n'est pas terminée : pas de compte rendu.")
     image = Image.open(io.BytesIO(storage.get(a.image_key))).convert("L")
+    L, H = image.size  # boîtes stockées en fractions → pixels de cette image
     dets = [dict(label=d.label, fdi=d.fdi, confidence=d.confidence,
-                 x=d.x, y=d.y, w=d.w, h=d.h) for d in a.detections]
+                 x=round(d.x * L), y=round(d.y * H), w=round(d.w * L), h=round(d.h * H)) for d in a.detections]
     pdf = report_svc.build(image, dets, a.reference, a.model_version)
     report_key = f"reports/{uuid.uuid4()}.pdf"
     storage.put(report_key, pdf, "application/pdf")

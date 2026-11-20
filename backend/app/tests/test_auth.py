@@ -349,25 +349,28 @@ def test_lecteur_ne_cree_pas_d_analyse_mais_lit(connecte):
     assert lecteur.get(f"{BASE}/utilisateurs").status_code == 403
 
 
-def test_flux_d_analyse_du_praticien(connecte, monkeypatch):
+def test_flux_d_analyse_du_praticien(connecte, monkeypatch, session_factory):
+    from app import worker
+    from app.services import inference_client
+
     stored = {}
     monkeypatch.setattr(analyses_router.storage, "ensure_bucket", lambda: None)
     monkeypatch.setattr(analyses_router.storage, "put", lambda k, d, c: stored.setdefault(k, d))
+    monkeypatch.setattr(analyses_router.storage, "get", lambda k: stored[k])
     monkeypatch.setattr(analyses_router.storage, "presigned_url", lambda k, expires=3600: f"http://s3/{k}")
-
-    async def fake_infer(png, name="image.png"):
-        return {"mode": "mock", "model_version": "t", "detections": [
-            {"label": "tooth", "fdi": 11, "confidence": 0.9, "bbox": [1, 2, 3, 4]}]}
-
-    monkeypatch.setattr(analyses_router.inference_client, "infer", fake_infer)
+    monkeypatch.setattr(inference_client, "infer_sync", lambda png, name="image.png": {
+        "mode": "mock", "model_version": "t", "detections": [
+            {"label": "tooth", "fdi": 11, "confidence": 0.9, "bbox": [120, 60, 120, 60]}]})
     praticien = connecte("dr.moreau@cabinet.example.org")
     pano = io.BytesIO()
     Image.new("L", (1200, 600), 40).save(pano, format="PNG")
     r = praticien.post(f"{BASE}/analyses", files={"fichier": ("a.png", pano.getvalue(), "image/png")})
     assert r.status_code == 201, r.text
-    analyse = r.json()
-    assert analyse["detections"][0]["fdi"] == 11 and stored
-    assert praticien.get(f"{BASE}/analyses/{analyse['id']}").status_code == 200
+    assert r.json()["statut"] == "en_file" and stored
+    assert worker.traiter_une(session_factory) is True
+    analyse = praticien.get(f"{BASE}/analyses/{r.json()['id']}").json()
+    assert analyse["statut"] == "terminee"
+    assert analyse["detections"][0]["fdi"] == 11 and analyse["detections"][0]["x"] == 0.1
 
 
 def test_toute_route_porte_un_garde_ou_la_marque_publique():

@@ -28,11 +28,11 @@ def objets(monkeypatch):
     monkeypatch.setattr(s, "presigned_url", lambda k, expires=3600: f"http://s3/{k}")
     monkeypatch.setattr(stockage_router.storage, "usage", lambda prefixe="": (len(stock), sum(map(len, stock.values()))))
 
-    async def infer(png, nom="image.png"):
-        return {"mode": "mock", "model_version": "t-1", "detections": [
-            {"label": "caries", "fdi": 36, "confidence": 0.9, "bbox": [10, 20, 30, 40]}]}
+    from app.services import inference_client
 
-    monkeypatch.setattr(analyses_router.inference_client, "infer", infer)
+    monkeypatch.setattr(inference_client, "infer_sync", lambda png, nom="image.png": {
+        "mode": "mock", "model_version": "t-1", "detections": [
+            {"label": "caries", "fdi": 36, "confidence": 0.9, "bbox": [10, 20, 30, 40]}]})
     return stock
 
 
@@ -121,17 +121,6 @@ def test_version_reduite_pour_l_affichage_au_dela_de_3000_px(connecte, objets):
     assert praticien.get(f"{BASE}/analyses/{a['id']}/image", params={"taille": "pleine"}).json()["url"].endswith(pleine)
 
 
-def test_inference_indisponible_rien_ne_reste(connecte, objets, monkeypatch, db):
-    async def panne(*a, **k):
-        raise ConnectionError("service d'inférence arrêté")
-
-    monkeypatch.setattr(analyses_router.inference_client, "infer", panne)
-    praticien = connecte("dr.rabe@cabinet.example.org")
-    r = _envoyer(praticien, octets(panoramique()))
-    assert r.status_code == 503 and r.json()["code"] == "inference_indisponible"
-    assert objets == {} and db.scalars(select(Analysis)).all() == []
-
-
 def test_references_successives_et_filtre_mes_analyses(connecte, objets):
     rabe = connecte("dr.rabe@cabinet.example.org")
     autre = connecte("dr.autre@cabinet.example.org")
@@ -146,11 +135,14 @@ def test_references_successives_et_filtre_mes_analyses(connecte, objets):
 
 # --- Suppression ------------------------------------------------------------------------------------------
 
-def test_suppression_reservee_au_deposant_et_a_l_administrateur(admin, connecte, objets, db):
+def test_suppression_reservee_au_deposant_et_a_l_administrateur(admin, connecte, objets, db, session_factory):
     rabe = connecte("dr.rabe@cabinet.example.org")
     autre = connecte("dr.autre@cabinet.example.org")
     a = _envoyer(rabe, octets(Image.new("L", (3600, 1800), 60))).json()
-    rabe.post(f"{BASE}/analyses/{a['id']}/report")
+    from app import worker
+
+    assert worker.traiter_une(session_factory)
+    assert rabe.post(f"{BASE}/analyses/{a['id']}/report").status_code == 200
     assert len(objets) == 3                                   # image, affichage, compte rendu
 
     r = autre.delete(f"{BASE}/analyses/{a['id']}")

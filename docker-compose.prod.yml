@@ -45,6 +45,12 @@ services:
   inference:
     restart: unless-stopped
     ports: !reset []
+    environment:
+      # Jamais le modèle de remplacement en production : sans poids lisibles,
+      # le service refuse de démarrer au lieu de servir des détections factices.
+      MODEL_STRICT: "1"
+  worker:
+    restart: unless-stopped
 
 volumes:
   caddy_data:
