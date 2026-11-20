@@ -21,6 +21,7 @@ export {
 } from "./chart";
 export { Alert, Avatar, Badge, Card, Modal, Skeleton, ToastProvider, UserPhoto, useToast } from "./feedback";
 export { Field, Input, Select, Textarea } from "./field";
+export { ConfirmDialog } from "./confirm-dialog";
 export { Icon } from "./icon";
 export { PasswordInput } from "./password-input";
 export { ICON_NAMES } from "./icons";

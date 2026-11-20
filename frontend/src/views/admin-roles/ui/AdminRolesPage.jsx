@@ -1,23 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { deleteRole, fetchPermissions, fetchRoles, updateRole } from "@/entities/role";
+import { deleteRole, duplicateRole, fetchPermissions, fetchRoles, updateRole } from "@/entities/role";
 import { Permission, SYSTEM_ROLE_ORDER, SystemRole, roleLabel } from "@/entities/session";
 import { fetchUsers } from "@/entities/user";
-import { CreateRoleModal, SENSITIVE_PERMISSIONS, orderedPermissions, permissionLabel } from "@/features/manage-roles";
+import { RoleFormModal, SENSITIVE_PERMISSIONS, orderedPermissions, permissionLabel, summarizeRole } from "@/features/manage-roles";
 import { toAppError } from "@/shared/api";
 import { useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, Button, Icon, IconAction, KpiRing, UserPhoto } from "@/shared/ui";
+import { Alert, Badge, Button, ConfirmDialog, Icon, IconAction, KpiRing, UserPhoto } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-const ROLE_META = {
-  [SystemRole.ADMIN]: { icon: "shield", desc: "Gère les comptes, les rôles et la supervision. Non modifiable." },
-  [SystemRole.PRACTITIONER]: { icon: "tooth", desc: "Dépose, relit et clôture ses analyses, génère les comptes rendus." },
-  [SystemRole.VIEWER]: { icon: "eye", desc: "Consulte les analyses et la performance du modèle, en lecture seule." },
+const ROLE_ICONS = {
+  [SystemRole.ADMIN]: "shield",
+  [SystemRole.PRACTITIONER]: "tooth",
+  [SystemRole.VIEWER]: "eye",
 };
 
 const loadAll = () => Promise.all([fetchRoles(), fetchPermissions(), fetchUsers().catch(() => [])]);
 
-/** Rôles et permissions : indicateurs, cartes des rôles, matrice, création. */
+/**
+ * Rôles et permissions : indicateurs, cartes des rôles (description, résumé en
+ * clair, modifier / dupliquer / supprimer), matrice. Les rôles système sont
+ * verrouillés — le serveur le garantit, l'écran le signale.
+ */
 export function AdminRolesPage() {
   const { data, error, reload } = useAsyncResource(loadAll);
   const [roles, setRoles] = useState([]);
@@ -25,7 +29,8 @@ export function AdminRolesPage() {
   const [users, setUsers] = useState([]);
   const [draft, setDraft] = useState({}); // id de rôle personnalisé → permissions modifiées
   const [feedback, setFeedback] = useState(null);
-  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ open: false, role: null }); // création (role null) ou modification
+  const [toDelete, setToDelete] = useState(null);
 
   useEffect(() => {
     if (!data) return;
@@ -67,10 +72,22 @@ export function AdminRolesPage() {
   const remove = async (role) => {
     try {
       await deleteRole(role.id);
-      setRoles((list) => list.filter((r) => r.id !== role.id));
-      setFeedback({ tone: "success", title: "Rôle supprimé", text: `Le rôle « ${role.name} » a été supprimé.` });
     } catch (cause) {
-      setFeedback({ tone: "danger", title: "Suppression refusée", text: toAppError(cause).message });
+      throw toAppError(cause);
+    }
+    setRoles((list) => list.filter((r) => r.id !== role.id));
+    setToDelete(null);
+    setFeedback({ tone: "success", title: "Rôle supprimé", text: `Le rôle « ${role.name} » a été supprimé. L’action est inscrite au journal d’audit.` });
+  };
+
+  const duplicate = async (role) => {
+    try {
+      const copy = await duplicateRole(role.id);
+      setRoles((list) => [...list, copy]);
+      setForm({ open: true, role: copy });
+      setFeedback({ tone: "success", title: "Rôle dupliqué", text: `« ${copy.name} » reprend les permissions de « ${roleLabel(role.name)} ». Renommez-le et ajustez-le.` });
+    } catch (cause) {
+      setFeedback({ tone: "danger", title: "Duplication refusée", text: toAppError(cause).message });
     }
   };
 
@@ -82,25 +99,48 @@ export function AdminRolesPage() {
       permission={Permission.ROLE_MANAGE}
       className="v-admin-roles"
       overlay={
-        <CreateRoleModal
-          open={creating}
-          catalog={catalog}
-          onClose={() => setCreating(false)}
-          onCreated={(role) => {
-            setRoles((list) => [...list, role]);
-            setCreating(false);
-            setFeedback({ tone: "success", title: "Rôle créé", text: `Le rôle « ${role.name} » est disponible lors de la création d’un compte.` });
-          }}
-        />
+        <>
+          <RoleFormModal
+            open={form.open}
+            role={form.role}
+            catalog={catalog}
+            onClose={() => setForm({ open: false, role: null })}
+            onSaved={(role) => {
+              const existed = roles.some((r) => r.id === role.id);
+              setRoles((list) => (existed ? list.map((r) => (r.id === role.id ? role : r)) : [...list, role]));
+              setDraft((d) => {
+                const next = { ...d };
+                delete next[role.id];
+                return next;
+              });
+              setForm({ open: false, role: null });
+              setFeedback(
+                existed
+                  ? { tone: "success", title: "Rôle enregistré", text: `« ${role.name} » a été mis à jour. Les comptes qui le portent ont leurs nouveaux droits immédiatement.` }
+                  : { tone: "success", title: "Rôle créé", text: `Le rôle « ${role.name} » est disponible lors de la création d’un compte.` },
+              );
+            }}
+          />
+          <ConfirmDialog
+            open={Boolean(toDelete)}
+            title={`Supprimer le rôle « ${toDelete?.name ?? ""} » ?`}
+            confirmLabel="Supprimer le rôle"
+            tone="danger"
+            onConfirm={() => remove(toDelete)}
+            onClose={() => setToDelete(null)}
+          >
+            <p style={{ margin: 0 }}>La suppression est définitive. Elle n’est possible que si aucun compte ne porte ce rôle.</p>
+          </ConfirmDialog>
+        </>
       }
     >
       <div className="dash-head">
         <div className="dash-hello">
           <h2>Rôles et permissions</h2>
-          <p>Un rôle regroupe des permissions. Les trois rôles système ne sont pas modifiables.</p>
+          <p>Un rôle regroupe des permissions. Les trois rôles système sont verrouillés : dupliquez-en un pour créer une variante.</p>
         </div>
         <div className="dash-tools">
-          <Button onClick={() => setCreating(true)} disabled={!catalog.length}>
+          <Button onClick={() => setForm({ open: true, role: null })} disabled={!catalog.length}>
             <Icon name="plus" />
             Créer un rôle personnalisé
           </Button>
@@ -154,27 +194,29 @@ export function AdminRolesPage() {
         <div className="role-grid">
           {ordered.map((r, k) => {
             const n = permsOf(r).filter((p) => perms.includes(p)).length;
-            const meta = ROLE_META[r.name] ?? { icon: "sparkle", desc: "Rôle personnalisé." };
+            const icon = (r.isSystem && ROLE_ICONS[r.name]) || "sparkle";
+            const summary = summarizeRole(r.permissions);
             const members = users.filter((u) => u.roleId === r.id).slice(0, 4);
             return (
               <article key={r.id} className={`dcard role-tile${r.isSystem ? "" : " custom"}`} aria-labelledby={`rt-${k}`}>
                 <div className="role-tile-h">
                   <span className="role-ic" aria-hidden="true">
-                    <Icon name={meta.icon} />
+                    <Icon name={icon} />
                   </span>
                   <div className="role-tile-t">
                     <h3 id={`rt-${k}`}>{roleLabel(r.name)}</h3>
                     {r.isSystem ? (
-                      <Badge>
+                      <Badge title="Rôle système : ni modifiable ni supprimable">
                         <Icon name="lock" />
-                        Système
+                        Système, verrouillé
                       </Badge>
                     ) : (
                       <Badge tone="primary">Personnalisé</Badge>
                     )}
                   </div>
                 </div>
-                <p className="role-desc">{meta.desc}</p>
+                <p className="role-desc">{r.description || (r.isSystem ? "" : "Rôle personnalisé.")}</p>
+                <p className="role-summary">{summary.can}</p>
                 <div className="role-perms">
                   <div className="prog-top">
                     <span className="prog-name">Permissions accordées</span>
@@ -199,13 +241,22 @@ export function AdminRolesPage() {
                     ) : null}
                     <span>{r.userCount ? `${r.userCount} compte${r.userCount > 1 ? "s" : ""}` : "Aucun compte"}</span>
                   </span>
-                  {r.isSystem ? (
-                    <a href="#h-matrix" className="role-link">
-                      Voir<span className="sr-only"> les permissions du rôle {roleLabel(r.name)}</span>
-                    </a>
-                  ) : (
-                    <IconAction icon="trash" danger label={`Supprimer le rôle ${r.name}`} title={r.userCount ? "Un rôle porté par des comptes ne peut pas être supprimé" : "Supprimer le rôle"} disabled={r.userCount > 0} onClick={() => remove(r)} />
-                  )}
+                  <span className="row-actions">
+                    {r.isSystem ? null : (
+                      <IconAction icon="edit" label={`Modifier le rôle ${r.name}`} title="Modifier le nom, la description et les permissions" onClick={() => setForm({ open: true, role: r })} />
+                    )}
+                    <IconAction icon="copy" label={`Dupliquer le rôle ${roleLabel(r.name)}`} title="Dupliquer : un rôle personnalisé avec les mêmes permissions" onClick={() => duplicate(r)} />
+                    {r.isSystem ? null : (
+                      <IconAction
+                        icon="trash"
+                        danger
+                        label={`Supprimer le rôle ${r.name}`}
+                        title={r.userCount ? "Un rôle porté par des comptes ne peut pas être supprimé" : "Supprimer le rôle"}
+                        disabled={r.userCount > 0}
+                        onClick={() => setToDelete(r)}
+                      />
+                    )}
+                  </span>
                 </div>
               </article>
             );

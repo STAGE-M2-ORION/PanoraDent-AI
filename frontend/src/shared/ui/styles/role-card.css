@@ -9,7 +9,8 @@
 .role-ic svg { width: 22px; height: 22px; }
 .role-tile-t { display: grid; gap: 4px; justify-items: start; min-width: 0; }
 .role-tile-t h3 { font-family: var(--font-display); font-size: 1.125rem; line-height: 1.2; }
-.role-desc { font-size: 13.5px; color: var(--color-muted); line-height: 1.5; min-height: 4.5em; }
+.role-desc { font-size: 13.5px; color: var(--color-muted); line-height: 1.5; min-height: 3em; margin: 0; }
+.role-summary { font-size: 13.5px; line-height: 1.5; margin: 0; }
 .role-perms .prog-top { margin-bottom: 8px; }
 .role-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); font-size: 13px; color: var(--color-muted); }
 .role-who { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }

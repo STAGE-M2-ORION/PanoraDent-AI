@@ -1,6 +1,7 @@
 export {
   createRole,
   deleteRole,
+  duplicateRole,
   fetchPermissions,
   fetchRoles,
   normalizeRole,
