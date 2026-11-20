@@ -233,12 +233,15 @@ export function AdminComptesPage() {
                   <td className="td-actions">
                     <div className="row-actions">
                       <IconAction icon="edit" label={`Modifier ${name} ou changer son rôle`} title="Modifier le compte ou changer de rôle" onClick={() => setModal((m) => ({ ...m, edit: u }))} />
-                      <IconAction
-                        icon={u.isActive ? "lock" : "unlock"}
-                        label={`${u.isActive ? "Désactiver" : "Réactiver"} ${name}`}
-                        title={u.isActive ? "Désactiver le compte" : "Réactiver le compte"}
-                        onClick={() => toggle(u)}
-                      />
+                      {/* Pas de désactivation de son propre compte (refusée aussi par le serveur). */}
+                      {u.id === me?.id ? null : (
+                        <IconAction
+                          icon={u.isActive ? "lock" : "unlock"}
+                          label={`${u.isActive ? "Désactiver" : "Réactiver"} ${name}`}
+                          title={u.isActive ? "Désactiver le compte" : "Réactiver le compte"}
+                          onClick={() => toggle(u)}
+                        />
+                      )}
                     </div>
                   </td>
                 </tr>

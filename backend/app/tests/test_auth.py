@@ -418,11 +418,11 @@ def test_production_exige_secret_et_client_google():
              google_client_id="a", google_client_secret="b")
 
 
-def test_pas_de_suppression_ni_de_retrait_du_dernier_admin(admin, db):
+def test_pas_de_suppression_ni_de_retrait_de_son_propre_acces(admin, db):
     uid = _user(db, ADMIN_EMAIL).id
     roles = {r["libelle"]: r["id"] for r in admin.get(f"{BASE}/roles").json()}
     r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
-    assert r.status_code == 400 and r.json()["code"] == "dernier_administrateur"
+    assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
     r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"role_id": roles[PRACTITIONER_ROLE]})
     assert r.status_code == 400
     assert admin.delete(f"{BASE}/utilisateurs/{uid}").status_code == 405
@@ -547,3 +547,14 @@ def test_photo_refuse_les_fichiers_qui_ne_sont_pas_des_images(client, stockage):
     r = client.put(f"{BASE}/moi/photo", files={"fichier": ("gros.png", b"0" * (5 * 1024 * 1024 + 1), "image/png")})
     assert r.status_code == 413
     assert stockage == {}
+
+
+def test_admin_ne_se_desactive_pas_meme_avec_un_autre_admin(admin, creer_compte, db):
+    creer_compte("admin2@cabinet.example.org", "Administrateur")
+    uid = _user(db, ADMIN_EMAIL).id
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
+    assert _user(db, ADMIN_EMAIL).statut == StatutUtilisateur.actif
+    # Le dernier administrateur reste protégé quand un AUTRE tente de le retirer.
+    autre = _user(db, "admin2@cabinet.example.org").id
+    assert admin.patch(f"{BASE}/utilisateurs/{autre}", json={"statut": "desactive"}).status_code == 200

@@ -68,7 +68,7 @@ def modifier(
     auteur: Utilisateur = Depends(exiger(USER_MANAGE)),
     db: Session = Depends(get_db),
 ):
-    utilisateur = auth_service.modifier_utilisateur(db, _ou_404(db, utilisateur_id), body)
+    utilisateur = auth_service.modifier_utilisateur(db, _ou_404(db, utilisateur_id), body, auteur)
     champs = ", ".join(sorted(body.model_dump(exclude_none=True)))
     journal.inscrire(
         db, "modification_compte", journal.SUCCES, request=request, auteur_id=auteur.id,

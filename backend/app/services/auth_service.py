@@ -225,8 +225,16 @@ def creer_utilisateur(db: Session, data: UtilisateurCreation) -> Utilisateur:
     return utilisateur
 
 
-def modifier_utilisateur(db: Session, utilisateur: Utilisateur, data: UtilisateurModification) -> Utilisateur:
+def modifier_utilisateur(
+    db: Session, utilisateur: Utilisateur, data: UtilisateurModification, auteur: Utilisateur | None = None
+) -> Utilisateur:
     nouveau_role = _role(db, data.role_id) if data.role_id is not None else None
+    if auteur is not None and auteur.id == utilisateur.id:
+        # On ne se retire pas soi-même l'accès : un autre administrateur doit le faire.
+        if data.statut == StatutUtilisateur.desactive:
+            raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas désactiver votre propre compte.")
+        if nouveau_role is not None and nouveau_role.id != utilisateur.role_id:
+            raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas changer votre propre rôle.")
     retire_admin = (
         data.statut == StatutUtilisateur.desactive
         or (nouveau_role is not None and not _est_role_admin(nouveau_role))
