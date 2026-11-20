@@ -202,3 +202,21 @@ def test_le_dernier_administrateur_ne_peut_pas_etre_retire(admin, nouveau_client
     assert r.status_code == 400 and r.json()["code"] == "dernier_administrateur"
     r = second.patch(f"{BASE}/utilisateurs/{premier.id}", json={"actif": True})
     assert r.status_code == 200  # la réactivation, elle, ne demande pas de motif
+
+
+def test_secretariat_ne_peut_ni_desactiver_ni_retrograder_le_dernier_administrateur(
+    admin, nouveau_client, compte_mdp, db
+):
+    """Un rôle qui gère les comptes sans gérer les rôles n'est pas
+    administrateur : il ne peut pas retirer l'accès du seul administrateur."""
+    admin.post(f"{BASE}/roles", json={"libelle": "Secrétariat", "permissions": ["user:manage"]})
+    compte_mdp("secretariat@cabinet.example.org", role="Secrétariat")
+    c = nouveau_client()
+    connexion_mdp(c, "secretariat@cabinet.example.org")
+    seul = _user(db, ADMIN_EMAIL)
+
+    r = c.patch(f"{BASE}/utilisateurs/{seul.id}", json={"actif": False, "motif": "Essai"})
+    assert r.status_code == 400 and r.json()["code"] == "dernier_administrateur"
+    r = c.patch(f"{BASE}/utilisateurs/{seul.id}", json={"role_id": _roles(admin)["Lecteur"], "motif": "Essai"})
+    assert r.status_code == 400 and r.json()["code"] == "dernier_administrateur"
+    assert _user(db, ADMIN_EMAIL).actif is True and _user(db, ADMIN_EMAIL).role.libelle == "Administrateur"
