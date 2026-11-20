@@ -1,0 +1,39 @@
+# PanoraDent AI — terminaison HTTPS au cabinet (docker-compose.prod.yml).
+#
+# Le serveur vit sur le réseau local, sans nom de domaine public : Caddy émet
+# ses certificats avec sa propre autorité (« tls internal »). Son certificat
+# racine s'installe UNE FOIS sur chaque poste du cabinet (voir README, « HTTPS
+# au cabinet ») ; les navigateurs font alors confiance au site.
+#
+# Caddy redirige seul tout HTTP vers HTTPS (308) pour l'adresse ci-dessous.
+
+{
+	# Aucune demande à Let's Encrypt : rien ne sort du cabinet.
+	local_certs
+}
+
+{$PANORADENT_HOTE:panoradent.local} {
+	tls internal
+	encode zstd gzip
+
+	header {
+		# HTTPS uniquement pendant un an, une fois le site visité.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Scripts : uniquement ceux du site (l'export Next n'en met aucun en
+		# ligne). Styles en ligne : attributs `style` de React. Images : aperçus
+		# d'import (data:, blob:) et photos de profil Google.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.googleusercontent.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# Le nginx du frontend sert l'interface et relaie /api et /storage.
+	reverse_proxy frontend:80 {
+		# Adresse réelle du poste, pour le journal de connexion.
+		header_up X-Real-IP {remote_host}
+	}
+}
