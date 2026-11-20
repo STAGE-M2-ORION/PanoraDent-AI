@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
 from .auth_deps import publique
 from .config import settings
-from .routers import analyses, auth, fake_idp, health, model, photos, roles, users
+from .routers import analyses, auth, boite_courriels, fake_idp, health, model, photos, roles, users
 
 API_V1 = "/api/v1"
 
@@ -33,6 +33,11 @@ if settings.fournisseur_factice:
     # Garde-fou redondant avec la validation de `config.py` : jamais hors test.
     assert settings.app_env.lower() == "test"
     app.include_router(fake_idp.router, prefix=API_V1)
+
+if settings.courriel_mode.lower() == "memoire":
+    # Même garde-fou : `config.py` refuse ce mode hors APP_ENV=test.
+    assert settings.app_env.lower() == "test"
+    app.include_router(boite_courriels.router, prefix=API_V1)
 
 
 @app.get("/", dependencies=[Depends(publique)])

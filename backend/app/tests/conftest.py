@@ -34,9 +34,18 @@ from app.database import Base, get_db
 from app.identity import fournisseur
 from app.main import app
 from app.permissions import ADMIN_ROLE, PRACTITIONER_ROLE, VIEWER_ROLE
+from app.services import courriel
 
 ADMIN_EMAIL = "admin@cabinet.example.org"
 BASE = "/api/v1"
+
+
+@pytest.fixture(autouse=True)
+def boite():
+    """Boîte de réception (COURRIEL_MODE=memoire), vidée avant chaque test."""
+    courriel.BOITE.clear()
+    yield courriel.BOITE
+    courriel.BOITE.clear()
 
 
 @pytest.fixture()
