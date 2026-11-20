@@ -1,12 +1,25 @@
-export { createAnalysis, deleteAnalysis, fetchAnalyses, fetchAnalysis, fetchAnalysisImageUrl, previewAnalysis } from "./api/analysis-api";
+export {
+  createAnalysis,
+  deleteAnalysis,
+  fetchAnalyses,
+  fetchAnalysis,
+  fetchAnalysisImageUrl,
+  fetchAnalysisStatus,
+  launchAnalysis,
+  previewAnalysis,
+} from "./api/analysis-api";
 export {
   ANALYSIS_STATUS,
   AnalysisStatus,
   InferenceMode,
+  Processing,
   anonymousId,
+  displayStatus,
   formatNumber as formatAnalysisNumber,
   isMockAnalysis,
   normalizeAnalysis,
   normalizeAnalysisSummary,
+  normalizeProcessing,
   withNumbers,
 } from "./model/analysis";
+export { POLL_MS, useAnalysisProgress } from "./model/use-analysis-progress";

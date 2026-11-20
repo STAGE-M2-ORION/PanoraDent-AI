@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ANALYSIS_STATUS, AnalysisStatus, deleteAnalysis, fetchAnalyses, formatAnalysisNumber } from "@/entities/analysis";
+import { ANALYSIS_STATUS, AnalysisStatus, POLL_MS, deleteAnalysis, displayStatus, fetchAnalyses, formatAnalysisNumber, launchAnalysis } from "@/entities/analysis";
 import { ANOMALY_LABELS, DETECTION_TYPES, TypeChip } from "@/entities/detection";
 import { Permission, useCurrentUser } from "@/entities/session";
 import { toAppError } from "@/shared/api";
@@ -11,7 +11,8 @@ import { AppShell } from "@/widgets/app-shell";
 
 const PAGE_SIZE = 10;
 const PERIOD = { today: "Aujourd’hui", 7: "7 jours", 30: "30 jours", custom: "Personnalisée" };
-const STATUS_FILTER = { pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
+const STATUS_FILTER = { queued: "En file d’attente", running: "Analyse en cours", pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
+const isProcessing = (r) => r.status === AnalysisStatus.QUEUED || r.status === AnalysisStatus.RUNNING;
 const EMPTY_FILTERS = { q: "", owner: "all", period: "all", status: "all", types: [], from: "", to: "" };
 
 /** Âge en jours d'une date ISO du backend (UTC). */
@@ -70,6 +71,21 @@ export function HistoriquePage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   useEffect(() => setRows(data ?? []), [data]);
+  // Tant qu'une analyse est en file ou en cours, la liste est relue en silence.
+  const processingCount = rows.filter(isProcessing).length;
+  useEffect(() => {
+    if (!processingCount) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchAnalyses()
+        .then((next) => !cancelled && setRows(next))
+        .catch(() => {});
+    }, POLL_MS * 2);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [rows, processingCount]);
   // Recherche transmise par le tableau de bord (`?q=7F3A`).
   useEffect(() => {
     if (router.isReady && typeof router.query.q === "string") setF((v) => ({ ...v, q: router.query.q }));
@@ -87,6 +103,16 @@ export function HistoriquePage() {
   if (f.period !== "all") chips.push(["period", `Période : ${PERIOD[f.period]}`, { period: "all", from: "", to: "" }]);
   if (f.status !== "all") chips.push(["status", `Statut : ${STATUS_FILTER[f.status]}`, { status: "all" }]);
   f.types.forEach((t) => chips.push([`type:${t}`, `Anomalie : ${DETECTION_TYPES[t].label}`, { types: f.types.filter((x) => x !== t) }]));
+
+  const relaunch = async (r) => {
+    try {
+      const next = await launchAnalysis(r.id);
+      setRows((list) => list.map((x) => (x.id === r.id ? { ...x, processing: next.processing, status: displayStatus(next.processing, x.hasReport) } : x)));
+      toast(`Analyse ${r.ref} remise en file d’attente.`);
+    } catch (cause) {
+      toast(toAppError(cause).message);
+    }
+  };
 
   const confirmDelete = async () => {
     const target = pendingDelete;
@@ -179,6 +205,8 @@ export function HistoriquePage() {
               const S = ANALYSIS_STATUS[r.status];
               const n = formatAnalysisNumber(r.number);
               const closed = r.status === AnalysisStatus.CLOSED;
+              const failed = r.status === AnalysisStatus.FAILED;
+              const notReady = failed || isProcessing(r);
               return (
                 <tr key={r.id}>
                   <td data-label="Date" className="nowrap">
@@ -198,7 +226,7 @@ export function HistoriquePage() {
                   </td>
                   <td data-label="Détections">
                     <span className="dets">
-                      <span className="n mono">{r.detectionCount}</span>
+                      <span className="n mono">{notReady ? "—" : r.detectionCount}</span>
                       <span className="sw">
                         {r.labels.map((t) => (
                           <TypeChip key={t} label={t} />
@@ -215,6 +243,9 @@ export function HistoriquePage() {
                         {readOnly ? "Consulter" : "Ouvrir"}
                         <span className="sr-only"> l’analyse n° {n}</span>
                       </Button>
+                      {failed && canCreate ? (
+                        <IconAction icon="refresh" label={`Relancer l’analyse n° ${n}`} title="Relancer l’analyse" onClick={() => relaunch(r)} />
+                      ) : null}
                       {closed ? (
                         <IconAction icon="file" href={`/compte-rendu?id=${r.id}`} label={`Compte rendu de l’analyse n° ${n}`} title="Compte rendu" />
                       ) : (
@@ -322,6 +353,8 @@ export function HistoriquePage() {
             </label>
             <select className="select" id="status" value={f.status} onChange={(e) => set({ status: e.target.value })}>
               <option value="all">Tous les statuts</option>
+              <option value="queued">En file d’attente</option>
+              <option value="running">Analyse en cours</option>
               <option value="pending">À relire</option>
               <option value="inprogress">Relecture en cours</option>
               <option value="closed">Clôturée</option>

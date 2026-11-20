@@ -59,8 +59,13 @@ export function detectionLabelText(label) {
   return detectionType(label).label;
 }
 
-/** DTO backend (snake_case, `w`/`h`, confiance 0-1) → modèle applicatif. */
-export function normalizeDetection(dto) {
+/**
+ * DTO backend → modèle applicatif. Le serveur stocke les boîtes en FRACTIONS
+ * de l'image (0 à 1) ; on les ramène ici aux pixels de l'image (`imageWidth`
+ * × `imageHeight`), repère de la visionneuse : zoom et redimensionnement
+ * n'ont alors aucun effet sur l'alignement.
+ */
+export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}) {
   const fromUser = dto.source === "human" || dto.source === "user";
   return {
     id: dto.id,
@@ -68,10 +73,11 @@ export function normalizeDetection(dto) {
     fdi: dto.fdi ?? null,
     // Confiance en pourcentage entier ; null pour un ajout du praticien.
     confidence: fromUser ? null : Math.round((dto.confidence ?? 0) * 100),
-    x: dto.x,
-    y: dto.y,
-    width: dto.w,
-    height: dto.h,
+    x: dto.x * imageWidth,
+    y: dto.y * imageHeight,
+    width: dto.w * imageWidth,
+    height: dto.h * imageHeight,
+    modelVersion: dto.model_version ?? "",
     source: fromUser ? "user" : "ai",
     status: fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
   };

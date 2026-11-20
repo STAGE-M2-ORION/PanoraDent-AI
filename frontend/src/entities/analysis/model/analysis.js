@@ -10,6 +10,8 @@ export const InferenceMode = {
  * est déduit (rapport généré → clôturée, détections toutes relues → en cours…).
  */
 export const AnalysisStatus = {
+  QUEUED: "queued",
+  RUNNING: "running",
   PENDING: "pending",
   IN_PROGRESS: "inprogress",
   CLOSED: "closed",
@@ -17,11 +19,41 @@ export const AnalysisStatus = {
 };
 
 export const ANALYSIS_STATUS = {
+  [AnalysisStatus.QUEUED]: { label: "En file d’attente", tone: "info" },
+  [AnalysisStatus.RUNNING]: { label: "Analyse en cours", tone: "info" },
   [AnalysisStatus.PENDING]: { label: "À relire", tone: "warning" },
   [AnalysisStatus.IN_PROGRESS]: { label: "Relecture en cours", tone: "info" },
   [AnalysisStatus.CLOSED]: { label: "Clôturée", tone: "success" },
   [AnalysisStatus.FAILED]: { label: "Échec de l'analyse", tone: "danger" },
 };
+
+/** Statut de la file de traitement (serveur). */
+export const Processing = {
+  QUEUED: "en_file",
+  RUNNING: "en_cours",
+  DONE: "terminee",
+  FAILED: "echouee",
+};
+
+/** Statut affiché : celui de la file tant que l'analyse n'est pas terminée, puis celui de la relecture. */
+export function displayStatus(processing, hasReport) {
+  if (processing === Processing.QUEUED) return AnalysisStatus.QUEUED;
+  if (processing === Processing.RUNNING) return AnalysisStatus.RUNNING;
+  if (processing === Processing.FAILED) return AnalysisStatus.FAILED;
+  return hasReport ? AnalysisStatus.CLOSED : AnalysisStatus.PENDING;
+}
+
+/** Statut de la file → modèle (`GET /analyses/{id}/statut`). */
+export function normalizeProcessing(dto) {
+  return {
+    id: dto.id,
+    processing: dto.statut,
+    error: dto.erreur ?? "",
+    attempts: dto.tentatives ?? 0,
+    durationMs: dto.duree_ms ?? null,
+    position: dto.position ?? null,
+  };
+}
 
 /**
  * Identifiant anonyme court affiché à l'écran (« 7F3A ») : les 4 premiers
@@ -38,7 +70,8 @@ export function formatNumber(n) {
 
 /** DTO `AnalysisOut` → modèle applicatif. */
 export function normalizeAnalysis(dto) {
-  const detections = (dto.detections ?? []).map(normalizeDetection);
+  const dims = { imageWidth: dto.width, imageHeight: dto.height };
+  const detections = (dto.detections ?? []).map((d) => normalizeDetection(d, dims));
   return {
     id: dto.id,
     // Référence anonyme attribuée à l'import (« PDX-2026-0042 »).
@@ -56,7 +89,11 @@ export function normalizeAnalysis(dto) {
     width: dto.width,
     height: dto.height,
     detections,
-    status: dto.report_key ? AnalysisStatus.CLOSED : AnalysisStatus.PENDING,
+    processing: dto.statut ?? Processing.DONE,
+    error: dto.erreur ?? "",
+    attempts: dto.tentatives ?? 0,
+    durationMs: dto.duree_ms ?? null,
+    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.report_key)),
   };
 }
 
@@ -74,7 +111,8 @@ export function normalizeAnalysisSummary(dto) {
     detectionCount: dto.n_detections,
     labels: dto.labels ?? [],
     hasReport: Boolean(dto.has_report),
-    status: dto.has_report ? AnalysisStatus.CLOSED : AnalysisStatus.PENDING,
+    processing: dto.statut ?? Processing.DONE,
+    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.has_report)),
   };
 }
 

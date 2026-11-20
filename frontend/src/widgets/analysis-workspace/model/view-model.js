@@ -1,4 +1,4 @@
-import { formatAnalysisNumber } from "@/entities/analysis";
+import { Processing, formatAnalysisNumber } from "@/entities/analysis";
 import { DetectionLabel, PANO_H, PANO_TEETH, PANO_W, panoBoxFor } from "@/entities/detection";
 import { demoAnalysis, demoDetections } from "@/shared/demo";
 import { formatDate, formatTime } from "@/shared/lib";
@@ -29,6 +29,9 @@ export function demoViewModel() {
     time: "09:14",
     modelVersion: demoAnalysis.model,
     modelShort: demoAnalysis.modelShort,
+    processing: Processing.DONE,
+    error: "",
+    durationMs: null,
     width: PANO_W,
     height: PANO_H,
     imageUrl: null,
@@ -56,6 +59,9 @@ export function realViewModel(analysis, { imageUrl, number }) {
     time: formatTime(analysis.createdAt),
     modelVersion: analysis.modelVersion,
     mockInference: analysis.inferenceMode === "mock",
+    processing: analysis.processing,
+    error: analysis.error,
+    durationMs: analysis.durationMs,
     width: analysis.width,
     height: analysis.height,
     imageUrl,

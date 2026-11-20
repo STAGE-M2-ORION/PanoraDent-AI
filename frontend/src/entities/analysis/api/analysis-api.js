@@ -1,6 +1,6 @@
 import { httpClient } from "@/shared/api";
 
-import { normalizeAnalysis, normalizeAnalysisSummary, withNumbers } from "../model/analysis";
+import { normalizeAnalysis, normalizeAnalysisSummary, normalizeProcessing, withNumbers } from "../model/analysis";
 
 const toZone = (z) => ({ x: z.x, y: z.y, w: z.w, h: z.h });
 
@@ -54,6 +54,21 @@ export async function fetchAnalyses({ mine = false } = {}) {
 export async function fetchAnalysis(analysisId) {
   const { data } = await httpClient.get(`/analyses/${analysisId}`);
   return normalizeAnalysis(data);
+}
+
+/** `GET /api/v1/analyses/{id}/statut` — suivi de la file (relu toutes les 2 s). */
+export async function fetchAnalysisStatus(analysisId) {
+  const { data } = await httpClient.get(`/analyses/${analysisId}/statut`);
+  return normalizeProcessing(data);
+}
+
+/**
+ * `POST /api/v1/analyses/{id}/lancer` — relance après un échec. Déjà en file
+ * ou en cours : rien ne change (jamais deux tâches) ; terminée : 409.
+ */
+export async function launchAnalysis(analysisId) {
+  const { data } = await httpClient.post(`/analyses/${analysisId}/lancer`);
+  return normalizeProcessing(data);
 }
 
 /** `GET /api/v1/analyses/{id}/image` — URL présignée (1 h) de la version d'affichage. */

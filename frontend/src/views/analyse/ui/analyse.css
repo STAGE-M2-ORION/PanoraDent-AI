@@ -239,4 +239,11 @@
     .stage { min-height: 200px; }
     .head-actions .btn { flex: 1; }
   }
+  /* Analyse pas encore terminée : suivi de la file à la place de l'espace de lecture. */
+  .processing-state { flex: 1; min-height: 420px; display: grid; place-items: center; color: var(--color-viewer-text); }
+  .processing-state svg { width: 32px; height: 32px; }
+  .progress.indeterminate { position: relative; display: block; height: 6px; border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .progress.indeterminate > span { position: absolute; inset: 0 auto 0 0; width: 35%; background: #22D3EE; animation: pd-indet 1.4s ease-in-out infinite; }
+  @keyframes pd-indet { 0% { left: -35%; } 100% { left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .progress.indeterminate > span { animation: none; width: 100%; opacity: .5; } }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createAnalysis, isMockAnalysis, previewAnalysis } from "@/entities/analysis";
+import { Processing, createAnalysis, fetchAnalysis, isMockAnalysis, previewAnalysis, useAnalysisProgress } from "@/entities/analysis";
 import { isAnomaly } from "@/entities/detection";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
@@ -14,18 +14,18 @@ const ACCEPT = ".dcm,.jpg,.jpeg,.png,image/jpeg,image/png,application/dicom";
 /** Une panoramique est nettement plus large que haute. */
 const MIN_PANO_RATIO = 1.6;
 const NOTE_MAX = 500;
-const ANALYSIS_STEPS = ["Prétraitement", "Numérotation des dents", "Détection des anomalies", "Préparation de la relecture"];
 
 /**
  * États de l'écran :
- * attente → verification → (refuse | pret) → import → analyse → (terminee | echec)
+ * attente → verification → (refuse | pret) → import → analyse → (terminee | echec-analyse)
+ *                                                   ↘ echec (import refusé)
  *
  * `verification` : le serveur contrôle et anonymise le fichier et renvoie un
  * aperçu, SANS rien stocker. `pret` : le praticien vérifie l'aperçu, ajoute
  * des masques, puis confirme ; c'est seulement là que l'image anonymisée est
  * stockée. Abandonner avant ne laisse aucune trace.
  */
-const STEP_OF = { attente: 1, verification: 1, refuse: 1, pret: 2, import: 3, analyse: 3, echec: 3, terminee: 4 };
+const STEP_OF = { attente: 1, verification: 1, refuse: 1, pret: 2, import: 3, analyse: 3, echec: 3, "echec-analyse": 3, terminee: 4 };
 
 const formatSize = (bytes) => `${(bytes / 1024 / 1024).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Mo`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -47,13 +47,34 @@ export function NouvelleAnalysePage() {
   const [meta, setMeta] = useState({ examDate: "", note: "" });
   const [over, setOver] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
-  const [analysisPct, setAnalysisPct] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [relaunching, setRelaunching] = useState(false);
   const inputRef = useRef(null);
-  const timerRef = useRef(null);
 
-  useEffect(() => () => clearInterval(timerRef.current), []);
+  // Suivi de la file : l'analyse est mise en file à la confirmation, le worker la traite.
+  const { progress, relaunch } = useAnalysisProgress(result?.id, {
+    initial: result ? { processing: result.processing, error: result.error, position: 0 } : null,
+    enabled: state === "analyse",
+  });
+
+  useEffect(() => {
+    if (state !== "analyse" || !progress || !result) return;
+    if (progress.processing === Processing.DONE) {
+      fetchAnalysis(result.id)
+        .then((full) => {
+          setResult(full);
+          setState("terminee");
+        })
+        .catch((cause) => {
+          setError({ title: "Analyse terminée, mais illisible", message: toAppError(cause).message });
+          setState("echec-analyse");
+        });
+    } else if (progress.processing === Processing.FAILED) {
+      setError({ title: "Échec de l’analyse", message: progress.error });
+      setState("echec-analyse");
+    }
+  }, [state, progress, result]);
 
   const reset = () => {
     setFile(null);
@@ -89,37 +110,34 @@ export function NouvelleAnalysePage() {
     if (!file) return;
     setError(null);
     setUploadPct(0);
-    setAnalysisPct(0);
     setState("import");
     try {
-      const analysis = await createAnalysis(file, {
-        masks,
-        examDate: meta.examDate,
-        note: meta.note,
-        onProgress: (pct) => {
-          setUploadPct(pct);
-          if (pct >= 100) {
-            // Le serveur ré-anonymise, stocke puis interroge le modèle : progression estimée.
-            setState("analyse");
-            clearInterval(timerRef.current);
-            timerRef.current = setInterval(() => setAnalysisPct((p) => Math.min(92, p + 2)), 400);
-          }
-        },
-      });
-      clearInterval(timerRef.current);
-      setAnalysisPct(100);
+      // Réponse immédiate : image stockée, analyse mise en file.
+      const analysis = await createAnalysis(file, { masks, examDate: meta.examDate, note: meta.note, onProgress: setUploadPct });
       setResult(analysis);
-      setState("terminee");
+      setState("analyse");
     } catch (cause) {
-      clearInterval(timerRef.current);
       setError({ title: "Échec de l’import", message: toAppError(cause).message });
       setState("echec");
     }
   };
 
+  const retry = async () => {
+    setRelaunching(true);
+    try {
+      await relaunch();
+      setError(null);
+      setState("analyse");
+    } catch (cause) {
+      setError({ title: "Relance impossible", message: toAppError(cause).message });
+    } finally {
+      setRelaunching(false);
+    }
+  };
+
   const is = (...states) => states.includes(state);
   const step = STEP_OF[state];
-  const currentAnalysisStep = Math.min(3, Math.floor(analysisPct / 25));
+  const queued = progress?.processing === Processing.QUEUED;
   const anomalies = result ? result.detections.filter((d) => isAnomaly(d.label)).length : 0;
   const teeth = result ? result.detections.length - anomalies : 0;
   const notPano = preview && preview.width / preview.height < MIN_PANO_RATIO;
@@ -262,25 +280,41 @@ export function NouvelleAnalysePage() {
           ) : null}
 
           {state === "analyse" ? (
-            <div className="card card-pad stack" aria-label="Analyse en cours">
-              <div className="file-line" style={{ alignItems: "baseline" }}>
-                <strong>Analyse en cours</strong>
-                <span className="big-pct">{analysisPct} %</span>
+            <div className="card card-pad stack" aria-label="Analyse en cours" data-etat={queued ? "en-file" : "en-cours"}>
+              <Alert tone="success" icon="check" title="Image anonymisée enregistrée">
+                Référence anonyme : <span className="mono">{result?.ref}</span>
+              </Alert>
+              <div className="file-line" style={{ alignItems: "baseline" }} role="status" aria-live="polite">
+                <strong>
+                  {queued
+                    ? progress?.position
+                      ? `En file d’attente : ${progress.position} analyse${progress.position > 1 ? "s" : ""} avant la vôtre`
+                      : "En file d’attente : la vôtre est la prochaine"
+                    : "Analyse par le modèle en cours…"}
+                </strong>
               </div>
-              <Progress label="Progression de l’analyse" value={analysisPct} />
-              <ol className="astep-list">
-                {ANALYSIS_STEPS.map((label, i) => {
-                  const s = analysisPct >= 100 || i < currentAnalysisStep ? "done" : i === currentAnalysisStep ? "now" : "";
-                  return (
-                    <li key={label} data-s={s} aria-current={s === "now" ? "step" : undefined}>
-                      <span className="dot" />
-                      {label}
-                    </li>
-                  );
-                })}
-              </ol>
+              <div className="progress indeterminate" role="progressbar" aria-label="Analyse en cours" aria-busy="true">
+                <span />
+              </div>
+              <p className="hint" style={{ margin: 0 }}>
+                Quelques secondes en général. Vous pouvez quitter cette page : l’analyse continue, et vous la retrouverez dans l’historique.
+              </p>
+            </div>
+          ) : null}
+
+          {state === "echec-analyse" ? (
+            <div className="stack" data-etat="echec-analyse">
+              <Alert tone="danger" icon="alert" role="alert" title={error?.title}>
+                {error?.message} L’image anonymisée est conservée sous la référence <span className="mono">{result?.ref}</span> : relancez sans réimporter.
+              </Alert>
               <div className="actions">
-                <span className="hint">Environ 20 secondes. Ne fermez pas la page.</span>
+                <Button onClick={retry} disabled={relaunching}>
+                  <Icon name="refresh" />
+                  {relaunching ? "Relance…" : "Relancer l’analyse"}
+                </Button>
+                <Button variant="secondary" href="/historique">
+                  Voir l’historique
+                </Button>
               </div>
             </div>
           ) : null}
@@ -321,7 +355,10 @@ export function NouvelleAnalysePage() {
                   Importer une autre radiographie
                 </Button>
               </div>
-              <p className="hint">Modèle utilisé : {result.modelVersion}</p>
+              <p className="hint">
+                Modèle utilisé : <span className="mono">{result.modelVersion}</span>
+                {result.durationMs != null ? ` · traitée en ${(result.durationMs / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s` : ""}
+              </p>
             </div>
           ) : null}
         </div>
