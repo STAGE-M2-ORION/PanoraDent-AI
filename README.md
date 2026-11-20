@@ -47,7 +47,7 @@ docker compose up --build   # ou : make up
 | Service | URL | Identifiants |
 |---|---|---|
 | Application web | http://localhost:3000 | — |
-| Connexion | http://localhost:3000/connexion | compte Google `ADMIN_EMAIL` du `.env` (voir [Authentification](#authentification-et-rôles)) |
+| Connexion | http://localhost:3000/connexion | `ADMIN_EMAIL` du `.env` : mot de passe choisi par le lien des journaux du backend, ou compte Google (voir [Authentification](#authentification-et-rôles)) |
 | Poste d'analyse | http://localhost:3000/analyse | session requise |
 | Administration | http://localhost:3000/admin/comptes | rôle avec `user:manage` / `role:manage` |
 | Design system | http://localhost:3000/design-system | — |
@@ -64,16 +64,19 @@ curl http://localhost:8000/api/v1/health
 En mode `mock`, le poste de lecture affiche « Mode démonstration du modèle » et la
 supervision marque l'inférence « Dégradé » : les détections affichées sont **factices**.
 
-**Premier essai** : renseigner `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` et `ADMIN_EMAIL`
-(votre adresse Google) dans `.env`, se connecter sur `/connexion` avec « Continuer avec Google »,
-puis ouvrir « Nouvelle analyse » dans la barre latérale (`/nouvelle-analyse`), importer
+**Premier essai** : renseigner `ADMIN_EMAIL` dans `.env` (et, pour Google,
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`), démarrer, puis ouvrir le lien de première
+connexion affiché par `docker compose logs backend | grep "première connexion" -A1` pour
+choisir le mot de passe administrateur — ou se connecter avec « Continuer avec Google ».
+Ensuite ouvrir « Nouvelle analyse » dans la barre latérale (`/nouvelle-analyse`), importer
 n'importe quel JPG/PNG (ou `.dcm`), « Ouvrir la relecture », puis « Générer le compte rendu »
 › « Télécharger le PDF ». Les objets produits sont visibles dans MinIO (`images/`,
 `reports/`). L'image et le PDF sont servis au navigateur par le proxy nginx
 (`/storage/`, voir [Limites connues](#limites-connues)).
 
-La session vit dans des cookies `httpOnly` posés au retour de Google : pour essayer
-l'API, ouvrir une session dans le navigateur, pas avec `curl`.
+La session vit dans des cookies `httpOnly; Secure` : pour essayer l'API, ouvrir une
+session dans le navigateur (ou `POST /api/v1/auth/connexion` puis renvoyer les
+cookies à la main : `curl` ne renvoie pas un cookie `Secure` en HTTP).
 
 Les migrations sont appliquées **automatiquement** au démarrage du backend
 (`alembic upgrade head` dans le `CMD`, cf. [backend/Dockerfile](backend/Dockerfile)).
@@ -169,13 +172,19 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `MODEL_IMAGE_SIZE` | `640` | Taille d'entrée du modèle — **doit être identique** au `--imgsz` de l'entraînement |
 | `MODEL_CONF_THRESHOLD` | `0.25` | Seuil de confiance en mode réel |
 | `ASSIGN_FDI` | `1` | Numérotation FDI déduite de la géométrie des boîtes |
-| `APP_ENV` | `development` | `production` : le backend **refuse de démarrer** si `JWT_SECRET` est la valeur par défaut ou fait moins de 32 caractères, ou sans client Google |
+| `APP_ENV` | `development` | `production` : le backend **refuse de démarrer** si `JWT_SECRET` est la valeur par défaut ou fait moins de 32 caractères, sans client Google, sans SMTP ou avec `BCRYPT_COUT` < 12 |
 | `JWT_SECRET` | `change-me-in-prod` | **Obligatoire hors développement** : secret long et aléatoire (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | *(vide)* | Client OAuth de la console Google. **Obligatoires** en production ; le secret ne vit que côté serveur |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:3000/api/v1/auth/google/retour` | URI de retour, déclarée **exactement** dans la console Google |
 | `APP_URL` | `http://localhost:3000` | Destination après connexion (et `/connexion?erreur=…` en cas de refus) |
 | `GOOGLE_ALLOWED_DOMAIN` | *(vide)* | Restreint la connexion à un domaine Google Workspace |
-| `ADMIN_EMAIL` | *(vide)* | **Adresse Google** de l'administrateur initial, créé par le jeu de départ |
+| `ADMIN_EMAIL` | *(vide)* | Administrateur initial, créé par le jeu de départ avec les deux modes ; son lien de première connexion s'affiche dans `docker compose logs backend` (hors production) |
+| `BCRYPT_COUT` | `12` | Coût bcrypt des mots de passe (12 minimum en production ; 4 dans les tests) |
+| `COURRIEL_MODE` | `console` | `console` : e-mails affichés dans les journaux du backend ; `smtp` : envoyés (**obligatoire** en production) ; `memoire` : tests seulement |
+| `COURRIEL_EXPEDITEUR` | `PanoraDent AI <no-reply@panoradent.local>` | Expéditeur des e-mails |
+| `SMTP_HOTE` / `SMTP_PORT` | *(vide)* / `587` | Serveur d'envoi (obligatoire avec `COURRIEL_MODE=smtp`) |
+| `SMTP_UTILISATEUR` / `SMTP_MOT_DE_PASSE` | *(vide)* | Identifiants SMTP, côté serveur seulement |
+| `SMTP_STARTTLS` | `true` | STARTTLS ; `false` uniquement pour un relais local |
 | `IDENTITY_PROVIDER` | `google` | `fake` = fournisseur de remplacement des tests, **refusé hors** `APP_ENV=test` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` | `15` / `7` | Durée de vie des jetons |
 | `ALLOWED_ORIGINS` | `["http://localhost:3000"]` | Origines CORS, **au format JSON**. Sans effet derrière nginx (même origine) ; utile avec `next dev` |
@@ -243,55 +252,110 @@ Schémas : [`backend/app/schemas.py`](backend/app/schemas.py).
 Prototype de recherche : l'authentification protège l'accès aux analyses, elle ne
 fait **pas** de cette plateforme un dispositif médical certifié.
 
-**Google uniquement.** La connexion passe par un compte Google (OAuth 2.0 + OpenID
-Connect, code d'autorisation avec PKCE, mené côté serveur). La plateforme ne
-conserve **aucun mot de passe** : ni mot de passe provisoire, ni réinitialisation.
-**Pas d'inscription publique** : l'administrateur crée le compte avec l'adresse
-Google de l'intéressé ; une adresse inconnue est refusée et aucun compte n'est créé.
+**Deux modes de connexion.** Adresse e-mail + mot de passe, et compte Google
+(OAuth 2.0 + OpenID Connect, code d'autorisation avec PKCE, mené côté serveur).
+L'administrateur choisit, compte par compte, les modes autorisés : l'un, l'autre
+ou les deux (`modes_connexion`). **Pas d'inscription publique** : seul un
+administrateur crée des comptes. Le mot de passe sert aussi de filet de sécurité
+le jour où la liaison Internet du cabinet tombe : Google devient alors injoignable,
+pas le serveur local.
+
+**Cycle de vie d'un compte.**
+1. L'administrateur crée le compte (`POST /api/v1/utilisateurs`) : adresse, rôle,
+   modes. Il ne choisit **jamais** le mot de passe.
+2. L'intéressé reçoit un e-mail : un **lien de première connexion** (24 h, usage
+   unique) s'il a le mode mot de passe, sinon une invitation à « Continuer avec
+   Google ».
+3. Il choisit son mot de passe (`/premiere-connexion`), sa session s'ouvre, et on
+   lui propose de **rattacher son compte Google** (même adresse exigée).
+4. Mot de passe oublié : `/mot-de-passe-oublie` envoie un lien d'**une heure** ;
+   la réinitialisation ferme toutes les sessions ouvertes du compte.
 
 **Mise en place.**
-1. Console Google Cloud › API et services › Identifiants › « ID client OAuth »
-   (Application Web). URI de redirection autorisée, **exactement** :
-   `http://localhost:3000/api/v1/auth/google/retour` (développement) et celle du
-   cabinet. Écran de consentement : portées `openid`, `email`, `profile`.
-2. `.env` : `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (côté serveur seulement),
-   `GOOGLE_REDIRECT_URI`, `APP_URL`, et `ADMIN_EMAIL` = **votre adresse Google** :
-   sans elle, personne ne peut ouvrir la première session.
-3. `GOOGLE_ALLOWED_DOMAIN` (optionnel) restreint la connexion au domaine Google
-   Workspace du cabinet ; vide par défaut, pour ne pas exclure un praticien qui
-   utilise une adresse personnelle.
+1. **Console Google Cloud** (à faire une fois, par vous) :
+   - *API et services › Écran de consentement OAuth* : type « Externe » (ou
+     « Interne » si le cabinet a un Google Workspace), portées `openid`, `email`,
+     `profile`. En mode « Test », ajouter les adresses autorisées comme
+     *utilisateurs de test*.
+   - *API et services › Identifiants › Créer › ID client OAuth* : type
+     « Application Web ». **URI de redirection autorisées**, à l'identique :
+     `http://localhost:3000/api/v1/auth/google/retour` (développement) et
+     `https://<adresse-du-cabinet>/api/v1/auth/google/retour` (production).
+     Aucune « origine JavaScript » n'est nécessaire : le navigateur ne parle
+     jamais à Google en JavaScript.
+   - Le rattachement depuis le profil utilise **la même URI** : rien à ajouter.
+2. **`.env`** : `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (côté serveur seulement),
+   `GOOGLE_REDIRECT_URI`, `APP_URL`, `ADMIN_EMAIL`, `JWT_SECRET`, et pour les
+   e-mails `COURRIEL_MODE` + `SMTP_*` (voir [Variables d'environnement](#variables-denvironnement)).
+3. `GOOGLE_ALLOWED_DOMAIN` (optionnel) restreint Google au domaine Workspace du
+   cabinet ; vide par défaut, pour ne pas exclure une adresse personnelle.
 
 **Premier démarrage.** Après `alembic upgrade head`, le backend lance
 `python -m app.seed_auth`, rejouable sans erreur : huit permissions, trois rôles
-système, et le compte administrateur `ADMIN_EMAIL`.
+système, et le compte administrateur `ADMIN_EMAIL` avec les deux modes. Tant qu'il
+n'a pas de mot de passe, chaque démarrage émet un lien de première connexion,
+**affiché dans `docker compose logs backend`** hors production (jamais en
+production). L'administrateur peut aussi entrer directement avec Google.
 
-**Parcours.** `GET /api/v1/auth/google/demarrer` tire `state`, `nonce` et le couple
-PKCE, les garde dans un cookie de 10 min et redirige chez Google. Au retour
-(`GET /api/v1/auth/google/retour`), le serveur vérifie que `state` est identique au
-cookie, échange le code avec le `code_verifier`, puis vérifie le jeton d'identité :
-signature (clés publiques Google mises en cache et rechargées si une clé inconnue
-se présente), `iss`, `aud` = notre client, `exp`, `nonce`, `email_verified`
-(bibliothèque officielle `google-auth`). Cette route est une navigation : elle
-redirige toujours, vers l'application ou vers `/connexion?erreur=<code>` avec
-`compte_inconnu`, `compte_desactive`, `adresse_non_verifiee`, `etat_invalide` ou
-`echec_google`.
+**Connexion par mot de passe** (`POST /api/v1/auth/connexion`). bcrypt, coût 12.
+- `401 identifiants_invalides`, **même code et même message** que l'adresse soit
+  inconnue, mal formée, le mot de passe faux, absent ou non autorisé ; bcrypt tourne
+  dans tous les cas (empreinte factice), pour que le temps de réponse ne trahisse
+  pas l'existence du compte. Le motif précis ne va qu'au journal.
+- `423 compte_verrouille` au-delà de **5 échecs consécutifs**, pour **15 minutes** ;
+  le verrouillage est contrôlé **avant** la comparaison du mot de passe (sinon un
+  compte verrouillé répondrait 401 au mauvais et 423 au bon). `Retry-After` et
+  `details.secondes_restantes`.
+- `403 compte_desactive`, quels que soient les identifiants.
+- Politique : 12 caractères au moins, 72 octets au plus (limite de bcrypt), ni
+  répétitif ni égal à l'adresse ; **aucun caractère spécial imposé**, un indicateur
+  de robustesse guide à l'écran.
 
-**Identité.** Le `sub` Google est enregistré à la première connexion et identifie
-ensuite l'utilisateur. Un `sub` connu avec une nouvelle adresse met la ligne à jour ;
-une adresse connue avec un autre `sub` est refusée et journalisée.
+**Liens à usage unique** (table `jeton`). 32 octets aléatoires envoyés par e-mail ;
+**seule leur empreinte sha256 est stockée**. Émettre un lien invalide les liens
+encore ouverts du compte. `POST /auth/mot-de-passe/oubli` répond **toujours 204,
+immédiatement** : recherche du compte, émission et envoi se font après la réponse
+(tâche de fond). Un lien inexistant, expiré, déjà utilisé ou d'un autre type reçoit
+le même `400 lien_invalide` ; un mot de passe trop faible reçoit `422` sans
+consommer le lien.
 
-**Session.** Jeton d'accès 15 min (utilisateur, session, rôle, permissions) et
-jeton de rafraîchissement 7 j (identifiant de session), tous deux en cookies
-`httpOnly; Secure; SameSite=Lax`, jamais lisibles par le JavaScript.
-`POST /api/v1/auth/rafraichir` repose le jeton d'accès ; `POST /api/v1/auth/deconnexion`
-marque la session révoquée et efface les deux cookies. Chaque requête vérifie que
-la session n'est pas révoquée : la déconnexion ou la désactivation d'un compte
-coupe l'accès immédiatement.
+**Connexion Google.** `GET /api/v1/auth/google/demarrer` tire `state`, `nonce` et le
+couple PKCE, les garde dans un cookie de 10 min et redirige chez Google. Au retour,
+le serveur vérifie que `state` est identique au cookie, échange le code avec le
+`code_verifier`, puis vérifie le jeton d'identité : signature (clés publiques
+Google en cache), `iss`, `aud` = notre client, `exp`, `nonce`, `email_verified`
+(bibliothèque officielle `google-auth`), et que le compte autorise le mode `google`.
+La route redirige toujours : vers l'application, ou vers `/connexion?erreur=<code>`
+— `compte_inconnu`, `compte_desactive`, `google_non_autorise`,
+`google_non_rattache`, `adresse_non_verifiee`, `etat_invalide`, `echec_google`.
+Le `sub` Google identifie ensuite l'utilisateur ; une adresse connue revenant avec
+un autre `sub` est refusée et journalisée. Depuis le profil,
+`/demarrer?rattacher=1` rattache Google au compte connecté sans ouvrir de seconde
+session.
+
+**Session.** Jeton d'accès 15 min (utilisateur, session, rôle, permissions) et jeton
+de rafraîchissement 7 j (identifiant de session), en cookies
+`httpOnly; Secure; SameSite=Lax`, jamais lisibles par le JavaScript ni stockés
+dans `localStorage`. Chaque session enregistre l'**empreinte** de son jeton de
+rafraîchissement, l'appareil et l'adresse IP. `POST /auth/rafraichir` repose le
+jeton d'accès ; `POST /auth/deconnexion` révoque la session et efface les cookies.
+Chaque requête vérifie que la session n'est pas révoquée.
+
+**Profil** (`/profil`, trois onglets). Informations (`PATCH /moi` : nom, prénom,
+titre, spécialité, numéro d'ordre, téléphone, avec l'aperçu de la signature du
+compte rendu ; photo `PUT|DELETE /moi/photo`, 2 Mo au plus, type lu dans le contenu,
+recadrée 256 px + miniature 128 px, WebP sans métadonnées, servie depuis MinIO) ;
+Préférences (`PATCH /moi/preferences` : thème clair/sombre/appareil, langue, seuil
+de confiance par défaut, notifications — lues au chargement de l'application) ;
+Sécurité (`POST /moi/mot-de-passe` avec vérification de l'ancien, qui ferme les
+autres sessions ; `GET /moi/sessions`, `DELETE /moi/sessions/{id}` ; modes de
+connexion et rattachement Google).
 
 **Autorisation.** Une dépendance unique, `exiger("analysis:read")`, décode le jeton,
 charge l'utilisateur, vérifie qu'il est actif et que la permission figure dans son
 rôle. Les routes déclarent la **permission**, jamais le rôle. Un test parcourt toutes
-les routes et échoue si l'une d'elles ne porte ni garde ni marque `publique`.
+les routes et échoue si l'une d'elles ne porte ni garde ni marque `publique` ; un
+second fige la liste des routes publiques.
 
 | Permission | Route(s) protégée(s) |
 |---|---|
@@ -302,6 +366,7 @@ les routes et échoue si l'une d'elles ne porte ni garde ni marque `publique`.
 | `model:read` | `GET /api/v1/model/versions` |
 | `user:manage` | `/api/v1/utilisateurs` (liste, création, modification) |
 | `role:manage` | `/api/v1/permissions`, `/api/v1/roles` (écriture) — `GET /api/v1/roles` est aussi ouvert à `user:manage` |
+| *session ouverte* | `/api/v1/moi`, `/moi/*`, `/photos/{id}`, `/auth/deconnexion` |
 
 | Rôle système | Permissions |
 |---|---|
@@ -309,34 +374,36 @@ les routes et échoue si l'une d'elles ne porte ni garde ni marque `publique`.
 | Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
 | Lecteur | `analysis:read`, `model:read` |
 
-**Endpoints.** `GET /api/v1/moi` ; `GET|POST /api/v1/utilisateurs`,
-`GET|PATCH /api/v1/utilisateurs/{id}` (pas de suppression : on désactive) ;
-`GET /api/v1/permissions`, `GET|POST /api/v1/roles`, `GET|PATCH|DELETE /api/v1/roles/{id}`.
-Garde-fou **dernier administrateur** : impossible de désactiver ou rétrograder le
-dernier compte actif capable de gérer utilisateurs *et* rôles (`400`).
+Garde-fous : impossible de désactiver ou rétrograder le **dernier administrateur
+actif**, ni de se désactiver ou de changer son propre rôle (`400`). Pas de
+suppression de compte : on désactive.
 
-**Photo de profil.** La photo du compte Google (revendication `picture`, acceptée
-seulement en HTTPS depuis `*.googleusercontent.com`) est reprise à chaque connexion.
-Chacun peut importer la sienne depuis `/profil` (`PUT /api/v1/moi/photo`, JPEG/PNG/WebP,
-5 Mo au plus), prioritaire sur Google, ou la retirer (`DELETE /api/v1/moi/photo`).
-L'image est recadrée en 256 × 256 et ré-encodée en WebP (métadonnées EXIF supprimées),
-stockée dans MinIO et servie par `GET /api/v1/photos/{id}` à toute session ouverte.
-Sans photo : initiales.
-
-**Journal.** Connexions réussies, refus avec leur motif, créations et modifications
-de compte, déconnexions sont inscrits dans la table `journal` (écran prévu plus tard).
-
-**Limite assumée : connexion hors ligne.** La connexion exige un accès à Internet
-alors que le serveur est installé au cabinet. Si la liaison tombe, les sessions
-déjà ouvertes continuent (jusqu'à 7 jours), mais **personne ne peut en ouvrir une
-nouvelle**. Choix retenu : l'accepter et le documenter, plutôt que de rouvrir un
-compte de secours à mot de passe.
+**Journal.** Connexions réussies et refusées avec leur motif, verrouillages,
+demandes et usages de liens, changements de mot de passe, rattachements Google,
+créations et modifications de compte, révocations de session et déconnexions
+(table `journal` ; l'écran viendra plus tard). Jamais de jeton ni de mot de passe.
 
 **Tests.** Google refuse l'automatisation : les tests utilisent un fournisseur
-d'identité de remplacement (`IDENTITY_PROVIDER=fake`) qui signe localement ses jetons ;
-le backend refuse de démarrer avec lui hors `APP_ENV=test`. Il prouve la logique,
-pas la configuration de la console Google : une vraie connexion manuelle reste
-nécessaire.
+d'identité de remplacement (`IDENTITY_PROVIDER=fake`) qui signe localement ses
+jetons, et les e-mails restent en mémoire (`COURRIEL_MODE=memoire`, lus par
+`GET /api/v1/test/courriels`). Le backend refuse ces deux réglages hors
+`APP_ENV=test`. Ils prouvent la logique, pas la configuration de la console
+Google : **une vraie connexion Google manuelle reste nécessaire** pour clore le
+sprint.
+
+### Écarts assumés avec la spécification du sprint 1
+
+| Spécification | Réalisé | Raison |
+|---|---|---|
+| Monorepo `apps/api`, `apps/web`, `apps/ml`, `infra/` | `backend/`, `frontend/`, `inference/`, `training/` | Dépôt existant conservé (décision du 2026-11-19) |
+| Next.js App Router, TypeScript, Tailwind, shadcn/ui | Next.js 14 *pages router*, JavaScript, design system CSS maison, export statique servi par nginx | Interface déjà maquettée et construite ; décision du 2026-11-20 |
+| Garde de route dans le middleware Next | Garde côté client (`AppShell`) | L'export statique interdit le middleware ; **la vérité reste côté serveur** (chaque route revérifie) |
+| Caddy en production | nginx (frontend) ; Caddy prévu au sprint 3 (HTTPS) | Le plan place HTTPS au sprint 3 |
+| Une seule migration | `0001` → `0005` | Historique conservé ; `0005` ajoute les deux modes sans perdre les comptes |
+| Contrainte « mot de passe non nul si le mode est autorisé » | Contrainte inverse : empreinte **seulement si** le mode est autorisé (idem `google_sub`) | La version de la spec rendrait toute création de compte impossible (le mot de passe est choisi après) |
+| Journal : `details` seul | `details` (jsonb) + colonne `resultat` | `resultat` vient du plan (PDF) et facilite les filtres |
+| — | `photo_google` en plus | Photo du compte Google reprise à la connexion |
+| Jeton de rafraîchissement | Empreinte vérifiée, **pas de rotation** à chaque usage | La rotation déconnecterait les onglets ouverts simultanément pour un gain faible |
 
 ---
 
@@ -352,13 +419,20 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   `false`), `source` (`model` | `human`). Relation en
   `cascade="all, delete-orphan"`.
 - **`model_versions`** — `version` (unique), `dataset`, `metrics_json`, `notes`.
-- **Authentification** (migration `0003_auth_google`, qui remplace `0002`) :
-  `utilisateur` (UUID, `nom`, `prenom`, `email` unique en minuscules, `google_sub`
-  unique, `role_id` restreint, `statut` `actif|desactive`, `derniere_connexion`,
-  `date_creation`), `role` (`libelle` unique, `systeme`), `permission` (`code` clé
-  primaire, `libelle`), `role_permission`, `session` (création, expiration,
-  révocation), `journal` (date, action, auteur, adresse IP, résultat, détail).
-  Aucune colonne de mot de passe.
+- **Authentification** (migrations `0003_auth_google`, `0004_photo_profil`,
+  `0005_mot_de_passe_profil`) : `utilisateur` (UUID, `email` citext unique,
+  `nom`, `prenom`, `mot_de_passe` = empreinte bcrypt nullable, `google_sub` unique
+  nullable, `modes_connexion` jsonb, `role_id` restreint, `actif`,
+  `doit_changer_mdp`, `echecs_connexion`, `verrouille_jusqu_a`, `titre`,
+  `specialite`, `numero_ordre`, `telephone`, `photo_cle`, `photo_google`,
+  `preferences` jsonb, `cree_le`, `modifie_le`, `derniere_connexion`), `role`
+  (`libelle` unique, `systeme`), `permission` (`code` clé primaire, `libelle`),
+  `role_permission`, `session` (`empreinte_refresh`, `agent`, `ip`, `cree_le`,
+  `expire_le`, `revoquee_le`), `jeton` (`type`, `empreinte` sha256, `expiration`,
+  `utilise_le`), `journal` (`horodatage`, `utilisateur_id`, `action`, `resultat`,
+  `cible`, `details` jsonb, `ip`). Contraintes **tenues par la base** : modes non
+  vides et connus, empreinte seulement si le mode `mot_de_passe` est autorisé,
+  `google_sub` seulement si le mode `google` l'est.
 
 > Les tables d'analyse ne contiennent aucune donnée identifiante patient : ni nom,
 > ni identifiant, ni date de naissance, ni date d'examen. Les tables
@@ -498,28 +572,51 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
 ## Tests et CI
 
 ```bash
-make test                    # backend + inférence (stack démarrée)
-cd backend   && pytest -q    # en local
+cd backend   && pytest -q          # API : base SQLite recréée à chaque test
 cd inference && pytest -q
+cd frontend  && npm test           # vitest : tests unitaires du web
 ```
 
-**Backend** — un seul test, sur l'anonymisation
-([test_anonymize.py](backend/app/tests/test_anonymize.py)) : niveaux de gris,
-dimensions conservées, ré-encodage PNG sans EXIF. **Ni l'API ni le stockage ne
-sont testés.**
+**Backend** (pytest + client HTTP de FastAPI, base recréée à chaque test,
+fournisseur d'identité de remplacement, e-mails en mémoire, bcrypt au coût 4) :
+anonymisation, modèle et contraintes de la base, mots de passe et politique,
+connexion par mot de passe et verrouillage, liens (oubli, réinitialisation,
+première connexion), connexion et rattachement Google (les six contrôles du jeton
+d'identité), routes `/moi`, création de compte et e-mails, rôles, et le test qui
+**échoue si une route n'est ni gardée ni déclarée publique**. Seul
+[`pytest.ini`](backend/pytest.ini) fixe le dossier de tests : un module
+applicatif nommé comme un test (`test_*.py`, `*_test.py`) serait sinon importé
+avant `conftest.py`, avec la mauvaise configuration.
 
 **Inférence** — neuf tests sur la numérotation FDI
-([test_fdi.py](inference/app/tests/test_fdi.py)) : denture complète couvrant les
-quatre quadrants, convention droite patient / gauche image, héritage du numéro
-par les anomalies, plan d'occlusion déduit malgré un cadrage décentré, arcade
-unique, écrêtage à la huitième position. Ils n'exigent ni image ni modèle : la
+([test_fdi.py](inference/app/tests/test_fdi.py)), sans image ni modèle : la
 numérotation est purement géométrique.
 
-La CI ([ci.yml](.github/workflows/ci.yml)) exécute quatre jobs en parallèle sur
-`push` vers `main` et chaque pull request : `backend` (pytest), `inference`
-(pytest), `frontend` (`npm ci` + build), `compose-build` (`docker compose
-build`). Aucun linter, pas de gate de couverture. **Le pipeline
-[`training/`](training/) n'est pas couvert** : il exige torch et un GPU.
+**Web** — vitest ([vitest.config.mjs](frontend/vitest.config.mjs)) : client HTTP
+(un seul rafraîchissement partagé, requête rejouée une fois, jamais sur un refus
+d'identifiants), indicateur de robustesse, messages de l'écran de connexion.
+
+**Parcours dans un navigateur** — Playwright
+([parcours-connexion.spec.js](frontend/e2e/parcours-connexion.spec.js)), contre une
+stack complète lancée avec [docker-compose.e2e.yml](docker-compose.e2e.yml) :
+l'administrateur crée un compte praticien avec les deux modes ; le praticien lit
+son lien dans la boîte de test, choisit son mot de passe, remplit son profil,
+passe en thème sombre, se déconnecte, oublie son mot de passe, le réinitialise,
+se reconnecte, puis entre avec Google sur le même compte. Sur un poste qui fait
+déjà tourner la stack de développement, la stack de test est un projet séparé
+(sa propre base) sur le port 3100 :
+
+```bash
+E2E_PORT=3100 docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+cd frontend && E2E_BASE_URL=http://localhost:3100 npm run test:e2e
+docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml down -v
+```
+
+La CI ([ci.yml](.github/workflows/ci.yml)) exécute sur `push` vers `main` et
+chaque pull request : `backend` (pytest), `inference` (pytest), `frontend`
+(`npm ci`, `npm test`, build), `compose-build`, puis `e2e` (stack de test +
+Playwright). **Le pipeline [`training/`](training/) n'est pas couvert** : il exige
+torch et un GPU.
 
 ---
 
@@ -592,12 +689,13 @@ le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko
 Cette configuration vise le **développement local** :
 
 - [x] CORS restreint à `ALLOWED_ORIGINS` (plus de `*`).
-- [ ] Définir `APP_ENV=production` et un `JWT_SECRET` aléatoire (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY` ; déclarer l'URI de redirection du cabinet dans la console Google.
+- [ ] Définir `APP_ENV=production`, un `JWT_SECRET` aléatoire et `COURRIEL_MODE=smtp` avec `SMTP_*` (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY` ; déclarer l'URI de redirection du cabinet dans la console Google.
 - [ ] Ne plus exposer `5432`, `9000`, `9001`, `8001` sur l'hôte.
 - [ ] Activer HTTPS (terminaison TLS devant nginx).
-- [x] Connexion Google et contrôle d'accès par permissions — voir plus haut.
+- [x] Connexion par mot de passe (bcrypt, verrouillage, liens à usage unique) et par Google, contrôle d'accès par permissions — voir plus haut.
 - [x] Jetons en cookies `httpOnly; Secure; SameSite=Lax`.
-- [ ] 2FA / SSO, journal d'audit des connexions et des actions (travaux futurs).
+- [x] Journal des connexions, refus, verrouillages, liens et changements de mot de passe (table `journal`) ; l'écran viendra plus tard.
+- [ ] 2FA (travaux futurs).
 - [ ] Traiter les annotations incrustées dans les pixels.
 - [ ] Héberger dans l'UE (RGPD), chiffrement au repos côté S3.
 - [ ] Journalisation d'audit, rétention, sauvegardes.
@@ -659,7 +757,7 @@ mode réel emprunte la déduction géométrique.
 1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
 2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
    viewer. Le rapport devient un document validé.
-3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (Google + permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
+3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
 4. **Historique dans l'UI** — `GET /api/v1/analyses` est déjà disponible.
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès
@@ -686,6 +784,12 @@ mode réel emprunte la déduction géométrique.
 | `make test` / `make migrate` échouent | Ils utilisent `docker compose exec` : la stack doit tourner |
 | Base incohérente après changement de schéma | `make clean` puis `make up` (⚠️ efface les volumes) |
 | Changement de `NEXT_PUBLIC_API_BASE` sans effet | Variable de build : rebuilder l'image frontend |
+| `docker compose build` ne construit rien (« additional privileges requested: pass "--allow=fs.read=…" ») | Docker Compose récent passe par *bake*. Construire l'image directement, puis démarrer sans reconstruire : `docker build -t panoradent-ai-backend ./backend` (idem `frontend`), puis `docker compose up -d --no-build` |
+| Google : « Missing required parameter: client_id » | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` absents du `.env` : la page de connexion affiche « La connexion n'a pas abouti » et le backend l'écrit dans ses journaux |
+| Google : `redirect_uri_mismatch` | L'URI de la console Google doit être **exactement** `GOOGLE_REDIRECT_URI` (schéma, port, chemin) |
+| Aucun e-mail reçu (première connexion, mot de passe oublié) | `COURRIEL_MODE=console` : le message et son lien sont dans `docker compose logs backend`. En production : `COURRIEL_MODE=smtp` et `SMTP_*` |
+| L'administrateur n'a pas de mot de passe | Lien de première connexion affiché au démarrage dans `docker compose logs backend` (hors production), ou « Mot de passe oublié », ou connexion Google |
+| « Trop de tentatives échouées » | Verrouillage de 15 minutes après 5 échecs ; il se lève seul, ou par « Mot de passe oublié » |
 
 ---
 

@@ -68,9 +68,9 @@ services:
       # URLs présignées servies par le proxy nginx du frontend (`/storage/`).
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-/storage}
       INFERENCE_URL: http://inference:8001
-      # --- Authentification Google (voir README, section « Authentification ») ---
-      # Aucun mot de passe : la connexion passe uniquement par Google.
-      # APP_ENV=production refuse de démarrer sans JWT_SECRET ni client Google.
+      # --- Authentification (voir README, section « Authentification ») ---
+      # Deux modes : adresse e-mail + mot de passe, et compte Google.
+      # APP_ENV=production refuse de démarrer sans JWT_SECRET, client Google et SMTP.
       APP_ENV: ${APP_ENV:-development}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
@@ -85,8 +85,19 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       # Domaine Google Workspace autorisé ; vide = toute adresse ayant un compte.
       GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
-      # Adresse Google de l'administrateur initial (créé par le jeu de départ).
+      # Adresse de l'administrateur initial (créé par le jeu de départ, deux modes).
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      # Coût bcrypt (12 minimum en production).
+      BCRYPT_COUT: ${BCRYPT_COUT:-12}
+      # E-mails (liens de première connexion et de réinitialisation) :
+      # `console` = affichés dans `docker compose logs backend` ; `smtp` = envoyés.
+      COURRIEL_MODE: ${COURRIEL_MODE:-console}
+      COURRIEL_EXPEDITEUR: ${COURRIEL_EXPEDITEUR:-PanoraDent AI <no-reply@panoradent.local>}
+      SMTP_HOTE: ${SMTP_HOTE:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_UTILISATEUR: ${SMTP_UTILISATEUR:-}
+      SMTP_MOT_DE_PASSE: ${SMTP_MOT_DE_PASSE:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
     depends_on:
       db:
         condition: service_healthy
