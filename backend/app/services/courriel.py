@@ -105,6 +105,20 @@ def premiere_connexion(destinataire: str, prenom: str | None, lien: str, google:
     )
 
 
+def invitation_google(destinataire: str, prenom: str | None, lien_connexion: str) -> Courriel:
+    """Compte qui se connecte uniquement avec Google : pas de mot de passe à choisir."""
+    return _gabarit(
+        destinataire, "Votre compte PanoraDent AI", _bonjour(prenom),
+        [
+            "Un compte PanoraDent AI vient d'être créé pour vous par l'administrateur du cabinet.",
+            "Ce compte se connecte avec Google : sur la page de connexion, choisissez "
+            f"« Continuer avec Google » et utilisez l'adresse {destinataire}.",
+        ],
+        "Ouvrir PanoraDent AI", lien_connexion,
+        "Si vous n'attendiez pas ce message, ignorez-le.",
+    )
+
+
 def reinitialisation(destinataire: str, prenom: str | None, lien: str) -> Courriel:
     return _gabarit(
         destinataire, "Réinitialisation de votre mot de passe PanoraDent AI", _bonjour(prenom),

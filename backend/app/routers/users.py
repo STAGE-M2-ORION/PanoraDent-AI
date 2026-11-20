@@ -1,22 +1,25 @@
 """Comptes utilisateurs, gérés par l'administrateur (`user:manage`).
 
 Pas d'inscription publique et pas de suppression : un compte se désactive, ce
-qui garde ses lignes de journal rattachées.
+qui garde ses lignes de journal rattachées. À la création, l'intéressé reçoit
+par e-mail son lien de première connexion (ou, pour un compte Google seul, une
+invitation à « Continuer avec Google »).
 """
 import uuid
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import journal
 from ..auth_deps import exiger
-from ..auth_models import Utilisateur
+from ..auth_models import MODE_GOOGLE, MODE_MOT_DE_PASSE, TypeJeton, Utilisateur
 from ..auth_schemas import UtilisateurCreation, UtilisateurModification, UtilisateurOut
 from ..database import get_db
 from ..errors import ApiError
 from ..permissions import USER_MANAGE
-from ..services import auth_service
+from ..config import settings
+from ..services import auth_service, courriel, jetons
 
 router = APIRouter(prefix="/utilisateurs", tags=["utilisateurs"])
 
@@ -38,10 +41,21 @@ def lister(_: Utilisateur = Depends(exiger(USER_MANAGE)), db: Session = Depends(
 def creer(
     body: UtilisateurCreation,
     request: Request,
+    taches: BackgroundTasks,
     auteur: Utilisateur = Depends(exiger(USER_MANAGE)),
     db: Session = Depends(get_db),
 ):
     utilisateur = auth_service.creer_utilisateur(db, body)
+    if utilisateur.autorise(MODE_MOT_DE_PASSE):
+        jeton = jetons.emettre(db, utilisateur, TypeJeton.premiere_connexion)
+        message = courriel.premiere_connexion(
+            utilisateur.email, utilisateur.prenom, jetons.lien(TypeJeton.premiere_connexion, jeton),
+            google=utilisateur.autorise(MODE_GOOGLE),
+        )
+    else:
+        message = courriel.invitation_google(
+            utilisateur.email, utilisateur.prenom, f"{settings.app_url.rstrip('/')}/connexion"
+        )
     journal.inscrire(
         db, "creation_compte", journal.SUCCES, request=request, utilisateur_id=auteur.id,
         cible=f"utilisateur:{utilisateur.id}",
@@ -52,6 +66,8 @@ def creer(
         commit=False,
     )
     db.commit()
+    # Envoyé après la réponse : la lenteur du serveur de messagerie ne bloque pas l'écran.
+    taches.add_task(courriel.envoyer, message)
     return UtilisateurOut.depuis(utilisateur)
 
 
