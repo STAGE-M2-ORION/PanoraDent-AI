@@ -39,6 +39,16 @@
   .panel-v { display: grid; gap: var(--space-4); align-content: start; }
   .panel-v[hidden] { display: none; }
   .panel-v h1:focus { outline: none; }
+  /* Séparateur « ou » entre le formulaire et le bouton Google */
+  .auth-sep { display: flex; align-items: center; gap: var(--space-3); color: #64748B; font-size: 13px; }
+  .auth-sep::before, .auth-sep::after { content: ""; flex: 1; height: 1px; background: #E2E8F0; }
+  .auth-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+  .auth-link { color: #0E7490; font-size: 14px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+  .auth-link:hover { color: #0F2A43; }
+  .auth-form .btn-block { width: 100%; justify-content: center; }
+  .gsi-btn[aria-disabled="true"] { cursor: progress; pointer-events: none; background: rgba(255, 255, 255, .61); border-color: rgba(31, 31, 31, .12); color: rgba(31, 31, 31, .6); }
+  a.gsi-btn { text-decoration: none; }
+  .auth-done { display: grid; gap: var(--space-3); }
   .auth-foot { margin-top: auto; font-size: 12px; color: #64748B; line-height: 1.5; }
   /* Focus visible : anneau marine + cyan (le cyan seul ne se voit pas sur blanc) */
   .auth-card a:focus-visible, .auth-card button:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #0F2A43, 0 0 0 6px #22D3EE; }

@@ -1,25 +1,34 @@
-import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DetSwatch } from "@/entities/detection";
-import { SessionEndReason, SessionStatus, homePathFor, startGoogleSignIn, useCurrentUser } from "@/entities/session";
-import { Alert, GoogleMark, Icon } from "@/shared/ui";
+import { GOOGLE_SIGN_IN_URL, SessionEndReason, SessionStatus, homePathFor, useCurrentUser } from "@/entities/session";
+import { ErrorCode, toAppError } from "@/shared/api";
+import { Alert, Button, Field, GoogleMark, Icon, Input, PasswordInput } from "@/shared/ui";
+import { AuthCard } from "@/widgets/auth-card";
 
 /**
  * Codes d'échec renvoyés par le backend dans `?erreur=` au retour de Google.
  * `retry` : erreur passagère, on propose de recommencer (encart neutre) ;
  * sinon, le blocage relève de l'administrateur ou de Google (encart rouge).
  */
-const ERRORS = {
+export const GOOGLE_ERRORS = {
   compte_inconnu: {
     title: "Aucun compte pour cette adresse Google",
-    text: "Cette adresse n’est associée à aucun compte PanoraDent AI. Demandez à l’administrateur de votre cabinet de vous créer un compte avec cette adresse Google, puis reconnectez-vous.",
+    text: "Cette adresse n’est associée à aucun compte PanoraDent AI. Demandez à l’administrateur de votre cabinet de vous créer un compte avec cette adresse, puis reconnectez-vous.",
   },
   compte_desactive: {
     title: "Compte désactivé",
     text: "Votre compte a été désactivé. Contactez l’administrateur de votre cabinet pour qu’il le réactive.",
+  },
+  google_non_autorise: {
+    title: "Connexion Google non autorisée pour ce compte",
+    text: "Ce compte se connecte avec son adresse e-mail et son mot de passe. Utilisez le formulaire ci-dessus, ou demandez à l’administrateur d’autoriser la connexion Google.",
+  },
+  google_non_rattache: {
+    title: "Ce compte Google n’est pas celui du compte",
+    text: "Un autre compte Google est déjà rattaché à cette adresse. Connectez-vous avec le compte Google habituel, ou avec votre mot de passe.",
   },
   adresse_non_verifiee: {
     title: "Adresse Google non vérifiée",
@@ -35,6 +44,11 @@ const ERRORS = {
     title: "La connexion n’a pas abouti",
     text: "Google n’a pas pu confirmer votre identité, par exemple si vous avez annulé ou si la connexion a été coupée.",
   },
+  session_expiree: {
+    retry: true,
+    title: "Votre session a expiré",
+    text: "Reconnectez-vous, puis recommencez depuis votre profil.",
+  },
 };
 
 /** Messages d'arrivée (`?etat=`), posés par la garde de route et la déconnexion. */
@@ -43,25 +57,47 @@ const ARRIVALS = {
   [SessionEndReason.SIGNED_OUT]: { tone: "success", icon: "check", text: "Vous êtes déconnecté." },
 };
 
+/**
+ * Refus du formulaire mot de passe → encart affiché. Le message neutre du
+ * serveur s'affiche tel quel : il ne dit pas si l'adresse existe.
+ */
+export function passwordLoginNotice(error) {
+  const e = toAppError(error);
+  switch (e.serverCode) {
+    case "identifiants_invalides":
+      return { tone: "danger", code: e.serverCode, text: e.message };
+    case "compte_verrouille":
+      return { tone: "danger", code: e.serverCode, title: "Compte verrouillé temporairement", text: e.message };
+    case "compte_desactive":
+      return { tone: "danger", code: e.serverCode, title: "Compte désactivé", text: e.message };
+    default:
+      return {
+        retry: true,
+        code: e.serverCode ?? e.code,
+        title: "La connexion n’a pas abouti",
+        text: e.code === ErrorCode.NETWORK || e.code === ErrorCode.TIMEOUT ? e.message : "Une erreur inattendue est survenue. Réessayez.",
+      };
+  }
+}
+
 const queryValue = (value) => (typeof value === "string" ? value : "");
 
 /**
- * Bouton « Continuer avec Google », conforme aux consignes de marque Google :
- * fond blanc, bordure #747775, texte #1F1F1F, logo « G » officiel. Il déclenche
- * une VRAIE navigation vers le backend (jamais un fetch).
+ * « Continuer avec Google », conforme aux consignes de marque Google (fond
+ * blanc, bordure #747775, texte #1F1F1F, logo « G » officiel). C'est un VRAI
+ * lien : une redirection OAuth ne se suit pas en arrière-plan.
  */
-function GoogleButton({ pending, onClick }) {
+function GoogleButton({ pending, onNavigate }) {
   return (
-    <button type="button" className="gsi-btn" onClick={onClick} disabled={pending} aria-describedby="hint-g">
+    <a className="gsi-btn" href={GOOGLE_SIGN_IN_URL} onClick={onNavigate} aria-disabled={pending || undefined} aria-describedby="hint-g">
       {pending ? <span className="gsi-spinner" aria-hidden="true" /> : <GoogleMark />}
       <span>{pending ? "Redirection vers Google…" : "Continuer avec Google"}</span>
-    </button>
+    </a>
   );
 }
 
 /**
- * Écran de connexion : carte en deux colonnes (connexion 36 %, photo 64 %).
- * La connexion passe exclusivement par Google : aucun mot de passe.
+ * Écran de connexion : adresse e-mail et mot de passe, ou compte Google.
  *
  * - `?erreur=<code>` : échec renvoyé par le backend au retour de Google ;
  * - `?etat=expiree` | `deconnecte` : bandeau d'arrivée.
@@ -70,9 +106,12 @@ function GoogleButton({ pending, onClick }) {
  */
 export function ConnexionPage() {
   const router = useRouter();
-  const { status, user } = useCurrentUser();
-  const [pending, setPending] = useState(false);
+  const { status, user, login } = useCurrentUser();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [googlePending, setGooglePending] = useState(false);
   const [notice, setNotice] = useState({ error: null, arrival: null });
+  const passwordRef = useRef(null);
 
   // Lu après hydratation : les messages entrent dans la région `aria-live`
   // déjà présente, ils sont donc annoncés par les lecteurs d'écran.
@@ -80,7 +119,7 @@ export function ConnexionPage() {
     if (!router.isReady) return;
     const code = queryValue(router.query.erreur);
     setNotice({
-      error: code ? { code, ...(ERRORS[code] ?? ERRORS.echec_google) } : null,
+      error: code ? { code, tone: "danger", ...(GOOGLE_ERRORS[code] ?? GOOGLE_ERRORS.echec_google) } : null,
       arrival: ARRIVALS[queryValue(router.query.etat)] ?? null,
     });
   }, [router.isReady, router.query.erreur, router.query.etat]);
@@ -89,7 +128,7 @@ export function ConnexionPage() {
   // avec le bouton encore « en cours ».
   useEffect(() => {
     const onPageShow = (event) => {
-      if (event.persisted) setPending(false);
+      if (event.persisted) setGooglePending(false);
     };
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
@@ -99,104 +138,122 @@ export function ConnexionPage() {
     if (status === SessionStatus.AUTHENTICATED) router.replace(homePathFor(user));
   }, [status, user, router]);
 
-  const signIn = () => {
-    setPending(true);
-    startGoogleSignIn();
+  const set = (key) => (event) => setForm((f) => ({ ...f, [key]: event.target.value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setNotice({ error: null, arrival: null });
+    try {
+      await login(form.email.trim(), form.password);
+      // La redirection suit le passage à « authenticated » (effet ci-dessus).
+    } catch (cause) {
+      setNotice({ error: passwordLoginNotice(cause), arrival: null });
+      setForm((f) => ({ ...f, password: "" }));
+      passwordRef.current?.focus();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const goGoogle = (event) => {
+    if (googlePending) {
+      event.preventDefault();
+      return;
+    }
+    setGooglePending(true);
   };
 
   const { error, arrival } = notice;
 
   return (
-    <div className="v-connexion">
-      <Head>
-        <title>Connexion · PanoraDent AI</title>
-      </Head>
-      <main className="auth-page">
-        <div className="auth-card">
-          <div className="auth-form">
-            <Link className="auth-logo" href="/decouvrir" aria-label="PanoraDent AI, présentation">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/Logo_clair_transparent.svg" alt="PanoraDent AI" />
-            </Link>
-
-            <div className="panel-v">
-              <h1>Connexion</h1>
-              <p className="sous">Accès réservé aux praticiens et au personnel autorisé.</p>
-
-              <div className="auth-notices" aria-live="polite" aria-atomic="true">
-                {arrival && !error ? (
-                  <Alert tone={arrival.tone} icon={arrival.icon}>
-                    {arrival.text}
-                  </Alert>
-                ) : null}
-                {error && !error.retry ? (
-                  <Alert tone="danger" icon="alert" title={error.title} data-erreur={error.code}>
-                    {error.text}
-                  </Alert>
-                ) : null}
-                {error?.retry ? (
-                  <div className="auth-neutral" data-erreur={error.code}>
-                    <Icon name="info" />
-                    <div>
-                      <strong>{error.title}</strong>
-                      <p>{error.text}</p>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={signIn} disabled={pending}>
-                        Réessayer
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <GoogleButton pending={pending} onClick={signIn} />
-              <p className="hint-g" id="hint-g">
-                L’accès est réservé aux comptes créés par l’administrateur de votre cabinet. Utilisez l’adresse Google enregistrée sur votre compte.
-              </p>
-            </div>
-
-            <p className="auth-foot">Prototype d’aide à la décision — non certifié. © 2026 PanoraDent AI.</p>
+    <AuthCard
+      docTitle="Connexion"
+      aside={
+        <>
+          <div className="float float-import" aria-hidden="true">
+            <Icon name="upload" />
           </div>
+          <div className="float float-result" aria-hidden="true">
+            <p className="t">Analyse terminée</p>
+            <ul>
+              <li>
+                <DetSwatch label="caries" />
+                36 · carie · 94&nbsp;%
+              </li>
+              <li>
+                <DetSwatch label="periapical_lesion" />
+                46 · lésion apicale · 88&nbsp;%
+              </li>
+              <li>
+                <DetSwatch label="impacted_tooth" />
+                38 · dent incluse · 91&nbsp;%
+              </li>
+            </ul>
+          </div>
+        </>
+      }
+    >
+      <div className="panel-v">
+        <h1>Connexion</h1>
+        <p className="sous">Accès réservé aux praticiens et au personnel autorisé.</p>
 
-          <aside className="auth-photo" aria-labelledby="side-t">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/medias/connexion/login-praticien.webp"
-              width="1824"
-              height="1344"
-              alt="Praticienne de profil, assise à son poste dans un cabinet dentaire moderne, qui examine une radiographie panoramique affichée sur son écran. Image générée par IA."
-            />
-            <div className="photo-msg">
-              <h2 id="side-t">
-                Votre seconde lecture,
-                <br />
-                sous contrôle
-              </h2>
-              <p>Détection et numérotation des anomalies sur radiographies panoramiques. Le praticien garde la décision.</p>
-              <Link href="/decouvrir">Découvrir la plateforme ›</Link>
+        <div className="auth-notices" aria-live="polite" aria-atomic="true">
+          {arrival && !error ? (
+            <Alert tone={arrival.tone} icon={arrival.icon}>
+              {arrival.text}
+            </Alert>
+          ) : null}
+          {error && !error.retry ? (
+            <Alert tone="danger" icon="alert" title={error.title} data-erreur={error.code}>
+              {error.text}
+            </Alert>
+          ) : null}
+          {error?.retry ? (
+            <div className="auth-neutral" data-erreur={error.code}>
+              <Icon name="info" />
+              <div>
+                <strong>{error.title}</strong>
+                <p>{error.text}</p>
+              </div>
             </div>
-            <div className="float float-import" aria-hidden="true">
-              <Icon name="upload" />
-            </div>
-            <div className="float float-result" aria-hidden="true">
-              <p className="t">Analyse terminée</p>
-              <ul>
-                <li>
-                  <DetSwatch label="caries" />
-                  36 · carie · 94&nbsp;%
-                </li>
-                <li>
-                  <DetSwatch label="periapical_lesion" />
-                  46 · lésion apicale · 88&nbsp;%
-                </li>
-                <li>
-                  <DetSwatch label="impacted_tooth" />
-                  38 · dent incluse · 91&nbsp;%
-                </li>
-              </ul>
-            </div>
-          </aside>
+          ) : null}
         </div>
-      </main>
-    </div>
+
+        <form onSubmit={submit} noValidate={false} aria-label="Connexion par adresse e-mail">
+          <fieldset disabled={submitting}>
+            <Field label="Adresse e-mail" htmlFor="c-email">
+              <Input id="c-email" type="email" autoComplete="username" inputMode="email" value={form.email} onChange={set("email")} required />
+            </Field>
+            <Field label="Mot de passe" htmlFor="c-mdp">
+              <PasswordInput ref={passwordRef} id="c-mdp" autoComplete="current-password" value={form.password} onChange={set("password")} required />
+            </Field>
+            <div className="auth-row">
+              <Link className="auth-link" href="/mot-de-passe-oublie">
+                Mot de passe oublié ?
+              </Link>
+            </div>
+            <Button type="submit" className="btn-block" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <span className="spinner" aria-hidden="true" />
+                  Connexion…
+                </>
+              ) : (
+                "Se connecter"
+              )}
+            </Button>
+          </fieldset>
+        </form>
+
+        <p className="auth-sep">ou</p>
+
+        <GoogleButton pending={googlePending} onNavigate={goGoogle} />
+        <p className="hint-g" id="hint-g">
+          L’accès est réservé aux comptes créés par l’administrateur de votre cabinet. Avec Google, utilisez l’adresse enregistrée sur votre compte.
+        </p>
+      </div>
+    </AuthCard>
   );
 }

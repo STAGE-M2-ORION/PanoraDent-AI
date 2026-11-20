@@ -22,6 +22,7 @@ export {
 export { Alert, Avatar, Badge, Card, Modal, Skeleton, ToastProvider, UserPhoto, useToast } from "./feedback";
 export { Field, Input, Select, Textarea } from "./field";
 export { Icon } from "./icon";
+export { PasswordInput } from "./password-input";
 export { ICON_NAMES } from "./icons";
 export { DateCell, IconAction, IdChip, NumChip, Pager, Person, WhoChip, paginate } from "./table";
 export { PhotoStack } from "./photo-stack";
