@@ -119,7 +119,7 @@ export function ConnexionPage() {
     if (!router.isReady) return;
     const code = queryValue(router.query.erreur);
     setNotice({
-      error: code ? { code, tone: "danger", ...(GOOGLE_ERRORS[code] ?? GOOGLE_ERRORS.echec_google) } : null,
+      error: code ? { code, tone: "danger", fromGoogle: true, ...(GOOGLE_ERRORS[code] ?? GOOGLE_ERRORS.echec_google) } : null,
       arrival: ARRIVALS[queryValue(router.query.etat)] ?? null,
     });
   }, [router.isReady, router.query.erreur, router.query.etat]);
@@ -216,6 +216,11 @@ export function ConnexionPage() {
               <div>
                 <strong>{error.title}</strong>
                 <p>{error.text}</p>
+                {error.fromGoogle ? (
+                  <a className="btn btn-secondary btn-sm" href={GOOGLE_SIGN_IN_URL} onClick={goGoogle}>
+                    Réessayer
+                  </a>
+                ) : null}
               </div>
             </div>
           ) : null}

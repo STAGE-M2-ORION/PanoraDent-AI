@@ -12,13 +12,14 @@ export async function fetchUsers() {
 
 /**
  * `POST /api/v1/utilisateurs` — pas d'inscription publique : réservé aux
- * administrateurs. Aucun mot de passe : la personne se connecte avec le compte
- * Google de cette adresse. `nom` et `prenom` peuvent rester vides : le backend
- * les reprend de Google à la première connexion.
+ * administrateurs, qui choisissent les modes de connexion autorisés
+ * (`loginModes`). Le serveur envoie à la personne son lien de première
+ * connexion (ou une invitation Google) ; l'administrateur ne choisit jamais le
+ * mot de passe. `nom` et `prenom` vides sont repris de Google au rattachement.
  * Erreurs : 409 `adresse_deja_prise`, 422 `champ_invalide`.
  */
-export async function createUser({ email, nom = "", prenom = "", roleId }) {
-  const { data } = await httpClient.post("/utilisateurs", { email, nom, prenom, role_id: roleId });
+export async function createUser({ email, nom = "", prenom = "", roleId, loginModes = ["mot_de_passe", "google"] }) {
+  const { data } = await httpClient.post("/utilisateurs", { email, nom, prenom, role_id: roleId, modes_connexion: loginModes });
   return normalizeManagedUser(data);
 }
 

@@ -86,7 +86,13 @@ export function AdminComptesPage() {
             onCreated={(created) => {
               setUsers((list0) => [...list0, created]);
               setModal((m) => ({ ...m, create: false }));
-              say("success", "Compte créé", `${displayName(created)} peut désormais se connecter avec « Continuer avec Google », depuis l’adresse ${created.email}.`);
+              say(
+                "success",
+                "Compte créé",
+                created.loginModes.includes("mot_de_passe")
+                  ? `${displayName(created)} a reçu par e-mail, à l’adresse ${created.email}, un lien de première connexion pour choisir son mot de passe.`
+                  : `${displayName(created)} a reçu une invitation à se connecter avec « Continuer avec Google », depuis l’adresse ${created.email}.`,
+              );
             }}
           />
           <EditUserModal
@@ -106,7 +112,7 @@ export function AdminComptesPage() {
       <div className="page-head">
         <div>
           <h2>Comptes</h2>
-          <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes. Chacun se connecte avec son compte Google.</p>
+          <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes et choisissent, compte par compte, les modes de connexion autorisés.</p>
         </div>
         <Button onClick={() => setModal((m) => ({ ...m, create: true }))} disabled={!roles.length}>
           <Icon name="plus" />
@@ -223,10 +229,18 @@ export function AdminComptesPage() {
                   </td>
                   <td data-label="Connexion" className="nowrap">
                     <span className="methods">
-                      <span className="method" title="Connexion avec Google">
-                        <GoogleMark />
-                        <span className="sr-only">Google</span>
-                      </span>
+                      {u.loginModes.includes("mot_de_passe") ? (
+                        <span className="method" title={u.hasPassword ? "Mot de passe défini" : "Mot de passe pas encore choisi"}>
+                          <Icon name="key" />
+                          <span className="sr-only">{u.hasPassword ? "Mot de passe" : "Mot de passe (en attente)"}</span>
+                        </span>
+                      ) : null}
+                      {u.loginModes.includes("google") ? (
+                        <span className="method" title={u.googleLinked ? "Compte Google rattaché" : "Google autorisé, pas encore rattaché"}>
+                          <GoogleMark />
+                          <span className="sr-only">{u.googleLinked ? "Google" : "Google (en attente)"}</span>
+                        </span>
+                      ) : null}
                     </span>
                   </td>
                   <td data-label="Dernière connexion">{u.lastLoginAt ? <DateCell date={formatDate(u.lastLoginAt)} time={formatTime(u.lastLoginAt)} /> : <span className="muted">Jamais connecté</span>}</td>
@@ -259,7 +273,7 @@ export function AdminComptesPage() {
         </div>
       ) : null}
       <p className="muted" style={{ fontSize: "var(--text-xs)" }}>
-        Aucun mot de passe : la connexion passe exclusivement par Google, avec l’adresse enregistrée sur le compte.
+        PanoraDent AI ne connaît jamais les mots de passe : chacun choisit le sien par le lien reçu, et seule une empreinte est conservée.
       </p>
     </AppShell>
   );
