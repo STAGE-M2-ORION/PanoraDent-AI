@@ -1,4 +1,5 @@
-"""Parcours OAuth Google (code d'autorisation + PKCE, mené côté serveur) et session.
+"""Connexion par mot de passe, parcours OAuth Google (code d'autorisation +
+PKCE, mené côté serveur) et session.
 
 La route de retour est une NAVIGATION du navigateur, pas un appel JSON : elle
 redirige toujours, vers l'application en cas de succès, sinon vers
@@ -18,7 +19,7 @@ from ..auth_deps import (
     COOKIE_RAFRAICHISSEMENT, publique, session_ouverte,
 )
 from ..auth_models import Utilisateur
-from ..auth_schemas import UtilisateurOut
+from ..auth_schemas import ConnexionEntree, UtilisateurOut
 from ..config import settings
 from ..database import get_db
 from ..identity import ErreurEchange, ErreurJetonIdentite, fournisseur, verifier_jeton_identite
@@ -57,6 +58,23 @@ def poser_session(response: Response, acces: str, rafraichissement: str | None =
 def effacer_session(response: Response) -> None:
     _effacer(response, COOKIE_ACCES, CHEMIN_ACCES)
     _effacer(response, COOKIE_RAFRAICHISSEMENT, CHEMIN_RAFRAICHISSEMENT)
+
+
+# --- Connexion par mot de passe ----------------------------------------------
+
+@router.post("/connexion", response_model=UtilisateurOut, dependencies=[Depends(publique)])
+def connexion(body: ConnexionEntree, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Adresse e-mail et mot de passe. Succès : profil, rôle et permissions,
+    cookies de session posés. Refus : 401 neutre, 423 verrouillé, 403 désactivé."""
+    utilisateur = auth_service.connexion_mot_de_passe(db, body.email, body.mot_de_passe, request)
+    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
+    journal.inscrire(
+        db, "connexion", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+        details={"mode": "mot_de_passe", "adresse": utilisateur.email}, commit=False,
+    )
+    db.commit()
+    poser_session(response, acces, rafraichissement)
+    return UtilisateurOut.depuis(utilisateur)
 
 
 # --- Parcours Google -------------------------------------------------------

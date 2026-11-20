@@ -1,5 +1,5 @@
-"""Logique métier : rattachement d'une identité Google à un compte, sessions,
-administration des comptes et des rôles.
+"""Logique métier : connexion par mot de passe, rattachement d'une identité
+Google à un compte, sessions, administration des comptes et des rôles.
 
 Les erreurs destinées à l'API sont levées en `ApiError` (forme unique
 `{code, message}`) ; les refus de connexion en `RefusConnexion`, que la route
@@ -7,16 +7,18 @@ de retour traduit en redirection `/connexion?erreur=<code>`.
 """
 import hmac
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
-from sqlalchemy import func, select
 from fastapi import Request
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import auth_security as sec
 from .. import journal
-from ..auth_models import Permission, Role, SessionUtilisateur, Utilisateur, maintenant
+from ..auth_models import (
+    MODE_MOT_DE_PASSE, Permission, Role, SessionUtilisateur, Utilisateur, en_utc, maintenant,
+)
 from ..auth_schemas import (
     RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
 )
@@ -31,6 +33,94 @@ def normaliser_email(email: str) -> str:
 
 def par_email(db: Session, email: str) -> Utilisateur | None:
     return db.scalar(select(Utilisateur).where(func.lower(Utilisateur.email) == normaliser_email(email)))
+
+
+# --- Connexion par mot de passe ------------------------------------------------
+
+MESSAGE_IDENTIFIANTS = "Adresse e-mail ou mot de passe incorrect."
+
+
+def _identifiants_invalides() -> ApiError:
+    # Même code, même message que l'adresse soit inconnue, le mot de passe
+    # faux, absent ou non autorisé : le formulaire ne doit pas servir
+    # d'annuaire des comptes.
+    return ApiError(401, "identifiants_invalides", MESSAGE_IDENTIFIANTS)
+
+
+def connexion_mot_de_passe(
+    db: Session, email: str, mot_de_passe: str, request: Request | None = None
+) -> Utilisateur:
+    """Vérifie les identifiants et renvoie le compte. Les refus sont inscrits
+    au journal et VALIDÉS (compteur d'échecs, verrouillage) avant d'être levés.
+
+    Ordre des contrôles :
+    1. compte désactivé → 403, quels que soient les identifiants ;
+    2. compte verrouillé → 423, AVANT toute comparaison du mot de passe
+       (sinon un compte verrouillé répondrait 401 au mauvais mot de passe et
+       423 au bon, ce qui confirmerait le mot de passe) ;
+    3. comparaison bcrypt, qui tourne même sans compte (empreinte factice).
+    """
+    instant = maintenant()
+    adresse = normaliser_email(email)
+    utilisateur = db.scalar(
+        select(Utilisateur).where(func.lower(Utilisateur.email) == adresse).with_for_update()
+    )
+
+    def refus(erreur: ApiError, motif: str, **details) -> ApiError:
+        journal.inscrire(
+            db, "connexion", journal.REFUS, request=request,
+            utilisateur_id=utilisateur.id if utilisateur else None,
+            details={"mode": MODE_MOT_DE_PASSE, "code": erreur.code, "motif": motif,
+                     "adresse": adresse, **details},
+            commit=False,
+        )
+        db.commit()
+        return erreur
+
+    if utilisateur is not None and not utilisateur.actif:
+        raise refus(ApiError(
+            403, "compte_desactive",
+            "Ce compte est désactivé. Contactez l'administrateur du cabinet.",
+        ), "compte_desactive")
+
+    verrou = en_utc(utilisateur.verrouille_jusqu_a) if utilisateur is not None else None
+    if verrou is not None and verrou > instant:
+        secondes = max(1, int((verrou - instant).total_seconds()))
+        minutes = -(-secondes // 60)
+        raise refus(ApiError(
+            423, "compte_verrouille",
+            f"Trop de tentatives échouées. Réessayez dans {minutes} minute{'s' if minutes > 1 else ''}.",
+            details={"secondes_restantes": secondes},
+            headers={"Retry-After": str(secondes)},
+        ), "compte_verrouille")
+
+    empreinte = None
+    if utilisateur is not None and utilisateur.autorise(MODE_MOT_DE_PASSE):
+        empreinte = utilisateur.mot_de_passe
+    if not sec.verifier_mot_de_passe(mot_de_passe, empreinte):
+        if utilisateur is None:
+            raise refus(_identifiants_invalides(), "adresse_inconnue")
+        motif = (
+            "mode_non_autorise" if not utilisateur.autorise(MODE_MOT_DE_PASSE)
+            else "mot_de_passe_non_defini" if utilisateur.mot_de_passe is None
+            else "mot_de_passe_faux"
+        )
+        utilisateur.echecs_connexion = (utilisateur.echecs_connexion or 0) + 1
+        if utilisateur.echecs_connexion >= settings.echecs_avant_verrouillage:
+            utilisateur.verrouille_jusqu_a = instant + timedelta(minutes=settings.duree_verrouillage_minutes)
+            utilisateur.echecs_connexion = 0
+            journal.inscrire(
+                db, "verrouillage", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+                details={"jusqu_a": utilisateur.verrouille_jusqu_a.isoformat(),
+                         "echecs": settings.echecs_avant_verrouillage},
+                commit=False,
+            )
+        raise refus(_identifiants_invalides(), motif)
+
+    utilisateur.echecs_connexion = 0
+    utilisateur.verrouille_jusqu_a = None
+    utilisateur.derniere_connexion = instant
+    return utilisateur
 
 
 # --- Connexion Google ------------------------------------------------------

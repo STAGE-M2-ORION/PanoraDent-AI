@@ -394,7 +394,7 @@ def test_routes_publiques_attendues():
     assert publiques == {
         "/", "/api/v1/health",
         "/api/v1/auth/google/demarrer", "/api/v1/auth/google/retour",
-        "/api/v1/auth/rafraichir", "/api/v1/auth/deconnexion",
+        "/api/v1/auth/rafraichir", "/api/v1/auth/deconnexion", "/api/v1/auth/connexion",
         "/api/v1/auth/fake/autoriser", "/api/v1/auth/fake/valider",
         "/api/v1/test/courriels",  # montée seulement avec APP_ENV=test
     }

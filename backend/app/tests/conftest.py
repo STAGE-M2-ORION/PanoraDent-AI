@@ -38,6 +38,7 @@ from app.services import courriel
 
 ADMIN_EMAIL = "admin@cabinet.example.org"
 BASE = "/api/v1"
+MDP = "phrase de passe solide 2026"
 
 
 @pytest.fixture(autouse=True)
@@ -164,7 +165,35 @@ def connecte(nouveau_client, creer_compte):
     return _connecte
 
 
+@pytest.fixture()
+def compte_mdp(db):
+    """Crée directement en base un compte dont le mot de passe est déjà choisi."""
+    from sqlalchemy import select
+
+    from app import auth_security as sec
+    from app.auth_models import Role
+
+    def _creer(email: str, mot_de_passe: str = MDP, role: str = PRACTITIONER_ROLE,
+               modes=("mot_de_passe", "google"), **champs) -> Utilisateur:
+        role_id = db.scalar(select(Role.id).where(Role.libelle == role))
+        u = Utilisateur(
+            email=email, role_id=role_id, modes_connexion=list(modes),
+            mot_de_passe=sec.hacher_mot_de_passe(mot_de_passe) if "mot_de_passe" in modes else None,
+            **champs,
+        )
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        return u
+
+    return _creer
+
+
+def connexion_mdp(client: TestClient, email: str, mot_de_passe: str = MDP):
+    return client.post(f"{BASE}/auth/connexion", json={"email": email, "mot_de_passe": mot_de_passe})
+
+
 __all__ = [
-    "ADMIN_EMAIL", "BASE", "PRACTITIONER_ROLE", "VIEWER_ROLE", "Utilisateur",
+    "ADMIN_EMAIL", "BASE", "MDP", "connexion_mdp", "PRACTITIONER_ROLE", "VIEWER_ROLE", "Utilisateur",
     "connexion", "demarrer", "erreur",
 ]

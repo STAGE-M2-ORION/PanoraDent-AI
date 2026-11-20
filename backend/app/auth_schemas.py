@@ -103,6 +103,13 @@ class UtilisateurCreation(BaseModel):
     _modes = field_validator("modes_connexion")(_modes_valides)
 
 
+class ConnexionEntree(BaseModel):
+    """L'adresse n'est PAS validée comme e-mail : une adresse mal formée doit
+    recevoir le même refus neutre qu'une adresse inconnue, pas un 422."""
+    email: str = Field(max_length=320)
+    mot_de_passe: str = Field(max_length=1024)
+
+
 class UtilisateurModification(BaseModel):
     nom: str | None = Field(default=None, max_length=120)
     prenom: str | None = Field(default=None, max_length=120)
