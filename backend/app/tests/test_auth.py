@@ -170,7 +170,7 @@ def test_adresse_inconnue_refusee_et_aucun_compte_cree(client, db):
 
 def test_compte_desactive_refuse(admin, creer_compte, nouveau_client, db):
     compte = creer_compte("dr.martin@cabinet.example.org")
-    r = admin.patch(f"{BASE}/utilisateurs/{compte['id']}", json={"actif": False})
+    r = admin.patch(f"{BASE}/utilisateurs/{compte['id']}", json={"actif": False, "motif": "Départ du cabinet"})
     assert r.status_code == 200 and r.json()["actif"] is False
     assert erreur(connexion(nouveau_client(), "dr.martin@cabinet.example.org")) == "compte_desactive"
 
@@ -288,7 +288,7 @@ def test_desactivation_coupe_la_session_immediatement(admin, connecte, db):
     praticien = connecte("dr.leroy@cabinet.example.org")
     assert praticien.get(f"{BASE}/moi").status_code == 200
     uid = _user(db, "dr.leroy@cabinet.example.org").id
-    admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
+    admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False, "motif": "Départ du cabinet"})
     assert praticien.get(f"{BASE}/moi").status_code == 401
     assert praticien.post(f"{BASE}/auth/rafraichir").status_code == 401
 
@@ -433,7 +433,7 @@ def test_production_exige_secret_client_google_et_smtp():
 def test_pas_de_suppression_ni_de_retrait_de_son_propre_acces(admin, db):
     uid = _user(db, ADMIN_EMAIL).id
     roles = {r["libelle"]: r["id"] for r in admin.get(f"{BASE}/roles").json()}
-    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False, "motif": "Départ du cabinet"})
     assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
     r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"role_id": roles[PRACTITIONER_ROLE]})
     assert r.status_code == 400
@@ -617,9 +617,9 @@ def test_photo_refuse_les_fichiers_qui_ne_sont_pas_des_images(client, stockage):
 def test_admin_ne_se_desactive_pas_meme_avec_un_autre_admin(admin, creer_compte, db):
     creer_compte("admin2@cabinet.example.org", "Administrateur")
     uid = _user(db, ADMIN_EMAIL).id
-    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False, "motif": "Départ du cabinet"})
     assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
     assert _user(db, ADMIN_EMAIL).actif is True
     # Le dernier administrateur reste protégé quand un AUTRE tente de le retirer.
     autre = _user(db, "admin2@cabinet.example.org").id
-    assert admin.patch(f"{BASE}/utilisateurs/{autre}", json={"actif": False}).status_code == 200
+    assert admin.patch(f"{BASE}/utilisateurs/{autre}", json={"actif": False, "motif": "Départ du cabinet"}).status_code == 200

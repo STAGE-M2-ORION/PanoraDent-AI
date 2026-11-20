@@ -40,6 +40,12 @@ VIEWER_ROLE = "Lecteur"
 ADMIN_CAPABILITIES = frozenset({USER_MANAGE, ROLE_MANAGE})
 
 # libellé -> permissions
+SYSTEM_ROLE_DESCRIPTIONS: dict[str, str] = {
+    ADMIN_ROLE: "Gère les comptes, les rôles et la supervision de la plateforme.",
+    PRACTITIONER_ROLE: "Dépose, relit et clôture ses analyses, génère les comptes rendus.",
+    VIEWER_ROLE: "Consulte les analyses et la performance du modèle, en lecture seule.",
+}
+
 SYSTEM_ROLES: dict[str, frozenset[str]] = {
     ADMIN_ROLE: frozenset(PERMISSIONS),
     PRACTITIONER_ROLE: frozenset({

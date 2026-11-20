@@ -77,7 +77,9 @@ class Role(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     libelle: Mapped[str] = mapped_column(String(80), unique=True)
-    # Rôle système : ni supprimable, ni renommable.
+    # Phrase libre : à quoi sert ce rôle (affichée avec son résumé).
+    description: Mapped[str] = mapped_column(String(255), default="")
+    # Rôle système : ni modifiable (nom, description, permissions), ni supprimable.
     systeme: Mapped[bool] = mapped_column(Boolean, default=False)
 
     permissions: Mapped[list[Permission]] = relationship(

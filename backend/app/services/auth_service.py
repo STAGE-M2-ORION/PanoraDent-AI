@@ -21,7 +21,7 @@ from ..auth_models import (
     en_utc, maintenant,
 )
 from ..auth_schemas import (
-    RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
+    RoleCreation, RoleDuplication, RoleModification, UtilisateurCreation, UtilisateurModification,
 )
 from ..config import settings
 from ..errors import ApiError
@@ -398,10 +398,15 @@ def _est_role_admin(role: Role, permissions: set[str] | None = None) -> bool:
 
 
 def _admins_actifs(db: Session) -> list[Utilisateur]:
-    return [
-        u for u in db.scalars(select(Utilisateur).where(Utilisateur.actif.is_(True)))
-        if _est_role_admin(u.role)
-    ]
+    """Comptes actifs capables d'administrer, lus SOUS VERROU DE LIGNE : deux
+    administrateurs qui se désactivent au même instant se succèdent, et le
+    second voit la désactivation du premier (sinon la plateforme pourrait se
+    retrouver sans personne pour y entrer). Le verrou tient jusqu'à la fin de
+    la transaction de l'appelant. Sans effet sous SQLite (tests)."""
+    actifs = db.scalars(
+        select(Utilisateur).where(Utilisateur.actif.is_(True)).with_for_update(of=Utilisateur)
+    )
+    return [u for u in actifs if _est_role_admin(u.role)]
 
 
 def _dernier_admin() -> ApiError:
@@ -444,34 +449,114 @@ def creer_utilisateur(db: Session, data: UtilisateurCreation) -> Utilisateur:
 
 def modifier_utilisateur(
     db: Session, utilisateur: Utilisateur, data: UtilisateurModification, auteur: Utilisateur | None = None
-) -> Utilisateur:
+) -> tuple[Utilisateur, dict]:
+    """Applique la modification et renvoie `(compte, détails pour le journal)`.
+    Ne valide pas la transaction."""
     nouveau_role = _role(db, data.role_id) if data.role_id is not None else None
-    if auteur is not None and auteur.id == utilisateur.id:
+    change_role = nouveau_role is not None and nouveau_role.id != utilisateur.role_id
+    desactive = data.actif is False and utilisateur.actif
+    soi = auteur is not None and auteur.id == utilisateur.id
+    if soi:
         # On ne se retire pas soi-même l'accès : un autre administrateur doit le faire.
         if data.actif is False:
             raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas désactiver votre propre compte.")
-        if nouveau_role is not None and nouveau_role.id != utilisateur.role_id:
+        if change_role:
             raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas changer votre propre rôle.")
-    retire_admin = (
-        data.actif is False
-        or (nouveau_role is not None and not _est_role_admin(nouveau_role))
-    )
-    if retire_admin:
+    motif = (data.motif or "").strip()
+    if (desactive or change_role) and not motif:
+        raise ApiError(
+            422, "motif_requis",
+            "Indiquez le motif de la désactivation ou du changement de rôle : il est inscrit au journal.",
+        )
+    if desactive or (change_role and not _est_role_admin(nouveau_role)):
         verifier_pas_dernier_admin(db, utilisateur)
 
+    details: dict = {"champs": sorted(data.model_dump(exclude_none=True, exclude={"motif"}))}
+    if motif:
+        details["motif"] = motif
     if data.nom is not None:
         utilisateur.nom = data.nom.strip()
     if data.prenom is not None:
         utilisateur.prenom = data.prenom.strip()
-    if nouveau_role is not None:
+    if change_role:
+        details["role"] = {"avant": utilisateur.role.libelle, "apres": nouveau_role.libelle}
         utilisateur.role_id = nouveau_role.id
-    if data.actif is not None:
+    if data.modes_connexion is not None and data.modes_connexion != list(utilisateur.modes_connexion or []):
+        retires = [m for m in (utilisateur.modes_connexion or []) if m not in data.modes_connexion]
+        details["modes"] = {"avant": list(utilisateur.modes_connexion or []), "apres": data.modes_connexion}
+        # Un mode retiré emporte ce qui en dépend (la base l'exige de toute façon).
+        if MODE_MOT_DE_PASSE in retires:
+            utilisateur.mot_de_passe = None
+            utilisateur.doit_changer_mdp = False
+        if MODE_GOOGLE in retires:
+            utilisateur.google_sub = None
+            utilisateur.photo_google = None
+        utilisateur.modes_connexion = data.modes_connexion
+        if retires and not soi:
+            # Les sessions ouvertes par un mode retiré ne doivent pas survivre.
+            revoquer_sessions(db, utilisateur.id)
+    if data.actif is not None and data.actif != utilisateur.actif:
         utilisateur.actif = data.actif
         if not data.actif:
             revoquer_sessions(db, utilisateur.id)
     db.flush()
     db.refresh(utilisateur)
-    return utilisateur
+    return utilisateur, details
+
+
+def revoquer_sessions_compte(db: Session, utilisateur: Utilisateur) -> int:
+    """Ferme toutes les sessions ouvertes d'un compte ; renvoie leur nombre."""
+    ouvertes = db.scalars(select(SessionUtilisateur).where(
+        SessionUtilisateur.utilisateur_id == utilisateur.id, SessionUtilisateur.revoquee_le.is_(None),
+    )).all()
+    for session in ouvertes:
+        revoquer_session(session)
+    return len(ouvertes)
+
+
+def message_premier_acces(db: Session, utilisateur: Utilisateur) -> courriel.Courriel:
+    """Lien de première connexion (mode mot de passe) ou invitation Google.
+    Émet un nouveau lien : les précédents deviennent inutilisables."""
+    if utilisateur.autorise(MODE_MOT_DE_PASSE):
+        jeton = jetons.emettre(db, utilisateur, TypeJeton.premiere_connexion)
+        return courriel.premiere_connexion(
+            utilisateur.email, utilisateur.prenom, jetons.lien(TypeJeton.premiere_connexion, jeton),
+            google=utilisateur.autorise(MODE_GOOGLE),
+        )
+    return courriel.invitation_google(utilisateur.email, utilisateur.prenom, f"{settings.app_url.rstrip('/')}/connexion")
+
+
+def renvoyer_premier_acces(db: Session, utilisateur: Utilisateur) -> courriel.Courriel:
+    """Renvoi du lien de première connexion. Refusé pour un compte désactivé
+    ou qui a déjà choisi son mot de passe (il faut alors une réinitialisation)."""
+    if not utilisateur.actif:
+        raise ApiError(400, "compte_desactive", "Ce compte est désactivé : réactivez-le d'abord.")
+    if utilisateur.autorise(MODE_MOT_DE_PASSE) and utilisateur.mot_de_passe is not None:
+        raise ApiError(
+            400, "deja_active",
+            "Ce compte a déjà choisi son mot de passe : utilisez « Réinitialiser le mot de passe ».",
+        )
+    return message_premier_acces(db, utilisateur)
+
+
+def reinitialiser_par_admin(db: Session, utilisateur: Utilisateur, auteur: Utilisateur) -> courriel.Courriel:
+    """Réinitialisation décidée par l'administrateur : toutes les sessions du
+    compte sont fermées, un lien de réinitialisation (1 h) lui est envoyé, et
+    tant qu'il n'a pas choisi un nouveau mot de passe, toute connexion le
+    renvoie vers ce choix (`doit_changer_mdp`). L'administrateur ne voit ni ne
+    choisit jamais le mot de passe. Ne valide pas la transaction."""
+    if auteur.id == utilisateur.id:
+        raise ApiError(400, "action_sur_soi", "Changez votre propre mot de passe depuis votre profil.")
+    if not utilisateur.actif:
+        raise ApiError(400, "compte_desactive", "Ce compte est désactivé : réactivez-le d'abord.")
+    if not utilisateur.autorise(MODE_MOT_DE_PASSE):
+        raise ApiError(400, "mode_non_autorise", "Ce compte ne se connecte pas par mot de passe.")
+    revoquer_sessions_compte(db, utilisateur)
+    utilisateur.doit_changer_mdp = True
+    jeton = jetons.emettre(db, utilisateur, TypeJeton.reinitialisation)
+    return courriel.reinitialisation_par_admin(
+        utilisateur.email, utilisateur.prenom, jetons.lien(TypeJeton.reinitialisation, jeton)
+    )
 
 
 # --- Rôles -----------------------------------------------------------------
@@ -491,22 +576,49 @@ def _libelle_libre(db: Session, libelle: str, sauf: uuid.UUID | None = None) -> 
         raise ApiError(409, "libelle_deja_pris", "Un rôle porte déjà ce libellé.")
 
 
+def _role_systeme_verrouille() -> ApiError:
+    return ApiError(
+        400, "role_systeme",
+        "Les rôles système ne sont pas modifiables. Dupliquez-le pour créer un rôle personnalisé.",
+    )
+
+
 def creer_role(db: Session, data: RoleCreation) -> Role:
+    """Ne valide pas la transaction (l'appelant journalise puis valide)."""
     libelle = data.libelle.strip()
     _libelle_libre(db, libelle)
-    role = Role(libelle=libelle, systeme=False, permissions=_permissions(db, data.permissions))
+    role = Role(
+        libelle=libelle, description=data.description.strip(), systeme=False,
+        permissions=_permissions(db, data.permissions),
+    )
     db.add(role)
-    db.commit()
+    db.flush()
     db.refresh(role)
     return role
 
 
+def dupliquer_role(db: Session, source: Role, data: RoleDuplication) -> Role:
+    """Copie (personnalisée) d'un rôle, système ou non : mêmes permissions,
+    même description. Sans libellé : « Copie de X », numérotée si besoin."""
+    if data.libelle:
+        libelle = data.libelle.strip()
+    else:
+        base = f"Copie de {source.libelle}"[:80]
+        libelle, n = base, 2
+        while db.scalar(select(Role.id).where(func.lower(Role.libelle) == libelle.lower())):
+            libelle = f"{base[:74]} ({n})"
+            n += 1
+    return creer_role(db, RoleCreation(
+        libelle=libelle, description=source.description or "", permissions=source.permission_codes,
+    ))
+
+
 def modifier_role(db: Session, role: Role, data: RoleModification) -> Role:
+    """Les trois rôles système sont figés — la base les marque (`systeme`), le
+    serveur refuse toute modification, quel que soit l'appelant. Ne valide pas
+    la transaction."""
     if role.systeme:
-        if data.libelle is not None and data.libelle.strip() != role.libelle:
-            raise ApiError(400, "role_systeme", "Un rôle système ne peut pas être renommé.")
-        if role.libelle == ADMIN_ROLE and data.permissions is not None:
-            raise ApiError(400, "role_systeme", "Les permissions du rôle Administrateur sont fixes.")
+        raise _role_systeme_verrouille()
 
     if data.libelle is not None:
         _libelle_libre(db, data.libelle.strip(), sauf=role.id)
@@ -524,17 +636,21 @@ def modifier_role(db: Session, role: Role, data: RoleModification) -> Role:
 
     if data.libelle is not None:
         role.libelle = data.libelle.strip()
-    db.commit()
+    if data.description is not None:
+        role.description = data.description.strip()
+    db.flush()
     db.refresh(role)
     return role
 
 
 def supprimer_role(db: Session, role: Role) -> None:
+    """Ne valide pas la transaction."""
     if role.systeme:
         raise ApiError(400, "role_systeme", "Un rôle système ne peut pas être supprimé.")
     if role.utilisateurs:
         raise ApiError(
-            400, "role_utilise", f"Rôle encore attribué à {len(role.utilisateurs)} utilisateur(s)."
+            400, "role_utilise",
+            f"Rôle encore attribué à {len(role.utilisateurs)} compte(s) : attribuez-leur un autre rôle d'abord.",
         )
     db.delete(role)
-    db.commit()
+    db.flush()

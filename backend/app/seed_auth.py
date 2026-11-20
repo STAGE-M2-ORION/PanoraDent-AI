@@ -3,9 +3,9 @@
 Chaque insertion vérifie d'abord l'existence de la ligne :
 
 - les huit permissions (le libellé est resynchronisé) ;
-- les trois rôles système ; le rôle Administrateur est toujours resynchronisé
-  sur TOUTES les permissions, Praticien et Lecteur ne sont plus modifiés une
-  fois créés (pour ne pas écraser les réglages d'un administrateur) ;
+- les trois rôles système, toujours resynchronisés (permissions et
+  description) : ils ne sont pas modifiables depuis l'application, c'est donc
+  ce fichier qui fait foi ;
 - le compte administrateur dont l'adresse vient de ADMIN_EMAIL, avec les
   deux modes de connexion autorisés. S'il existe déjà, seuls ses modes sont
   complétés ; il est rétabli s'il n'y a plus aucun administrateur actif.
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from .auth_models import MODES_CONNEXION, Permission, Role, TypeJeton, Utilisateur
 from .config import settings
 from .database import SessionLocal
-from .permissions import ADMIN_CAPABILITIES, ADMIN_ROLE, PERMISSIONS, SYSTEM_ROLES
+from .permissions import ADMIN_CAPABILITIES, ADMIN_ROLE, PERMISSIONS, SYSTEM_ROLE_DESCRIPTIONS, SYSTEM_ROLES
 from .services import jetons
 from .services.auth_service import par_email
 
@@ -47,13 +47,12 @@ def seed_roles(db: Session, perms: dict[str, Permission]) -> dict[str, Role]:
     for libelle, codes in SYSTEM_ROLES.items():
         role = roles.get(libelle)
         if role is None:
-            role = Role(libelle=libelle, systeme=True, permissions=[perms[c] for c in sorted(codes)])
+            role = Role(libelle=libelle, systeme=True)
             db.add(role)
             roles[libelle] = role
-        else:
-            role.systeme = True
-            if libelle == ADMIN_ROLE:
-                role.permissions = [perms[c] for c in sorted(codes)]
+        role.systeme = True
+        role.description = SYSTEM_ROLE_DESCRIPTIONS[libelle]
+        role.permissions = [perms[c] for c in sorted(codes)]
     db.flush()
     return roles
 

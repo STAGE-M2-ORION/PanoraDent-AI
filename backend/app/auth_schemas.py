@@ -188,26 +188,43 @@ class PremiereConnexionEntree(BaseModel):
 
 
 class UtilisateurModification(BaseModel):
+    """`motif` est obligatoire pour une désactivation ou un changement de rôle :
+    il est inscrit au journal avec l'action."""
     nom: str | None = Field(default=None, max_length=120)
     prenom: str | None = Field(default=None, max_length=120)
     role_id: uuid.UUID | None = None
     actif: bool | None = None
+    modes_connexion: list[ModeConnexion] | None = None
+    motif: str | None = Field(default=None, max_length=500)
+
+    @field_validator("modes_connexion")
+    @classmethod
+    def _modes(cls, modes):
+        return None if modes is None else _modes_valides(modes)
 
 
 class RoleCreation(BaseModel):
     libelle: str = Field(min_length=2, max_length=80)
+    description: str = Field(default="", max_length=255)
     permissions: list[str] = []
 
 
 class RoleModification(BaseModel):
     """`permissions`, s'il est fourni, REMPLACE l'ensemble des permissions."""
     libelle: str | None = Field(default=None, min_length=2, max_length=80)
+    description: str | None = Field(default=None, max_length=255)
     permissions: list[str] | None = None
+
+
+class RoleDuplication(BaseModel):
+    """Sans libellé : « Copie de <rôle> » (numérotée si elle existe déjà)."""
+    libelle: str | None = Field(default=None, min_length=2, max_length=80)
 
 
 class RoleOut(BaseModel):
     id: uuid.UUID
     libelle: str
+    description: str
     systeme: bool
     permissions: list[str]
     nb_utilisateurs: int
@@ -217,6 +234,7 @@ class RoleOut(BaseModel):
         return cls(
             id=role.id,
             libelle=role.libelle,
+            description=role.description or "",
             systeme=role.systeme,
             permissions=role.permission_codes,
             nb_utilisateurs=len(role.utilisateurs),

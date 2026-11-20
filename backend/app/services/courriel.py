@@ -119,6 +119,20 @@ def invitation_google(destinataire: str, prenom: str | None, lien_connexion: str
     )
 
 
+def reinitialisation_par_admin(destinataire: str, prenom: str | None, lien: str) -> Courriel:
+    return _gabarit(
+        destinataire, "Votre mot de passe PanoraDent AI a été réinitialisé", _bonjour(prenom),
+        [
+            "L'administrateur du cabinet a réinitialisé le mot de passe de votre compte. "
+            "Vos sessions ouvertes ont été fermées.",
+            "Choisissez un nouveau mot de passe avec le lien ci-dessous : il est valable une heure "
+            "et ne sert qu'une fois. Passé ce délai, utilisez « Mot de passe oublié ».",
+        ],
+        "Choisir un nouveau mot de passe", lien,
+        "Si vous ne comprenez pas pourquoi, contactez l'administrateur de votre cabinet.",
+    )
+
+
 def reinitialisation(destinataire: str, prenom: str | None, lien: str) -> Courriel:
     return _gabarit(
         destinataire, "Réinitialisation de votre mot de passe PanoraDent AI", _bonjour(prenom),
