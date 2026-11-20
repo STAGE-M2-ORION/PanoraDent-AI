@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { DETECTION_TYPES, SimulatedPanoImage, detectionType } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
-import { isDashed, pct, renderAnnotatedPng } from "@/widgets/analysis-workspace";
+import { isDashed, pct, renderAnnotatedPng, screenToImage, zoomAround } from "@/widgets/analysis-workspace";
 
 const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted_tooth"];
 
@@ -62,10 +62,7 @@ export const Viewer = forwardRef(function Viewer(
     const r = stageRef.current.getBoundingClientRect();
     const x = px ?? r.width / 2;
     const y = py ?? r.height / 2;
-    setView((v) => {
-      const nz = Math.min(8, Math.max(0.5, v.zoom * factor));
-      return { ...v, zoom: nz, tx: x - (x - v.tx) * (nz / v.zoom), ty: y - (y - v.ty) * (nz / v.zoom) };
-    });
+    setView((v) => zoomAround(v, factor, x, y));
   }, []);
 
   // Molette : zoom (écouteur non passif pour empêcher le défilement de la page).
@@ -104,8 +101,7 @@ export const Viewer = forwardRef(function Viewer(
 
   const toImg = (e) => {
     const r = stageRef.current.getBoundingClientRect();
-    const k = W / view.base;
-    return { x: ((e.clientX - r.left - view.tx) / view.zoom) * k, y: ((e.clientY - r.top - view.ty) / view.zoom) * k };
+    return screenToImage({ x: e.clientX - r.left, y: e.clientY - r.top }, view, W);
   };
 
   const onPointerDown = (e) => {

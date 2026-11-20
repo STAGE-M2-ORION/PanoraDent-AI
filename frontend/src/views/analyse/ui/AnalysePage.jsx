@@ -8,7 +8,18 @@ import { Permission, displayName, useCurrentUser } from "@/entities/session";
 import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-import { buildAnnotations, downloadBlob, exportFileName, nearestTooth, pct, sortDetections, useAnalysisViewModel } from "@/widgets/analysis-workspace";
+import {
+  buildAnnotations,
+  downloadBlob,
+  exportFileName,
+  isVisible,
+  keyBelongsToField,
+  nearestTooth,
+  pct,
+  sortDetections,
+  stepDetection,
+  useAnalysisViewModel,
+} from "@/widgets/analysis-workspace";
 import { AssistantPane } from "./AssistantPane";
 import { DetectionsPane } from "./DetectionsPane";
 import { Odontogram } from "./Odontogram";
@@ -18,8 +29,6 @@ import { Viewer } from "./Viewer";
 const ALL_LAYERS = { tooth: true, caries: true, deep_caries: true, periapical_lesion: true, impacted_tooth: true };
 const NO_LAYER = Object.fromEntries(Object.keys(ALL_LAYERS).map((k) => [k, false]));
 
-/** Saisie en cours : les raccourcis de la visionneuse ne s'appliquent pas. */
-const isTyping = (el) => Boolean(el?.closest?.("input, textarea, select, [contenteditable='true']"));
 
 /** Durée de traitement lisible (« 3,2 s »). */
 const formatDuration = (ms) => `${(ms / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`;
@@ -78,7 +87,7 @@ export function AnalysePage() {
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const current = dets.find((d) => d.id === ui.sel);
-  const visible = (d) => ui.show[d.label] && (d.confidence == null || d.confidence >= ui.threshold);
+  const visible = (d) => isVisible(d, ui);
   const updateDet = (detId, change) => setDets((list) => list.map((d) => (d.id === detId ? { ...d, ...change } : d)));
 
   const restoreBackup = () => {
@@ -199,17 +208,14 @@ export function AnalysePage() {
 
   /** Détection suivante (+1) ou précédente (−1) parmi celles affichées, dans l'ordre de la liste. */
   const step = (dir) => {
-    const order = sortDetections(dets.filter(visible), ui.sort);
-    if (!order.length) return;
-    const i = order.findIndex((d) => d.id === ui.sel);
-    const next = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
-    select(order[next].id, true);
+    const next = stepDetection(dets.filter(visible), ui.sel, dir, ui.sort);
+    if (next) select(next, true);
   };
 
   // Raccourcis clavier de la visionneuse (sauf pendant une saisie ou une fenêtre ouverte).
   const keyRef = useRef(null);
   keyRef.current = (e) => {
-    if (!vm || pending || modal || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (!vm || pending || modal || e.ctrlKey || e.metaKey || e.altKey || keyBelongsToField(e.target, e.key)) return;
     if (ui.mode === "draw" || ui.mode === "drawn" || ui.mode === "correct") return;
     const k = e.key;
     if (k === "j" || k === "J" || k === "ArrowDown" || k === "ArrowRight") step(1);

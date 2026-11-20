@@ -91,6 +91,22 @@ export const STATUS_LABEL = { pending: "Non revue", validated: "Validée", corre
 export const isDashed = (d) => d.source === "user" || d.status === "corrected";
 export const pct = (n) => (n == null ? "—" : `${n} %`);
 
+/**
+ * Détection affichée : calque visible et confiance au-dessus du seuil (un
+ * ajout du praticien, sans confiance, est toujours affiché). Filtrage local,
+ * sans aucun appel au serveur.
+ */
+export const isVisible = (d, { show, threshold }) => Boolean(show[d.label]) && (d.confidence == null || d.confidence >= threshold);
+
+/** Identifiant de la détection suivante (`dir` = 1) ou précédente (−1) parmi `list`, en boucle. */
+export function stepDetection(list, selId, dir, sort) {
+  const order = sortDetections(list, sort);
+  if (!order.length) return null;
+  const i = order.findIndex((d) => d.id === selId);
+  const next = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
+  return order[next].id;
+}
+
 /** Tri de la liste : par dent, par confiance ou par statut. */
 export function sortDetections(list, sort) {
   const a = [...list];
