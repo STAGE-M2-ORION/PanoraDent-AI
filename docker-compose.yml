@@ -98,6 +98,8 @@ services:
       SMTP_UTILISATEUR: ${SMTP_UTILISATEUR:-}
       SMTP_MOT_DE_PASSE: ${SMTP_MOT_DE_PASSE:-}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      # Alerte d'administration au-delà de ce volume (Go) dans le stockage objet.
+      STOCKAGE_ALERTE_GO: ${STOCKAGE_ALERTE_GO:-50}
     depends_on:
       db:
         condition: service_healthy

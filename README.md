@@ -188,6 +188,9 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `IDENTITY_PROVIDER` | `google` | `fake` = fournisseur de remplacement des tests, **refusé hors** `APP_ENV=test` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` / `REFRESH_TOKEN_EXPIRE_DAYS` | `15` / `7` | Durée de vie des jetons |
 | `ALLOWED_ORIGINS` | `["http://localhost:3000"]` | Origines CORS, **au format JSON**. Sans effet derrière nginx (même origine) ; utile avec `next dev` |
+| `STOCKAGE_ALERTE_GO` | `50` | Seuil d'alerte (Go) du volume occupé dans le stockage objet (`GET /api/v1/stockage`) |
+| `PANORADENT_HOTE` | `panoradent.local` | Production : nom sous lequel les postes joignent le serveur, certificat émis par Caddy pour ce nom |
+| `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` | `80` / `443` | Production : ports publiés par Caddy |
 | `DB_PORT` | `5432` | Port PostgreSQL publié sur l'hôte (`5433` si un PostgreSQL local occupe déjà 5432) |
 
 **Écrites en dur dans [docker-compose.yml](docker-compose.yml)**, non
@@ -216,32 +219,27 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 | Méthode | Route | Description |
 |---|---|---|
 | `GET` | `/api/v1/health` | État backend + joignabilité et mode de l'inférence (timeout 3 s, erreurs absorbées) |
-| `POST` | `/api/v1/analyses` | Upload → anonymise, stocke, infère, persiste. Champ `file` |
-| `GET` | `/api/v1/analyses` | Liste des résumés, plus récentes d'abord |
-| `GET` | `/api/v1/analyses/{id}` | Détail + détections |
-| `GET` | `/api/v1/analyses/{id}/image` | URL présignée (1 h) vers le PNG |
-| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée |
+| `POST` | `/api/v1/analyses/apercu` | Contrôle et anonymisation, **sans rien stocker** : aperçu avant / après (data URL JPEG) et zones masquées. Champs `fichier`, `masques` (JSON) — `analysis:create` |
+| `POST` | `/api/v1/analyses` | Confirmation : même fichier + `masques`, `date_examen`, `note` ; ré-anonymisation, stockage de la seule image masquée, inférence, `201` — `analysis:create` |
+| `GET` | `/api/v1/analyses` | Analyses du cabinet, plus récentes d'abord ; `?mine=true` : les siennes — `analysis:read` |
+| `GET` | `/api/v1/analyses/{id}` | Détail + détections, référence, déposant — `analysis:read` |
+| `GET` | `/api/v1/analyses/{id}/image` | URL présignée (1 h) de la version d'affichage ; `?taille=pleine` pour la pleine résolution — `analysis:read` |
+| `DELETE` | `/api/v1/analyses/{id}` | Déposant ou administrateur ; efface image, version d'affichage et compte rendu **puis** la ligne — `analysis:delete` |
+| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée — `report:generate` |
+| `GET` | `/api/v1/stockage` | Volume occupé dans le stockage objet, alerte au-delà de `STOCKAGE_ALERTE_GO` — `user:manage` |
 | `GET` | `/api/v1/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
 Les routes image et rapport renvoient `{"url": "…"}` — une URL présignée valable
 **3600 s**, pas une redirection ni le binaire.
 
-```json
-// POST /api/v1/analyses
-{ "id": "9f1c…", "image_key": "images/9f1c….png", "report_key": null,
-  "model_version": "mock-0.0.0", "inference_mode": "mock",
-  "width": 1024, "height": 512,
-  "detections": [ { "label": "tooth", "fdi": 11, "confidence": 0.94,
-                    "x": 64, "y": 180, "w": 64, "h": 85,
-                    "reviewed": false, "source": "model" } ] }
-```
-
-| Code | Cas |
+| Code | Cas (import) |
 |---|---|
-| `400` | Fichier vide |
-| `404` | `analysis_id` inconnu |
-| `422` | Champ `file` absent (validation FastAPI) |
-| `500` | Image/DICOM illisible, inférence indisponible, stockage injoignable |
+| `413 fichier_trop_volumineux` | Plus de 20 Mo (refusé avant lecture du corps ; nginx borne aussi à 21 Mo) |
+| `415 format_non_pris_en_charge` | Ni PNG, ni JPEG, ni DICOM d'après les premiers octets (l'extension est ignorée) |
+| `422 image_trop_petite` / `image_illisible` / `fichier_vide` / `masques_invalides` | Moins de 800 × 400 px, image ou DICOM illisible, fichier vide, masque mal formé |
+| `403` | Suppression par quelqu'un d'autre que le déposant ou un administrateur |
+| `503 inference_indisponible` | Le service d'analyse ne répond pas : **rien n'est conservé** |
+| `503 stockage_indisponible` | Suppression impossible : la ligne est gardée tant que les objets n'ont pas disparu |
 
 Schémas : [`backend/app/schemas.py`](backend/app/schemas.py).
 
@@ -439,8 +437,12 @@ sprint.
 [`backend/app/models.py`](backend/app/models.py) (SQLAlchemy 2.0), migré par
 Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
 
-- **`analyses`** — `id` (UUID), `created_at`, `image_key`, `report_key?`,
-  `model_version`, `inference_mode` (`mock` | `real`), `width`, `height`.
+- **`analyses`** (migration `0007_analyse_import`) — `id` (UUID), `created_at`,
+  `reference` (anonyme, unique, `PDX-AAAA-NNNN`), `utilisateur_id` (déposant,
+  `SET NULL`), `date_examen?`, `note`, `image_key` (pleine résolution),
+  `image_affichage_key?` (3 000 px), `report_key?`, `masques` (zones masquées à
+  l'import, en fractions), `model_version`, `inference_mode` (`mock` | `real`),
+  `width`, `height`.
 - **`detections`** — `id`, `analysis_id` (FK `ON DELETE CASCADE`), `label`,
   `fdi?`, `confidence` (0–1), `x`/`y`/`w`/`h` en pixels, `reviewed` (défaut
   `false`), `source` (`model` | `human`). Relation en
@@ -462,7 +464,11 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   `google_sub` seulement si le mode `google` l'est.
 
 > Les tables d'analyse ne contiennent aucune donnée identifiante patient : ni nom,
-> ni identifiant, ni date de naissance, ni date d'examen. Les tables
+> ni identifiant, ni date de naissance, ni nom de fichier. La date d'examen (prévue
+> par le plan, facultative) et la note libre sont les seuls champs saisis ; l'écran
+> rappelle de n'y inscrire aucune donnée qui identifie le patient. Le
+> rapprochement avec le dossier du patient se fait au cabinet, par la référence
+> anonyme. Les tables
 > d'authentification ne décrivent que les comptes des utilisateurs de la plateforme
 > (praticiens, administrateurs), jamais des patients.
 
@@ -634,7 +640,12 @@ se reconnecte, puis entre avec Google sur le même compte
 l'administrateur crée un rôle personnalisé (rôles système verrouillés, nom déjà
 pris refusé), l'attribue avec un motif, le titulaire voit sa navigation changer à
 sa connexion suivante et l'écran « Accès refusé » sur une page qui ne lui est plus
-permise, puis le compte est désactivé avec motif et ne peut plus entrer. Sur un poste qui fait
+permise, puis le compte est désactivé avec motif et ne peut plus entrer
+([parcours-import.spec.js](frontend/e2e/parcours-import.spec.js), sprint 3) : un PDF
+et une image de 400 px sont refusés avec leur message, l'aperçu montre les deux
+inscriptions masquées, un masque se trace puis se retire, l'abandon ne laisse
+aucune analyse, la confirmation donne une référence anonyme retrouvée dans « Mes
+analyses », puis le déposant la supprime. Sur un poste qui fait
 déjà tourner la stack de développement, la stack de test est un projet séparé
 (sa propre base) sur le port 3100 :
 
@@ -647,7 +658,8 @@ docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml
 La CI ([ci.yml](.github/workflows/ci.yml)) exécute sur `push` vers `main` et
 chaque pull request : `backend` (pytest), `inference` (pytest), `frontend`
 (`npm ci`, `npm test`, build), `compose-build`, puis `e2e` (stack de test +
-Playwright). **Le pipeline [`training/`](training/) n'est pas couvert** : il exige
+Playwright) et `https` (stack de production avec Caddy sur 8080 / 8443 :
+[verifier-https.sh](scripts/verifier-https.sh), et aucun autre port ouvert sur l'hôte). **Le pipeline [`training/`](training/) n'est pas couvert** : il exige
 torch et un GPU.
 
 ---
@@ -699,22 +711,32 @@ le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko
 
 ## Sécurité & conformité
 
-- **Anonymisation à l'import, avant tout stockage.** DICOM : tags identifiants
-  écrasés (`PatientName`, `PatientID`, `PatientBirthDate`, `StudyDate`,
-  `InstitutionName`… — liste complète dans
-  [anonymize.py](backend/app/services/anonymize.py)). Toutes images : EXIF
-  supprimé par ré-encodage PNG. Seuls les pixels sont conservés.
+- **Anonymisation à l'import, avant tout stockage**
+  ([anonymize.py](backend/app/services/anonymize.py)). Type lu dans les premiers
+  octets, 20 Mo au plus. Seuls les pixels sont conservés : en-têtes DICOM (nom,
+  identifiant, date de naissance…), EXIF et métadonnées disparaissent, l'image est
+  ré-encodée en PNG. Les **inscriptions incrustées** (bandes du haut et du bas)
+  sont repérées par seuillage et composantes connexes, sans OCR, et masquées en
+  noir plein ; le praticien vérifie l'aperçu avant / après et peut ajouter des
+  masques à la main (il ne peut pas retirer un masque automatique).
+- **Rien n'est stocké avant confirmation**, et **le fichier reçu n'est jamais
+  écrit sur le disque**, même temporairement : il reste en mémoire (Starlette
+  configuré pour ne pas le déverser jusqu'à 21 Mo, envois plus gros refusés avant
+  lecture). L'original n'est jamais conservé ; la clé de stockage est tirée au
+  hasard, le nom du fichier n'est pas gardé.
+- **Suppression complète** : image, version d'affichage et compte rendu sont
+  effacés du stockage avant la ligne en base.
 - **Aucune donnée identifiante en base** : métadonnées techniques et
   coordonnées de boîtes uniquement.
 - **Images et rapports dans le stockage objet**, accessibles uniquement par URL
   présignée à durée limitée (1 h, signature v4).
 - **Mention légale** imprimée en pied de chaque PDF.
 
-> ⚠️ **Les annotations incrustées dans les pixels ne sont pas retirées.**
-> Certaines panoramiques portent le nom du patient ou l'établissement gravés
-> dans l'image. Ces incrustations survivent au pipeline et se retrouvent dans le
-> stockage **et dans le PDF**. Un masquage de zone est nécessaire avant tout
-> usage sur données réelles.
+> ⚠️ **Masquage des inscriptions : à valider sur de vrais clichés.** La détection
+> est éprouvée sur des panoramiques fabriquées (texte clair sur bordure noire, en
+> haut et en bas). Un texte posé ailleurs, ou sombre sur fond clair, peut lui
+> échapper : c'est pourquoi le praticien vérifie l'aperçu et peut tracer un masque
+> avant de confirmer.
 
 ### Avant toute mise en production
 
@@ -722,25 +744,52 @@ Cette configuration vise le **développement local** :
 
 - [x] CORS restreint à `ALLOWED_ORIGINS` (plus de `*`).
 - [ ] Définir `APP_ENV=production`, un `JWT_SECRET` aléatoire et `COURRIEL_MODE=smtp` avec `SMTP_*` (le backend refuse sinon de démarrer) ; changer `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`/`S3_SECRET_KEY` ; déclarer l'URI de redirection du cabinet dans la console Google.
-- [ ] Ne plus exposer `5432`, `9000`, `9001`, `8001` sur l'hôte.
-- [ ] Activer HTTPS (terminaison TLS devant nginx).
+- [x] Ne plus exposer `5432`, `9000`, `9001`, `8001`, `8000`, `3000` sur l'hôte : `docker-compose.prod.yml`.
+- [x] HTTPS : Caddy devant nginx, autorité interne, en-têtes de sécurité — voir [HTTPS au cabinet](#https-au-cabinet).
 - [x] Connexion par mot de passe (bcrypt, verrouillage, liens à usage unique) et par Google, contrôle d'accès par permissions — voir plus haut.
 - [x] Jetons en cookies `httpOnly; Secure; SameSite=Lax`.
 - [x] Journal des connexions, refus, verrouillages, liens et changements de mot de passe (table `journal`) ; l'écran viendra plus tard.
 - [ ] 2FA (travaux futurs).
-- [ ] Traiter les annotations incrustées dans les pixels.
+- [x] Masquer les inscriptions incrustées dans les pixels (à valider sur de vrais clichés).
 - [ ] Héberger dans l'UE (RGPD), chiffrement au repos côté S3.
 - [ ] Journalisation d'audit, rétention, sauvegardes.
 - [ ] Épingler les images de base (`pgsty/minio:latest` n'est pas reproductible).
+
+### HTTPS au cabinet
+
+Le serveur vit sur le réseau local du cabinet, sans nom de domaine public :
+[Caddy](caddy/Caddyfile) termine HTTPS avec **sa propre autorité de
+certification** (`tls internal`), sans rien demander à l'extérieur.
+
+1. Choisir le nom sous lequel les postes joindront le serveur (ex.
+   `panoradent.cabinet.lan`) et le déclarer dans le DNS du cabinet ou le fichier
+   `hosts` des postes. Dans `.env` : `PANORADENT_HOTE` = ce nom ;
+   `APP_URL=https://<nom>`, `GOOGLE_REDIRECT_URI=https://<nom>/api/v1/auth/google/retour`
+   (à déclarer aussi dans la console Google), `ALLOWED_ORIGINS=["https://<nom>"]`,
+   `APP_ENV=production` et les secrets.
+2. Démarrer : `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
+   Seuls 80 et 443 (Caddy) sont publiés ; HTTP est redirigé vers HTTPS (308).
+3. Récupérer le certificat racine de l'autorité interne :
+   `docker compose -f docker-compose.yml -f docker-compose.prod.yml cp caddy:/data/caddy/pki/authorities/local/root.crt panoradent-racine.crt`
+   et **l'installer une fois sur chaque poste** (Windows : double-clic ›
+   « Installer le certificat » › Ordinateur local › « Autorités de certification
+   racines de confiance » ; macOS : Trousseau d'accès › Système › « Toujours
+   approuver »). Le volume `caddy_data` contient cette autorité : le
+   **sauvegarder**, sinon il faudra réinstaller un nouveau certificat partout.
+4. Vérifier : `bash scripts/verifier-https.sh http://<nom> https://<nom>`
+   (redirection, HSTS, CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`,
+   `Permissions-Policy`, pas d'en-tête `Server`, certificat de l'autorité interne).
+   La CI le rejoue sur 8080 / 8443.
 
 ---
 
 ## Limites connues
 
 **Fonctionnel** — revue praticien non implémentée (colonnes `reviewed`/`source`
-présentes, aucune route ni UI d'édition) · permissions `detection:review` et `analysis:delete` définies mais sans route correspondante · pas de route
-`DELETE` · frontend mono-page, sans historique bien que `GET /api/v1/analyses`
-existe · table `model_versions` alimentée uniquement par
+présentes, aucune route ni UI d'édition) · permission `detection:review` définie
+mais sans route correspondante · l'analyse par le modèle est lancée à la
+confirmation de l'import, en direct (la file de traitement arrive au sprint 4) ·
+table `model_versions` alimentée uniquement par
 [`training/publish_model.py`](training/publish_model.py), sans page de
 restitution des métriques.
 
