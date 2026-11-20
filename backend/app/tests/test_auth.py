@@ -227,7 +227,7 @@ def test_sub_connu_avec_nouvelle_adresse_met_la_ligne_a_jour(client, nouveau_cli
 def test_adresse_connue_avec_un_autre_sub_refusee_et_journalisee(client, nouveau_client, db):
     assert erreur(connexion(client, ADMIN_EMAIL)) is None
     r = connexion(nouveau_client(), ADMIN_EMAIL, sub="un-autre-compte-google")
-    assert erreur(r) == "compte_inconnu"
+    assert erreur(r) == "google_non_rattache"
     ligne = _journal(db, "connexion")[-1]
     assert ligne.resultat == "refus" and "sub_different" in ligne.details["motif"]
     assert ligne.utilisateur_id == _user(db, ADMIN_EMAIL).id

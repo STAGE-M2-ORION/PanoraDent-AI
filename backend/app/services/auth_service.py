@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 from .. import auth_security as sec
 from .. import journal
 from ..auth_models import (
-    MODE_MOT_DE_PASSE, Permission, Role, SessionUtilisateur, TypeJeton, Utilisateur, en_utc,
-    maintenant,
+    MODE_GOOGLE, MODE_MOT_DE_PASSE, Permission, Role, SessionUtilisateur, TypeJeton, Utilisateur,
+    en_utc, maintenant,
 )
 from ..auth_schemas import (
     RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
@@ -253,10 +253,12 @@ def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, dict]:
         if utilisateur.google_sub is not None and utilisateur.google_sub != sub:
             # Même adresse, autre compte Google : on ne remplace pas une
             # identité établie sans l'administrateur.
-            raise RefusConnexion("compte_inconnu", f"sub_different {detail}", utilisateur.id)
+            raise RefusConnexion("google_non_rattache", f"sub_different {detail}", utilisateur.id)
 
     if not utilisateur.actif:
         raise RefusConnexion("compte_desactive", f"compte_desactive {detail}", utilisateur.id)
+    if not utilisateur.autorise(MODE_GOOGLE):
+        raise RefusConnexion("google_non_autorise", f"mode_non_autorise {detail}", utilisateur.id)
 
     if nouvelle_adresse is not None:
         details["ancienne_adresse"] = utilisateur.email
@@ -271,6 +273,36 @@ def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, dict]:
     utilisateur.photo_google = photo_google(claims)
     utilisateur.derniere_connexion = maintenant()
     return utilisateur, details
+
+
+def rattacher_google(db: Session, utilisateur: Utilisateur, claims: dict) -> dict:
+    """Rattache, depuis une session ouverte, le compte Google présenté (jeton
+    DÉJÀ VÉRIFIÉ) au compte de l'utilisateur. Le compte Google doit porter la
+    même adresse que le compte PanoraDent : c'est l'adresse que
+    l'administrateur a validée. Ne valide pas la transaction."""
+    sub = str(claims["sub"])
+    email = normaliser_email(str(claims["email"]))
+    details = {"adresse_google": email}
+    if not utilisateur.actif:
+        raise RefusConnexion("compte_desactive", "compte_desactive", utilisateur.id)
+    if not utilisateur.autorise(MODE_GOOGLE):
+        raise RefusConnexion("google_non_autorise", "mode_non_autorise", utilisateur.id)
+    if utilisateur.google_sub == sub:
+        return {**details, "deja_rattache": True}
+    if utilisateur.google_sub is not None:
+        raise RefusConnexion("google_non_rattache", "autre_compte_google_deja_rattache", utilisateur.id)
+    if email != normaliser_email(utilisateur.email):
+        raise RefusConnexion("google_non_rattache", f"adresse_differente adresse={email}", utilisateur.id)
+    autre = db.scalar(select(Utilisateur).where(Utilisateur.google_sub == sub))
+    if autre is not None:
+        raise RefusConnexion("google_non_rattache", "compte_google_deja_utilise", utilisateur.id)
+    utilisateur.google_sub = sub
+    utilisateur.photo_google = photo_google(claims)
+    if not utilisateur.prenom.strip():
+        utilisateur.prenom = str(claims.get("given_name") or "")[:120]
+    if not utilisateur.nom.strip():
+        utilisateur.nom = str(claims.get("family_name") or "")[:120]
+    return details
 
 
 def photo_google(claims: dict) -> str | None:

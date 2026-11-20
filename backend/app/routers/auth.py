@@ -24,6 +24,7 @@ from ..auth_schemas import (
 )
 from ..config import settings
 from ..database import get_db, get_session_factory
+from ..errors import ApiError
 from ..identity import ErreurEchange, ErreurJetonIdentite, fournisseur, verifier_jeton_identite
 from ..services import auth_service
 from ..services.auth_service import RefusConnexion
@@ -130,9 +131,21 @@ def premiere_connexion(body: PremiereConnexionEntree, request: Request, db: Sess
 # --- Parcours Google -------------------------------------------------------
 
 @router.get("/google/demarrer", dependencies=[Depends(publique)])
-def demarrer():
+def demarrer(request: Request, rattacher: bool = False, db: Session = Depends(get_db)):
     """Tire `state`, `nonce` et le couple PKCE ; les garde dans un cookie de
-    courte durée et renvoie le navigateur chez Google."""
+    courte durée et renvoie le navigateur chez Google.
+
+    `?rattacher=1` depuis une session ouverte : au retour, le compte Google
+    est rattaché au compte connecté au lieu d'ouvrir une nouvelle session."""
+    session_a_rattacher = None
+    if rattacher:
+        try:
+            session_ouverte(request, db)
+        except ApiError:
+            return RedirectResponse(
+                f"{settings.app_url}/connexion?erreur=session_expiree", status_code=status.HTTP_302_FOUND
+            )
+        session_a_rattacher = request.state.session_id
     if not settings.fournisseur_factice and not (
         settings.google_client_id and settings.google_client_secret
     ):
@@ -151,7 +164,7 @@ def demarrer():
         fournisseur().url_autorisation(state, nonce, challenge), status_code=status.HTTP_302_FOUND
     )
     _cookie(
-        response, COOKIE_OAUTH, sec.create_oauth_token(state, nonce, verifier),
+        response, COOKIE_OAUTH, sec.create_oauth_token(state, nonce, verifier, session_a_rattacher),
         CHEMIN_OAUTH, int(sec.OAUTH_TTL.total_seconds()),
     )
     return response
@@ -165,15 +178,17 @@ def retour(
     error: str | None = None,
     db: Session = Depends(get_db),
 ):
+    # Rattachement : on revient sur l'onglet Sécurité du profil, pas sur la connexion.
+    destination_refus = f"{settings.app_url}/connexion?erreur="
+    action = "connexion"
+
     def refus(code_erreur: str, motif: str, utilisateur_id=None) -> RedirectResponse:
         db.rollback()
         journal.inscrire(
-            db, "connexion", journal.REFUS, request=request, utilisateur_id=utilisateur_id,
+            db, action, journal.REFUS, request=request, utilisateur_id=utilisateur_id,
             details={"mode": "google", "code": code_erreur, "motif": motif},
         )
-        response = RedirectResponse(
-            f"{settings.app_url}/connexion?erreur={code_erreur}", status_code=status.HTTP_302_FOUND
-        )
+        response = RedirectResponse(f"{destination_refus}{code_erreur}", status_code=status.HTTP_302_FOUND)
         _effacer(response, COOKIE_OAUTH, CHEMIN_OAUTH)
         return response
 
@@ -184,6 +199,9 @@ def retour(
         return refus("etat_invalide", "cookie_oauth_absent_ou_expire")
     if not state or not hmac.compare_digest(state.encode(), str(transaction.get("state", "")).encode()):
         return refus("etat_invalide", "state_different")
+    if transaction.get("rattacher"):
+        destination_refus = f"{settings.app_url}/profil?onglet=securite&erreur="
+        action = "rattachement_google"
     if error:
         # Refus de consentement ou erreur côté Google.
         return refus("echec_google", f"google_error={error[:60]}")
@@ -202,7 +220,27 @@ def retour(
             return refus("adresse_non_verifiee", exc.motif)
         return refus("etat_invalide" if exc.motif in _MOTIFS_ETAT else "echec_google", exc.motif)
 
-    # 3. Rattachement à un compte existant — jamais de création ici.
+    # 3a. Rattachement demandé depuis une session ouverte (profil, première connexion).
+    if transaction.get("rattacher"):
+        session = auth_service.session_depuis_id(db, transaction["rattacher"])
+        if session is None or not session.valide():
+            return refus("session_expiree", "session_a_rattacher_invalide")
+        try:
+            details = auth_service.rattacher_google(db, session.utilisateur, claims)
+        except RefusConnexion as exc:
+            return refus(exc.code, exc.motif, exc.utilisateur_id)
+        journal.inscrire(
+            db, "rattachement_google", journal.SUCCES, request=request,
+            utilisateur_id=session.utilisateur_id, details=details, commit=False,
+        )
+        db.commit()
+        response = RedirectResponse(
+            f"{settings.app_url}/profil?onglet=securite&google=rattache", status_code=status.HTTP_302_FOUND
+        )
+        _effacer(response, COOKIE_OAUTH, CHEMIN_OAUTH)
+        return response
+
+    # 3b. Connexion : rattachement à un compte existant — jamais de création ici.
     try:
         utilisateur, details = auth_service.rattacher_identite(db, claims)
     except RefusConnexion as exc:

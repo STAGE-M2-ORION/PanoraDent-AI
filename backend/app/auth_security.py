@@ -174,8 +174,12 @@ def pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def create_oauth_token(state: str, nonce: str, code_verifier: str) -> str:
-    return _encode(
-        {"type": OAUTH, "sub": "oauth", "state": state, "nonce": nonce, "cv": code_verifier},
-        _now() + OAUTH_TTL,
-    )
+def create_oauth_token(
+    state: str, nonce: str, code_verifier: str, session_a_rattacher: uuid.UUID | None = None
+) -> str:
+    """`session_a_rattacher` : session ouverte qui demande à rattacher son
+    compte Google (au lieu d'ouvrir une nouvelle session au retour)."""
+    payload = {"type": OAUTH, "sub": "oauth", "state": state, "nonce": nonce, "cv": code_verifier}
+    if session_a_rattacher is not None:
+        payload["rattacher"] = str(session_a_rattacher)
+    return _encode(payload, _now() + OAUTH_TTL)
