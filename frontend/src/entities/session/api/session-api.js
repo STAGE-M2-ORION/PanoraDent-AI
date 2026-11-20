@@ -22,7 +22,7 @@ export async function fetchMe() {
 
 /**
  * `PUT /api/v1/moi/photo` — importe une photo de profil (JPEG, PNG ou WebP,
- * 5 Mo au plus). Le serveur la recadre en carré et la ré-encode ; elle passe
+ * 2 Mo au plus). Le serveur la recadre en carré et la ré-encode ; elle passe
  * avant la photo Google. Renvoie l'utilisateur à jour.
  */
 export async function uploadMyPhoto(file) {
@@ -32,10 +32,10 @@ export async function uploadMyPhoto(file) {
   return normalizeUser(data);
 }
 
-/** `DELETE /api/v1/moi/photo` — revient à la photo Google (ou aux initiales). */
+/** `DELETE /api/v1/moi/photo` (204) — revient à la photo Google (ou aux initiales). */
 export async function removeMyPhoto() {
-  const { data } = await httpClient.delete("/moi/photo");
-  return normalizeUser(data);
+  await httpClient.delete("/moi/photo");
+  return fetchMe();
 }
 
 /** `POST /api/v1/auth/deconnexion` — révoque la session et efface les cookies (204). */
@@ -79,6 +79,7 @@ export function normalizeUser(dto) {
     createdAt: dto.cree_le ? new Date(dto.cree_le) : null,
     // Photo importée, sinon photo du compte Google, sinon null (initiales).
     photoUrl: dto.photo_url ?? null,
+    photoThumbUrl: dto.photo_miniature_url ?? dto.photo_url ?? null,
     photoSource: dto.photo_source ?? null, // "importee" | "google" | null
   };
 }

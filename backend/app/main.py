@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
 from .auth_deps import publique
 from .config import settings
-from .routers import analyses, auth, boite_courriels, fake_idp, health, model, photos, roles, users
+from .routers import analyses, auth, boite_courriels, fake_idp, health, model, moi, photos, roles, users
 
 API_V1 = "/api/v1"
 
@@ -24,7 +24,7 @@ app.add_middleware(
 
 errors.install(app)
 
-for module in (health, analyses, model, users, roles, photos):
+for module in (health, analyses, model, users, roles, photos, moi):
     app.include_router(module.router, prefix=API_V1)
 app.include_router(auth.router, prefix=API_V1)
 app.include_router(auth.router_moi, prefix=API_V1)

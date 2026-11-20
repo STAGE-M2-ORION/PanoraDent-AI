@@ -575,31 +575,42 @@ def test_photo_importee_prioritaire_puis_retiree(client, nouveau_client, stockag
     assert r.status_code == 200, r.text
     moi = r.json()
     assert moi["photo_source"] == "importee" and moi["photo_url"].startswith(f"{BASE}/photos/")
-    (cle, contenu), = stockage.items()
-    with Image.open(io.BytesIO(contenu)) as img:
-        assert img.format == "WEBP" and img.size == (256, 256)
+    tailles = {}
+    for cle, contenu in stockage.items():
+        with Image.open(io.BytesIO(contenu)) as img:
+            assert img.format == "WEBP"
+            tailles[cle.endswith("_128.webp")] = img.size
+    assert tailles == {False: (256, 256), True: (128, 128)}  # photo + miniature
 
     image = client.get(moi["photo_url"])
     assert image.status_code == 200 and image.headers["content-type"] == "image/webp"
     assert nouveau_client().get(moi["photo_url"]).status_code == 401  # jamais sans session
+    miniature = client.get(moi["photo_miniature_url"])
+    with Image.open(io.BytesIO(miniature.content)) as img:
+        assert img.size == (128, 128)
 
     # Un nouvel import remplace l'ancien fichier et change l'URL.
     r2 = client.put(f"{BASE}/moi/photo", files={"fichier": ("b.png", _image("PNG"), "image/png")})
-    assert r2.json()["photo_url"] != moi["photo_url"] and len(stockage) == 1
+    assert r2.json()["photo_url"] != moi["photo_url"] and len(stockage) == 2
 
     r = client.delete(f"{BASE}/moi/photo")
-    assert r.status_code == 200
-    assert r.json()["photo_url"] == google and r.json()["photo_source"] == "google"
+    assert r.status_code == 204
+    moi = client.get(f"{BASE}/moi").json()
+    assert moi["photo_url"] == google and moi["photo_source"] == "google"
     assert stockage == {}
 
 
 def test_photo_refuse_les_fichiers_qui_ne_sont_pas_des_images(client, stockage):
     assert erreur(connexion(client, ADMIN_EMAIL)) is None
-    for nom, contenu in (("x.png", b"pas une image"), ("x.gif", _image("GIF")), ("vide.png", b"")):
+    # Le type réel est lu dans le contenu : l'extension .png ne trompe personne.
+    for nom, contenu in (("x.png", b"pas une image"), ("x.gif", _image("GIF"))):
         r = client.put(f"{BASE}/moi/photo", files={"fichier": (nom, contenu, "image/png")})
-        assert r.status_code == 422 and r.json()["code"] == "image_invalide", nom
-    r = client.put(f"{BASE}/moi/photo", files={"fichier": ("gros.png", b"0" * (5 * 1024 * 1024 + 1), "image/png")})
-    assert r.status_code == 413
+        assert r.status_code == 415 and r.json()["code"] == "format_non_pris_en_charge", nom
+    r = client.put(f"{BASE}/moi/photo", files={"fichier": ("vide.png", b"", "image/png")})
+    assert r.status_code == 422 and r.json()["code"] == "image_invalide"
+    for taille in (2 * 1024 * 1024 + 1, 8 * 1024 * 1024):
+        r = client.put(f"{BASE}/moi/photo", files={"fichier": ("gros.png", b"0" * taille, "image/png")})
+        assert r.status_code == 413 and r.json()["code"] == "fichier_trop_volumineux"
     assert stockage == {}
 
 

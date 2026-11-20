@@ -9,6 +9,26 @@ from .auth_models import MODES_CONNEXION, Role, Utilisateur, en_utc
 
 ModeConnexion = Literal["mot_de_passe", "google"]
 
+# Préférences par défaut : un compte qui n'a rien réglé les reçoit telles quelles.
+PREFERENCES_DEFAUT = {
+    "theme": "systeme",
+    "langue": "fr",
+    "seuil_confiance_defaut": 0.5,
+    "notifications": True,
+}
+
+
+def preferences_completes(preferences: dict | None) -> dict:
+    stockees = preferences or {}
+    return {cle: stockees.get(cle, defaut) for cle, defaut in PREFERENCES_DEFAUT.items()}
+
+
+def _url_photo(u: Utilisateur, taille: int | None = None) -> str:
+    # La clé change à chaque import : l'URL aussi, le cache navigateur suit.
+    jeton = u.photo_cle.rsplit("/", 1)[-1].split(".", 1)[0]
+    suffixe = f"&taille={taille}" if taille else ""
+    return f"/api/v1/photos/{u.id}?v={jeton}{suffixe}"
+
 
 def _modes_valides(modes: list[str]) -> list[str]:
     # Ordre canonique et sans doublon ; la base refuse de toute façon une liste vide.
@@ -53,18 +73,18 @@ class UtilisateurOut(BaseModel):
     cree_le: datetime
     # URL à afficher telle quelle : photo importée, sinon photo Google, sinon null.
     photo_url: str | None
+    # Miniature 128 px (avatars), même règle.
+    photo_miniature_url: str | None
     photo_source: str | None  # "importee" | "google" | None
 
     @classmethod
     def depuis(cls, u: Utilisateur) -> "UtilisateurOut":
         if u.photo_cle:
-            # La clé change à chaque import : l'URL aussi, le cache navigateur suit.
-            jeton = u.photo_cle.rsplit("/", 1)[-1].split(".", 1)[0]
-            photo_url, photo_source = f"/api/v1/photos/{u.id}?v={jeton}", "importee"
+            photo_url, miniature, photo_source = _url_photo(u), _url_photo(u, 128), "importee"
         elif u.photo_google:
-            photo_url, photo_source = u.photo_google, "google"
+            photo_url, miniature, photo_source = u.photo_google, u.photo_google, "google"
         else:
-            photo_url, photo_source = None, None
+            photo_url, miniature, photo_source = None, None, None
         return cls(
             id=u.id,
             email=u.email,
@@ -79,12 +99,13 @@ class UtilisateurOut(BaseModel):
             specialite=u.specialite,
             numero_ordre=u.numero_ordre,
             telephone=u.telephone,
-            preferences=dict(u.preferences or {}),
+            preferences=preferences_completes(u.preferences),
             role=RoleResume(id=u.role.id, libelle=u.role.libelle, systeme=u.role.systeme),
             permissions=u.permission_codes,
             derniere_connexion=en_utc(u.derniere_connexion),
             cree_le=en_utc(u.cree_le),
             photo_url=photo_url,
+            photo_miniature_url=miniature,
             photo_source=photo_source,
         )
 
@@ -108,6 +129,48 @@ class ConnexionEntree(BaseModel):
     recevoir le même refus neutre qu'une adresse inconnue, pas un 422."""
     email: str = Field(max_length=320)
     mot_de_passe: str = Field(max_length=1024)
+
+
+class ProfilModification(BaseModel):
+    """Champs absents : inchangés. `null` ou vide : effacé."""
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+
+    nom: str | None = Field(default=None, max_length=120)
+    prenom: str | None = Field(default=None, max_length=120)
+    titre: str | None = Field(default=None, max_length=80)
+    specialite: str | None = Field(default=None, max_length=120)
+    numero_ordre: str | None = Field(default=None, max_length=60)
+    telephone: str | None = Field(default=None, max_length=30, pattern=r"^[0-9+()./ -]*$")
+
+    @field_validator("titre", "specialite", "numero_ordre", "telephone")
+    @classmethod
+    def _vide_vers_null(cls, valeur: str | None) -> str | None:
+        return valeur or None
+
+
+class PreferencesModification(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    theme: Literal["clair", "sombre", "systeme"] | None = None
+    langue: Literal["fr", "en"] | None = None
+    # Seuil appliqué à l'ouverture d'une analyse.
+    seuil_confiance_defaut: float | None = Field(default=None, ge=0.05, le=0.95)
+    notifications: bool | None = None
+
+
+class ChangementMotDePasse(BaseModel):
+    # Facultatif seulement pour un compte qui n'a pas encore de mot de passe.
+    ancien: str | None = Field(default=None, max_length=1024)
+    nouveau: str = Field(max_length=1024)
+
+
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    agent: str | None
+    ip: str | None
+    cree_le: datetime
+    expire_le: datetime
+    courante: bool
 
 
 class OubliEntree(BaseModel):
