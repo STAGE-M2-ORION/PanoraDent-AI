@@ -6,12 +6,15 @@ Chaque insertion vérifie d'abord l'existence de la ligne :
 - les trois rôles système ; le rôle Administrateur est toujours resynchronisé
   sur TOUTES les permissions, Praticien et Lecteur ne sont plus modifiés une
   fois créés (pour ne pas écraser les réglages d'un administrateur) ;
-- le compte administrateur dont l'adresse vient de ADMIN_EMAIL — l'adresse
-  Google de l'administrateur, sans quoi personne ne peut ouvrir la première
-  session. S'il existe déjà, il n'est pas modifié, sauf s'il n'y a plus aucun
-  administrateur actif : il est alors rétabli.
+- le compte administrateur dont l'adresse vient de ADMIN_EMAIL, avec les
+  deux modes de connexion autorisés. S'il existe déjà, seuls ses modes sont
+  complétés ; il est rétabli s'il n'y a plus aucun administrateur actif.
 
-Aucun mot de passe : la connexion passe uniquement par Google.
+Tant que l'administrateur n'a pas choisi de mot de passe, un lien de première
+connexion (valable 24 h) est émis à chaque passage — ce qui invalide le
+précédent. Hors production il est affiché dans la console ; en production il
+n'est jamais écrit dans les journaux du conteneur. Le mode Google reste
+utilisable entre-temps.
 """
 import os
 
@@ -19,9 +22,11 @@ from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .auth_models import Permission, Role, Utilisateur
+from .auth_models import MODES_CONNEXION, Permission, Role, TypeJeton, Utilisateur
+from .config import settings
 from .database import SessionLocal
 from .permissions import ADMIN_CAPABILITIES, ADMIN_ROLE, PERMISSIONS, SYSTEM_ROLES
+from .services import jetons
 from .services.auth_service import par_email
 
 
@@ -60,26 +65,46 @@ def admin_actif_existe(db: Session) -> bool:
     )
 
 
-def seed_admin(db: Session, role_admin: Role, adresse: str | None) -> None:
+def seed_admin(db: Session, role_admin: Role, adresse: str | None) -> str | None:
+    """Renvoie le lien de première connexion émis, s'il y en a un."""
     adresse = (adresse or "").strip()
     if not adresse:
         if not admin_actif_existe(db):
             print("[seed_auth] ATTENTION : ADMIN_EMAIL est vide et aucun administrateur actif "
                   "n'existe. Personne ne pourra ouvrir la première session.")
-        return
+        return None
     try:
         email = validate_email(adresse, check_deliverability=False).normalized.lower()
     except EmailNotValidError as exc:
         raise SystemExit(f"[seed_auth] ADMIN_EMAIL invalide ({adresse!r}) : {exc}")
 
-    existant = par_email(db, email)
-    if existant is None:
-        db.add(Utilisateur(email=email, role_id=role_admin.id))
+    admin = par_email(db, email)
+    if admin is None:
+        admin = Utilisateur(email=email, role_id=role_admin.id, modes_connexion=list(MODES_CONNEXION))
+        db.add(admin)
+        db.flush()
         print(f"[seed_auth] compte administrateur créé : {email}")
-    elif not admin_actif_existe(db):
-        existant.role_id = role_admin.id
-        existant.actif = True
-        print(f"[seed_auth] aucun administrateur actif : {email} rétabli.")
+    else:
+        if not admin_actif_existe(db):
+            admin.role_id = role_admin.id
+            admin.actif = True
+            print(f"[seed_auth] aucun administrateur actif : {email} rétabli.")
+        modes = list(MODES_CONNEXION)
+        if admin.modes_connexion != modes:
+            admin.modes_connexion = modes
+            print(f"[seed_auth] {email} : modes de connexion {', '.join(modes)}.")
+
+    if admin.mot_de_passe is not None:
+        return None
+    if settings.app_env.lower() == "production":
+        # Un lien d'accès administrateur n'a rien à faire dans les journaux.
+        print(f"[seed_auth] {email} n'a pas encore de mot de passe : connectez-vous avec Google.")
+        return None
+    lien = jetons.lien(
+        TypeJeton.premiere_connexion, jetons.emettre(db, admin, TypeJeton.premiere_connexion)
+    )
+    print(f"[seed_auth] lien de première connexion pour {email} (24 h) :\n  {lien}")
+    return lien
 
 
 def main() -> None:

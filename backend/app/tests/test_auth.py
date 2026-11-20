@@ -440,6 +440,54 @@ def test_jeu_de_depart_rejouable(db):
     assert _user(db, ADMIN_EMAIL).actif is True
 
 
+def test_jeu_de_depart_admin_deux_modes_et_lien_hache(db):
+    """L'administrateur autorise les deux modes ; tant qu'il n'a pas de mot de
+    passe, chaque passage émet un lien de 24 h dont seule l'empreinte est
+    stockée, et qui remplace le précédent."""
+    from app import seed_auth
+    from app.auth_models import Jeton, TypeJeton, en_utc, maintenant
+
+    perms = seed_auth.seed_permissions(db)
+    roles = seed_auth.seed_roles(db, perms)
+    liens = []
+    for _ in range(2):
+        liens.append(seed_auth.seed_admin(db, roles["Administrateur"], ADMIN_EMAIL))
+        db.commit()
+
+    admin = _user(db, ADMIN_EMAIL)
+    assert admin.modes_connexion == ["mot_de_passe", "google"]
+    assert admin.mot_de_passe is None
+    jeton_clair = liens[-1].split("jeton=", 1)[1]
+    assert liens[-1].startswith("http://localhost:3000/premiere-connexion?jeton=")
+    (ligne,) = db.scalars(select(Jeton)).all()  # le premier lien a été invalidé
+    assert ligne.type == TypeJeton.premiere_connexion
+    assert ligne.empreinte != jeton_clair and len(ligne.empreinte) == 64
+    duree = en_utc(ligne.expiration) - maintenant()
+    assert 23.9 * 3600 < duree.total_seconds() <= 24 * 3600
+
+
+def test_jeu_de_depart_complete_les_modes_d_un_admin_google(db):
+    """Un administrateur venu du sprint « Google seul » reçoit aussi le mode mot de passe."""
+    from app import seed_auth
+    admin = _user(db, ADMIN_EMAIL)
+    admin.modes_connexion = ["google"]
+    db.commit()
+    perms = seed_auth.seed_permissions(db)
+    seed_auth.seed_admin(db, seed_auth.seed_roles(db, perms)["Administrateur"], ADMIN_EMAIL)
+    db.commit()
+    assert _user(db, ADMIN_EMAIL).modes_connexion == ["mot_de_passe", "google"]
+
+
+def test_jeu_de_depart_sans_lien_une_fois_le_mot_de_passe_choisi(db):
+    from app import seed_auth
+    admin = _user(db, ADMIN_EMAIL)
+    admin.mot_de_passe = "$2b$12$" + "x" * 53
+    db.commit()
+    perms = seed_auth.seed_permissions(db)
+    lien = seed_auth.seed_admin(db, seed_auth.seed_roles(db, perms)["Administrateur"], ADMIN_EMAIL)
+    assert lien is None
+
+
 # --- Rôles (sprint 2, déjà en place) ---------------------------------------
 
 def test_roles_systeme_et_crud(admin):
