@@ -1,7 +1,13 @@
-"""Jetons de la plateforme et primitives du parcours OAuth.
+"""Mots de passe, jetons de la plateforme et primitives du parcours OAuth.
 
-Google authentifie ; la plateforme gère la session avec ses propres jetons,
-signés HS256 avec JWT_SECRET et transportés uniquement en cookies httpOnly :
+Mots de passe : bcrypt (coût BCRYPT_COUT, 12 en service). La vérification
+tourne TOUJOURS, sur une empreinte factice quand le compte n'existe pas ou n'a
+pas de mot de passe : sans cela, le temps de réponse trahirait l'existence du
+compte et le message neutre ne servirait à rien.
+
+Quel que soit le mode de connexion, la plateforme gère la session avec ses
+propres jetons, signés HS256 avec JWT_SECRET et transportés uniquement en
+cookies httpOnly :
 
 - jeton d'accès (15 min) : identifiant utilisateur, session, rôle, permissions ;
 - jeton de rafraîchissement (7 j) : identifiant de session seulement ;
@@ -14,6 +20,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
 
 from .config import settings
@@ -24,6 +31,64 @@ OAUTH = "oauth"
 
 OAUTH_TTL = timedelta(minutes=10)
 
+
+# --- Mots de passe -----------------------------------------------------------
+
+LONGUEUR_MIN = 12
+# bcrypt ne lit que les 72 premiers octets : au-delà, deux mots de passe
+# différents auraient la même empreinte. On refuse plutôt que de tronquer.
+OCTETS_MAX = 72
+
+
+class MotDePasseTropFaible(ValueError):
+    """Le message s'affiche tel quel à l'utilisateur."""
+
+
+def verifier_politique(mot_de_passe: str, email: str | None = None) -> None:
+    """Douze caractères au moins, sans caractère spécial imposé : un
+    indicateur de robustesse guide côté écran, le serveur ne bloque que sur
+    la longueur (et l'évidence)."""
+    if len(mot_de_passe) < LONGUEUR_MIN:
+        raise MotDePasseTropFaible(f"Le mot de passe doit contenir au moins {LONGUEUR_MIN} caractères.")
+    if len(mot_de_passe.encode("utf-8")) > OCTETS_MAX:
+        raise MotDePasseTropFaible(f"Le mot de passe ne doit pas dépasser {OCTETS_MAX} octets.")
+    if len(set(mot_de_passe)) < 4:
+        raise MotDePasseTropFaible("Le mot de passe est trop répétitif.")
+    if email and mot_de_passe.strip().lower() in {email.lower(), email.split("@", 1)[0].lower()}:
+        raise MotDePasseTropFaible("Le mot de passe ne doit pas reprendre votre adresse e-mail.")
+
+
+def hacher_mot_de_passe(mot_de_passe: str) -> str:
+    return bcrypt.hashpw(
+        mot_de_passe.encode("utf-8"), bcrypt.gensalt(settings.bcrypt_cout)
+    ).decode("ascii")
+
+
+_EMPREINTE_FACTICE: bytes | None = None
+
+
+def _empreinte_factice() -> bytes:
+    # Calculée une fois, au même coût que les vraies : même temps de calcul.
+    global _EMPREINTE_FACTICE
+    if _EMPREINTE_FACTICE is None:
+        _EMPREINTE_FACTICE = hacher_mot_de_passe(secrets.token_urlsafe(24)).encode("ascii")
+    return _EMPREINTE_FACTICE
+
+
+def verifier_mot_de_passe(mot_de_passe: str, empreinte_stockee: str | None) -> bool:
+    """Compare en temps constant. Sans empreinte (compte inconnu, pas de mot
+    de passe), compare quand même contre l'empreinte factice et renvoie faux."""
+    candidat = mot_de_passe.encode("utf-8")[:OCTETS_MAX]
+    if empreinte_stockee is None:
+        bcrypt.checkpw(candidat, _empreinte_factice())
+        return False
+    try:
+        return bcrypt.checkpw(candidat, empreinte_stockee.encode("ascii"))
+    except ValueError:  # empreinte corrompue : jamais d'accès
+        return False
+
+
+# --- Jetons ------------------------------------------------------------------
 
 class TokenError(Exception):
     """Jeton illisible, expiré, de mauvais type ou falsifié."""

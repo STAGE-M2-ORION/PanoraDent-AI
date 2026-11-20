@@ -7,6 +7,7 @@ DEFAULT_JWT_SECRET = "change-me-in-prod"
 # d'identité de remplacement (voir `identity.py`).
 ENVIRONNEMENTS = {"development", "test", "production"}
 FOURNISSEURS = {"google", "fake"}
+MODES_COURRIEL = {"console", "memoire", "smtp"}
 
 
 class Settings(BaseSettings):
@@ -55,6 +56,27 @@ class Settings(BaseSettings):
     # adresse Google dont un compte existe peut se connecter.
     google_allowed_domain: str = ""
 
+    # --- Mots de passe -----------------------------------------------------
+    # Coût bcrypt : 12 en service. Les tests le baissent (BCRYPT_COUT=4) pour
+    # rester rapides ; la production refuse moins de 12.
+    bcrypt_cout: int = 12
+    # Verrouillage temporaire après N échecs consécutifs.
+    echecs_avant_verrouillage: int = 5
+    duree_verrouillage_minutes: int = 15
+
+    # --- E-mails -----------------------------------------------------------
+    # `console` : affichés dans les journaux du conteneur (développement) ;
+    # `memoire` : gardés en mémoire (tests) ; `smtp` : réellement envoyés.
+    courriel_mode: str = "console"
+    courriel_expediteur: str = "PanoraDent AI <no-reply@panoradent.local>"
+    smtp_hote: str = ""
+    smtp_port: int = 587
+    smtp_utilisateur: str = ""
+    # Ne vit que dans l'environnement du serveur, jamais dans le dépôt.
+    smtp_mot_de_passe: str = ""
+    # STARTTLS sur le port 587 ; mettre false uniquement pour un relais local.
+    smtp_starttls: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
@@ -70,7 +92,21 @@ class Settings(BaseSettings):
                 "IDENTITY_PROVIDER=fake n'est autorisé qu'avec APP_ENV=test : "
                 "le fournisseur de remplacement laisserait entrer n'importe qui."
             )
+        mode = self.courriel_mode.lower()
+        if mode not in MODES_COURRIEL:
+            raise ValueError(f"COURRIEL_MODE inconnu : {self.courriel_mode!r} ({', '.join(sorted(MODES_COURRIEL))}).")
+        if mode == "memoire" and env != "test":
+            raise ValueError("COURRIEL_MODE=memoire n'est autorisé qu'avec APP_ENV=test.")
+        if mode == "smtp" and not self.smtp_hote:
+            raise ValueError("SMTP_HOTE est obligatoire quand COURRIEL_MODE=smtp.")
         if env == "production":
+            if self.bcrypt_cout < 12:
+                raise ValueError("BCRYPT_COUT doit valoir au moins 12 quand APP_ENV=production.")
+            if mode != "smtp":
+                raise ValueError(
+                    "COURRIEL_MODE=smtp est obligatoire quand APP_ENV=production : "
+                    "les liens de première connexion et de réinitialisation partent par e-mail."
+                )
             if self.jwt_secret == DEFAULT_JWT_SECRET or len(self.jwt_secret) < 32:
                 raise ValueError(
                     "JWT_SECRET doit être défini (32 caractères minimum, aléatoire) "

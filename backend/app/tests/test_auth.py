@@ -408,14 +408,23 @@ def test_fournisseur_factice_refuse_hors_environnement_de_test():
                      jwt_secret="x" * 40, google_client_id="a", google_client_secret="b")
 
 
-def test_production_exige_secret_et_client_google():
+def test_production_exige_secret_client_google_et_smtp():
+    valide = dict(
+        app_env="production", identity_provider="google", jwt_secret="x" * 40,
+        google_client_id="a", google_client_secret="b", bcrypt_cout=12,
+        courriel_mode="smtp", smtp_hote="smtp.example.org",
+    )
+    Settings(**valide)
+    for defaut in (
+        {"google_client_id": ""},
+        {"jwt_secret": "court"},
+        {"courriel_mode": "console"},
+        {"smtp_hote": ""},
+    ):
+        with pytest.raises(ValidationError):
+            Settings(**{**valide, **defaut})
     with pytest.raises(ValidationError):
-        Settings(app_env="production", identity_provider="google", jwt_secret="x" * 40, google_client_id="")
-    with pytest.raises(ValidationError):
-        Settings(app_env="production", identity_provider="google", jwt_secret="court",
-                 google_client_id="a", google_client_secret="b")
-    Settings(app_env="production", identity_provider="google", jwt_secret="x" * 40,
-             google_client_id="a", google_client_secret="b")
+        Settings(app_env="development", identity_provider="google", courriel_mode="memoire")
 
 
 def test_pas_de_suppression_ni_de_retrait_de_son_propre_acces(admin, db):

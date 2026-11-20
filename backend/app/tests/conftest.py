@@ -16,6 +16,9 @@ os.environ["IDENTITY_PROVIDER"] = "fake"
 os.environ["GOOGLE_CLIENT_ID"] = "client-panoradent.apps.googleusercontent.com"
 os.environ["JWT_SECRET"] = "secret-de-test-suffisamment-long-0123456789"
 os.environ["APP_URL"] = "http://localhost:3000"
+# bcrypt au coût 4 : mêmes chemins de code, tests rapides (la production exige 12).
+os.environ["BCRYPT_COUT"] = "4"
+os.environ["COURRIEL_MODE"] = "memoire"
 
 from urllib.parse import parse_qs, urlparse
 
