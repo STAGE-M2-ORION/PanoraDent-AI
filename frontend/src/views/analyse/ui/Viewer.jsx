@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { DETECTION_TYPES, SimulatedPanoImage, detectionType } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
-import { isDashed, pct } from "@/widgets/analysis-workspace";
+import { isDashed, pct, renderAnnotatedPng } from "@/widgets/analysis-workspace";
 
 const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted_tooth"];
 
@@ -14,11 +14,12 @@ const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted
  * de large, puis mises à l'échelle de l'image réelle.
  */
 export const Viewer = forwardRef(function Viewer(
-  { vm, dets, visible, show, onToggleLayer, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
+  { vm, dets, visible, show, onToggleLayer, onToggleAll, onExport, exporting, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
   ref,
 ) {
   const stageRef = useRef(null);
   const wsRef = useRef(null);
+  const imageSvgRef = useRef(null);
   const ratio = vm ? vm.width / vm.height : 2;
   const W = vm?.width ?? 1200;
   const unit = W / 1200;
@@ -80,7 +81,17 @@ export const Viewer = forwardRef(function Viewer(
     return () => stage.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
+  const imageFilter = `brightness(${adjust.bright / 100}) contrast(${adjust.contrast / 100})${adjust.invert ? " invert(1)" : ""}`;
+
   useImperativeHandle(ref, () => ({
+    zoomIn: () => zoomAt(1.25),
+    zoomOut: () => zoomAt(0.8),
+    fit: () => layout(true),
+    /** PNG de l'image annotée, réglages de luminosité et contraste compris. */
+    exportPng(shapes) {
+      const source = vm.demo ? imageSvgRef.current : vm.imageUrl;
+      return renderAnnotatedPng(vm, shapes, { source, filter: imageFilter });
+    },
     /** Centre la vue sur un cadre (si l'image est zoomée). */
     centerOn(box) {
       const v = viewRef.current;
@@ -159,7 +170,7 @@ export const Viewer = forwardRef(function Viewer(
   const fs = (17 * unit) / view.zoom ** 0.75;
   const placed = [];
   const ordered = dets.filter(visible).sort((a, b) => (a.id === sel) - (b.id === sel));
-  const imageFilter = `brightness(${adjust.bright / 100}) contrast(${adjust.contrast / 100})${adjust.invert ? " invert(1)" : ""}`;
+  const allHidden = LAYERS.every((k) => !show[k]);
 
   return (
     <div className="viewer-col" ref={wsRef}>
@@ -232,7 +243,26 @@ export const Viewer = forwardRef(function Viewer(
             );
           })}
         </span>
+        <button
+          type="button"
+          className="vbtn outline"
+          aria-label={allHidden ? "Tout afficher" : "Tout masquer"}
+          title={`${allHidden ? "Tout afficher" : "Tout masquer"} (H)`}
+          onClick={onToggleAll}
+        >
+          <Icon name={allHidden ? "eye" : "eye-off"} />
+        </button>
         <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="vbtn"
+          onClick={onExport}
+          disabled={!vm || exporting}
+          aria-label={exporting ? "Export en cours" : "Exporter en PNG l’image annotée"}
+          title="Exporter en PNG l’image annotée, telle qu’affichée"
+        >
+          <Icon name="download" />
+        </button>
         <button type="button" className="vbtn" id="panelToggle" aria-label="Replier le panneau latéral" title="Replier le panneau" onClick={onTogglePanel}>
           <Icon name="panel" />
         </button>
@@ -250,7 +280,7 @@ export const Viewer = forwardRef(function Viewer(
         {vm ? (
           <div className="layer" style={{ width: view.base, height: view.base / ratio, transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.zoom})` }}>
             {vm.demo ? (
-              <svg viewBox={`0 0 ${vm.width} ${vm.height}`} aria-hidden="true" style={{ filter: imageFilter }}>
+              <svg ref={imageSvgRef} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${vm.width} ${vm.height}`} width={vm.width} height={vm.height} aria-hidden="true" style={{ filter: imageFilter }}>
                 <SimulatedPanoImage />
               </svg>
             ) : (
@@ -374,7 +404,9 @@ export const Viewer = forwardRef(function Viewer(
         <div className="stage-hint" role="status" data-show={hint ? "true" : "false"}>
           {hint}
         </div>
-        <span className="minimap-note">Molette : zoom · Glisser : déplacer{vm?.demo ? " · Image simulée" : ""}</span>
+        <span className="minimap-note">
+          Molette ou + / − : zoom · 0 : ajuster · J / K ou flèches : détection suivante / précédente · H : tout masquer{vm?.demo ? " · Image simulée" : ""}
+        </span>
         <div className="overlay-state" data-show={loading ? "true" : "false"}>
           <div style={{ width: "70%", display: "grid", gap: 12 }}>
             <div className="vskel" style={{ height: 260 }} />

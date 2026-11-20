@@ -2,18 +2,27 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Processing } from "@/entities/analysis";
 import { detectionType } from "@/entities/detection";
 import { Permission, displayName, useCurrentUser } from "@/entities/session";
 import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-import { nearestTooth, pct, sortDetections, useAnalysisViewModel } from "@/widgets/analysis-workspace";
+import { buildAnnotations, downloadBlob, exportFileName, nearestTooth, pct, sortDetections, useAnalysisViewModel } from "@/widgets/analysis-workspace";
 import { AssistantPane } from "./AssistantPane";
 import { DetectionsPane } from "./DetectionsPane";
 import { Odontogram } from "./Odontogram";
+import { ProcessingState } from "./ProcessingState";
 import { Viewer } from "./Viewer";
 
 const ALL_LAYERS = { tooth: true, caries: true, deep_caries: true, periapical_lesion: true, impacted_tooth: true };
+const NO_LAYER = Object.fromEntries(Object.keys(ALL_LAYERS).map((k) => [k, false]));
+
+/** Saisie en cours : les raccourcis de la visionneuse ne s'appliquent pas. */
+const isTyping = (el) => Boolean(el?.closest?.("input, textarea, select, [contenteditable='true']"));
+
+/** Durée de traitement lisible (« 3,2 s »). */
+const formatDuration = (ms) => `${(ms / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`;
 
 /** Poste de lecture : visionneuse, détections, relecture, assistant. */
 export function AnalysePage() {
@@ -48,6 +57,8 @@ export function AnalysePage() {
   const [reopenWhy, setReopenWhy] = useState("");
   const [toast, setToast] = useState(null); // { text, undo }
   const [question, setQuestion] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const pending = Boolean(vm && !vm.demo && vm.processing !== Processing.DONE);
   const backup = useRef(null);
   const toastTimer = useRef(null);
 
@@ -170,6 +181,52 @@ export function AnalysePage() {
     if (t) viewerRef.current?.centerOn(t.box);
   };
 
+  const toggleAll = () => patch((u) => ({ show: Object.values(u.show).some(Boolean) ? NO_LAYER : ALL_LAYERS }));
+
+  const exportPng = async () => {
+    if (!vm || exporting) return;
+    setExporting(true);
+    try {
+      const blob = await viewerRef.current.exportPng(buildAnnotations(vm, dets, { visible, show: ui.show }));
+      downloadBlob(blob, exportFileName(vm));
+      showToast("Image annotée exportée (PNG).");
+    } catch (cause) {
+      showToast(cause.message || "Export impossible.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  /** Détection suivante (+1) ou précédente (−1) parmi celles affichées, dans l'ordre de la liste. */
+  const step = (dir) => {
+    const order = sortDetections(dets.filter(visible), ui.sort);
+    if (!order.length) return;
+    const i = order.findIndex((d) => d.id === ui.sel);
+    const next = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
+    select(order[next].id, true);
+  };
+
+  // Raccourcis clavier de la visionneuse (sauf pendant une saisie ou une fenêtre ouverte).
+  const keyRef = useRef(null);
+  keyRef.current = (e) => {
+    if (!vm || pending || modal || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    if (ui.mode === "draw" || ui.mode === "drawn" || ui.mode === "correct") return;
+    const k = e.key;
+    if (k === "j" || k === "J" || k === "ArrowDown" || k === "ArrowRight") step(1);
+    else if (k === "k" || k === "K" || k === "ArrowUp" || k === "ArrowLeft") step(-1);
+    else if (k === "+" || k === "=") viewerRef.current?.zoomIn();
+    else if (k === "-" || k === "_") viewerRef.current?.zoomOut();
+    else if (k === "0") viewerRef.current?.fit();
+    else if (k === "h" || k === "H") toggleAll();
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e) => keyRef.current?.(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const total = dets.length;
   const done = dets.filter((d) => d.status !== "pending").length;
   const left = total - done;
@@ -184,7 +241,8 @@ export function AnalysePage() {
 
   const trace = vm ? (
     <span className="trace">
-      Modèle <span className="mono">{vm.modelVersion}</span> · seuil {pct(ui.threshold)} · analysée le {vm.date} à {vm.time} · {vm.teeth.length} dents numérotées
+      Modèle <span className="mono">{vm.modelVersion}</span> · seuil {pct(ui.threshold)} · analysée le {vm.date} à {vm.time}
+      {vm.durationMs != null ? ` en ${formatDuration(vm.durationMs)}` : ""} · {vm.teeth.length} dents numérotées
       {vm.demo ? " · données fictives" : " · relecture conservée pour cette session"}
     </span>
   ) : null;
@@ -198,9 +256,15 @@ export function AnalysePage() {
       <div className="head-meta">
         <Badge className="mono">Référence {vm?.ref ?? "…"}</Badge>
         <Badge>{vm?.date ?? ""}</Badge>
-        <Badge tone={ui.closed ? "success" : "info"} dot>
-          {ui.closed ? "Clôturée" : "Relecture en cours"}
-        </Badge>
+        {pending ? (
+          <Badge tone={vm.processing === Processing.FAILED ? "danger" : "info"} dot>
+            {vm.processing === Processing.FAILED ? "Échec de l’analyse" : "Analyse en cours"}
+          </Badge>
+        ) : (
+          <Badge tone={ui.closed ? "success" : "info"} dot>
+            {ui.closed ? "Clôturée" : "Relecture en cours"}
+          </Badge>
+        )}
         {!canReview ? (
           <Badge tone="warning">
             <Icon name="eye" />
@@ -213,7 +277,7 @@ export function AnalysePage() {
   );
 
   const reportHref = vm?.id ? `/compte-rendu?id=${vm.id}` : "/compte-rendu";
-  const headerActions = (
+  const headerActions = pending ? null : (
     <div className="head-actions">
       {canReport || vm?.demo ? (
         <Button size="sm" variant={ui.closed ? "primary" : "secondary"} href={reportHref}>
@@ -313,6 +377,11 @@ export function AnalysePage() {
         </>
       }
     >
+      {pending ? (
+        <section className="ws" aria-label="Suivi de l’analyse">
+          <ProcessingState vm={vm} canLaunch={can(Permission.ANALYSIS_CREATE)} onDone={reload} />
+        </section>
+      ) : (
       <section className="ws" aria-label="Espace de lecture">
         <div className="strip">
           {ui.closed ? (
@@ -370,6 +439,9 @@ export function AnalysePage() {
             visible={visible}
             show={ui.show}
             onToggleLayer={(k) => patch((u) => ({ show: { ...u.show, [k]: !u.show[k] } }))}
+            onToggleAll={toggleAll}
+            onExport={exportPng}
+            exporting={exporting}
             sel={ui.sel}
             hover={ui.hover}
             onHover={(h) => patch({ hover: h })}
@@ -413,6 +485,7 @@ export function AnalysePage() {
           </button>
         </div>
       </section>
+      )}
     </AppShell>
   );
 }
