@@ -19,7 +19,7 @@ from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .auth_models import Permission, Role, StatutUtilisateur, Utilisateur
+from .auth_models import Permission, Role, Utilisateur
 from .database import SessionLocal
 from .permissions import ADMIN_CAPABILITIES, ADMIN_ROLE, PERMISSIONS, SYSTEM_ROLES
 from .services.auth_service import par_email
@@ -56,7 +56,7 @@ def seed_roles(db: Session, perms: dict[str, Permission]) -> dict[str, Role]:
 def admin_actif_existe(db: Session) -> bool:
     return any(
         ADMIN_CAPABILITIES <= set(u.permission_codes)
-        for u in db.scalars(select(Utilisateur).where(Utilisateur.statut == StatutUtilisateur.actif))
+        for u in db.scalars(select(Utilisateur).where(Utilisateur.actif.is_(True)))
     )
 
 
@@ -78,7 +78,7 @@ def seed_admin(db: Session, role_admin: Role, adresse: str | None) -> None:
         print(f"[seed_auth] compte administrateur créé : {email}")
     elif not admin_actif_existe(db):
         existant.role_id = role_admin.id
-        existant.statut = StatutUtilisateur.actif
+        existant.actif = True
         print(f"[seed_auth] aucun administrateur actif : {email} rétabli.")
 
 

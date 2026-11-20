@@ -32,7 +32,7 @@ export async function updateUser(userId, { nom, prenom, roleId, isActive }) {
   if (nom !== undefined) patch.nom = nom;
   if (prenom !== undefined) patch.prenom = prenom;
   if (roleId !== undefined) patch.role_id = roleId;
-  if (isActive !== undefined) patch.statut = isActive ? "actif" : "desactive";
+  if (isActive !== undefined) patch.actif = Boolean(isActive);
   const { data } = await httpClient.patch(`/utilisateurs/${userId}`, patch);
   return normalizeManagedUser(data);
 }

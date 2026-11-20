@@ -79,7 +79,17 @@ def create_access_token(user_id: uuid.UUID, session_id: uuid.UUID, role: str, pe
 
 
 def create_refresh_token(session_id: uuid.UUID, expires_at: datetime) -> str:
-    return _encode({"type": REFRESH, "sub": str(session_id)}, expires_at)
+    # `jti` aléatoire : deux jetons émis pour la même session dans la même
+    # seconde restent distincts (leurs empreintes aussi).
+    return _encode(
+        {"type": REFRESH, "sub": str(session_id), "jti": secrets.token_urlsafe(16)}, expires_at
+    )
+
+
+def empreinte(valeur: str) -> str:
+    """Empreinte sha256 (hexadécimale) d'un jeton : c'est elle, jamais le
+    jeton, qui est conservée en base."""
+    return hashlib.sha256(valeur.encode("utf-8")).hexdigest()
 
 
 # --- Parcours OAuth --------------------------------------------------------

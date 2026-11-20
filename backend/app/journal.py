@@ -1,4 +1,4 @@
-"""Inscription au journal : connexions, refus, créations de compte, déconnexions."""
+"""Inscription au journal : connexions, refus, verrouillages, liens, comptes, sessions."""
 import uuid
 
 from fastapi import Request
@@ -20,22 +20,30 @@ def adresse_ip(request: Request | None) -> str | None:
     return request.client.host if request.client else None
 
 
+def agent(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    return (request.headers.get("user-agent") or "")[:255] or None
+
+
 def inscrire(
     db: Session,
     action: str,
     resultat: str,
     *,
     request: Request | None = None,
-    auteur_id: uuid.UUID | None = None,
-    detail: str = "",
+    utilisateur_id: uuid.UUID | None = None,
+    cible: str | None = None,
+    details: dict | None = None,
     commit: bool = True,
 ) -> None:
     db.add(Journal(
         action=action,
         resultat=resultat,
-        auteur_id=auteur_id,
-        adresse_ip=adresse_ip(request),
-        detail=detail,
+        utilisateur_id=utilisateur_id,
+        cible=cible,
+        details=details or {},
+        ip=adresse_ip(request),
     ))
     if commit:
         db.commit()

@@ -76,7 +76,7 @@ async def importer_photo(
     ancienne, utilisateur.photo_cle = utilisateur.photo_cle, cle
     journal.inscrire(
         db, "photo_profil", journal.SUCCES, request=request,
-        auteur_id=utilisateur.id, detail="importee", commit=False,
+        utilisateur_id=utilisateur.id, details={"photo": "importee"}, commit=False,
     )
     db.commit()
     _supprimer_ancienne(ancienne)
@@ -95,7 +95,7 @@ def retirer_photo(
     if ancienne:
         journal.inscrire(
             db, "photo_profil", journal.SUCCES, request=request,
-            auteur_id=utilisateur.id, detail="retiree", commit=False,
+            utilisateur_id=utilisateur.id, details={"photo": "retiree"}, commit=False,
         )
     db.commit()
     _supprimer_ancienne(ancienne)

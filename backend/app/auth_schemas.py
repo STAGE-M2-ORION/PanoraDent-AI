@@ -1,9 +1,21 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
 
-from .auth_models import Role, StatutUtilisateur, Utilisateur, en_utc
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from .auth_models import MODES_CONNEXION, Role, Utilisateur, en_utc
+
+ModeConnexion = Literal["mot_de_passe", "google"]
+
+
+def _modes_valides(modes: list[str]) -> list[str]:
+    # Ordre canonique et sans doublon ; la base refuse de toute façon une liste vide.
+    uniques = [m for m in MODES_CONNEXION if m in modes]
+    if not uniques:
+        raise ValueError("au moins un mode de connexion est requis")
+    return uniques
 
 
 class PermissionOut(BaseModel):
@@ -24,11 +36,21 @@ class UtilisateurOut(BaseModel):
     email: str
     nom: str
     prenom: str
-    statut: StatutUtilisateur
+    actif: bool
+    modes_connexion: list[str]
+    # Le compte a-t-il déjà de quoi se connecter avec chaque mode ?
+    mot_de_passe_defini: bool
+    google_rattache: bool
+    doit_changer_mdp: bool
+    titre: str | None
+    specialite: str | None
+    numero_ordre: str | None
+    telephone: str | None
+    preferences: dict
     role: RoleResume
     permissions: list[str]
     derniere_connexion: datetime | None
-    date_creation: datetime
+    cree_le: datetime
     # URL à afficher telle quelle : photo importée, sinon photo Google, sinon null.
     photo_url: str | None
     photo_source: str | None  # "importee" | "google" | None
@@ -48,31 +70,44 @@ class UtilisateurOut(BaseModel):
             email=u.email,
             nom=u.nom,
             prenom=u.prenom,
-            statut=u.statut,
+            actif=u.actif,
+            modes_connexion=list(u.modes_connexion or []),
+            mot_de_passe_defini=u.mot_de_passe is not None,
+            google_rattache=u.google_sub is not None,
+            doit_changer_mdp=u.doit_changer_mdp,
+            titre=u.titre,
+            specialite=u.specialite,
+            numero_ordre=u.numero_ordre,
+            telephone=u.telephone,
+            preferences=dict(u.preferences or {}),
             role=RoleResume(id=u.role.id, libelle=u.role.libelle, systeme=u.role.systeme),
             permissions=u.permission_codes,
             derniere_connexion=en_utc(u.derniere_connexion),
-            date_creation=en_utc(u.date_creation),
+            cree_le=en_utc(u.cree_le),
             photo_url=photo_url,
             photo_source=photo_source,
         )
 
 
 class UtilisateurCreation(BaseModel):
-    """Créé par l'administrateur avec l'adresse Google de l'intéressé. Nom et
-    prénom peuvent rester vides : ils seront repris de Google à la première
-    connexion. Aucun mot de passe : la plateforme n'en conserve aucun."""
+    """Créé par l'administrateur, qui choisit les modes de connexion autorisés.
+    Aucun mot de passe ici : l'intéressé le choisit lui-même par son lien de
+    première connexion. Nom et prénom vides sont repris de Google au premier
+    rattachement."""
     nom: str = Field(default="", max_length=120)
     prenom: str = Field(default="", max_length=120)
     email: EmailStr = Field(max_length=255)
     role_id: uuid.UUID
+    modes_connexion: list[ModeConnexion] = Field(default_factory=lambda: list(MODES_CONNEXION))
+
+    _modes = field_validator("modes_connexion")(_modes_valides)
 
 
 class UtilisateurModification(BaseModel):
     nom: str | None = Field(default=None, max_length=120)
     prenom: str | None = Field(default=None, max_length=120)
     role_id: uuid.UUID | None = None
-    statut: StatutUtilisateur | None = None
+    actif: bool | None = None
 
 
 class RoleCreation(BaseModel):

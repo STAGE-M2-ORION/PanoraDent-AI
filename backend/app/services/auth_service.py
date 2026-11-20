@@ -5,17 +5,18 @@ Les erreurs destinées à l'API sont levées en `ApiError` (forme unique
 `{code, message}`) ; les refus de connexion en `RefusConnexion`, que la route
 de retour traduit en redirection `/connexion?erreur=<code>`.
 """
+import hmac
 import uuid
 from datetime import datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import func, select
+from fastapi import Request
 from sqlalchemy.orm import Session
 
 from .. import auth_security as sec
-from ..auth_models import (
-    Permission, Role, SessionUtilisateur, StatutUtilisateur, Utilisateur, maintenant,
-)
+from .. import journal
+from ..auth_models import Permission, Role, SessionUtilisateur, Utilisateur, maintenant
 from ..auth_schemas import (
     RoleCreation, RoleModification, UtilisateurCreation, UtilisateurModification,
 )
@@ -45,19 +46,20 @@ class RefusConnexion(Exception):
         self.utilisateur_id = utilisateur_id
 
 
-def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, str]:
+def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, dict]:
     """Trouve le compte correspondant à un jeton d'identité DÉJÀ VÉRIFIÉ.
 
     Règle : le `sub` Google identifie l'utilisateur dès qu'il est connu (une
     adresse peut changer, le `sub` jamais). Sinon l'adresse sert, une seule
     fois, à rattacher le `sub`. Aucun compte n'est jamais créé ici.
 
-    Renvoie `(utilisateur, détail pour le journal)` ; ne valide pas la
+    Renvoie `(utilisateur, détails pour le journal)` ; ne valide pas la
     transaction (l'appelant ouvre la session puis valide).
     """
     sub = str(claims["sub"])
     email = normaliser_email(str(claims["email"]))
-    detail = f"adresse={email}"
+    detail = f"adresse={email}"  # contexte des motifs de refus
+    details: dict = {"mode": "google", "adresse": email}
 
     domaine = settings.google_allowed_domain.strip().lower()
     if domaine and str(claims.get("hd", "")).lower() != domaine:
@@ -86,18 +88,18 @@ def rattacher_identite(db: Session, claims: dict) -> tuple[Utilisateur, str]:
         raise RefusConnexion("compte_desactive", f"compte_desactive {detail}", utilisateur.id)
 
     if nouvelle_adresse is not None:
-        detail += f" ancienne_adresse={utilisateur.email}"
+        details["ancienne_adresse"] = utilisateur.email
         utilisateur.email = nouvelle_adresse
     if utilisateur.google_sub is None:
         utilisateur.google_sub = sub
-        detail += " premiere_connexion"
+        details["premiere_connexion"] = True
     if not utilisateur.prenom.strip():
         utilisateur.prenom = str(claims.get("given_name") or "")[:120]
     if not utilisateur.nom.strip():
         utilisateur.nom = str(claims.get("family_name") or "")[:120]
     utilisateur.photo_google = photo_google(claims)
     utilisateur.derniere_connexion = maintenant()
-    return utilisateur, detail
+    return utilisateur, details
 
 
 def photo_google(claims: dict) -> str | None:
@@ -114,17 +116,25 @@ def photo_google(claims: dict) -> str | None:
 
 # --- Sessions --------------------------------------------------------------
 
-def ouvrir_session(db: Session, utilisateur: Utilisateur) -> tuple[str, str, datetime]:
+def ouvrir_session(
+    db: Session, utilisateur: Utilisateur, request: Request | None = None
+) -> tuple[str, str, datetime]:
     """Crée la ligne de session et renvoie `(accès, rafraîchissement, expiration)`.
-    Ne valide pas la transaction."""
+    Seule l'empreinte du jeton de rafraîchissement est conservée. Ne valide
+    pas la transaction."""
     expiration = maintenant() + sec.refresh_ttl()
-    session = SessionUtilisateur(utilisateur_id=utilisateur.id, date_expiration=expiration)
+    session = SessionUtilisateur(
+        utilisateur_id=utilisateur.id, expire_le=expiration,
+        agent=journal.agent(request), ip=journal.adresse_ip(request),
+    )
     db.add(session)
     db.flush()
     acces = sec.create_access_token(
         utilisateur.id, session.id, utilisateur.role.libelle, utilisateur.permission_codes
     )
-    return acces, sec.create_refresh_token(session.id, expiration), expiration
+    rafraichissement = sec.create_refresh_token(session.id, expiration)
+    session.empreinte_refresh = sec.empreinte(rafraichissement)
+    return acces, rafraichissement, expiration
 
 
 def session_depuis_rafraichissement(db: Session, jeton: str | None) -> SessionUtilisateur | None:
@@ -133,9 +143,12 @@ def session_depuis_rafraichissement(db: Session, jeton: str | None) -> SessionUt
         return None
     try:
         payload = sec.decode_token(jeton, sec.REFRESH)
-        return db.get(SessionUtilisateur, uuid.UUID(payload["sub"]))
+        session = db.get(SessionUtilisateur, uuid.UUID(payload["sub"]))
     except (sec.TokenError, ValueError):
         return None
+    if session is None or not hmac.compare_digest(session.empreinte_refresh or "", sec.empreinte(jeton)):
+        return None
+    return session
 
 
 def session_depuis_id(db: Session, session_id) -> SessionUtilisateur | None:
@@ -160,15 +173,15 @@ def rafraichir(db: Session, jeton: str | None) -> tuple[str, Utilisateur]:
 
 
 def revoquer_session(session: SessionUtilisateur) -> None:
-    if session.date_revocation is None:
-        session.date_revocation = maintenant()
+    if session.revoquee_le is None:
+        session.revoquee_le = maintenant()
 
 
 def revoquer_sessions(db: Session, utilisateur_id: uuid.UUID) -> None:
     for session in db.scalars(
         select(SessionUtilisateur).where(
             SessionUtilisateur.utilisateur_id == utilisateur_id,
-            SessionUtilisateur.date_revocation.is_(None),
+            SessionUtilisateur.revoquee_le.is_(None),
         )
     ):
         revoquer_session(session)
@@ -183,7 +196,7 @@ def _est_role_admin(role: Role, permissions: set[str] | None = None) -> bool:
 
 def _admins_actifs(db: Session) -> list[Utilisateur]:
     return [
-        u for u in db.scalars(select(Utilisateur).where(Utilisateur.statut == StatutUtilisateur.actif))
+        u for u in db.scalars(select(Utilisateur).where(Utilisateur.actif.is_(True)))
         if _est_role_admin(u.role)
     ]
 
@@ -217,7 +230,8 @@ def creer_utilisateur(db: Session, data: UtilisateurCreation) -> Utilisateur:
         raise ApiError(409, "adresse_deja_prise", "Un compte existe déjà pour cette adresse.")
     role = _role(db, data.role_id)
     utilisateur = Utilisateur(
-        email=email, nom=data.nom.strip(), prenom=data.prenom.strip(), role_id=role.id
+        email=email, nom=data.nom.strip(), prenom=data.prenom.strip(), role_id=role.id,
+        modes_connexion=list(data.modes_connexion),
     )
     db.add(utilisateur)
     db.flush()
@@ -231,12 +245,12 @@ def modifier_utilisateur(
     nouveau_role = _role(db, data.role_id) if data.role_id is not None else None
     if auteur is not None and auteur.id == utilisateur.id:
         # On ne se retire pas soi-même l'accès : un autre administrateur doit le faire.
-        if data.statut == StatutUtilisateur.desactive:
+        if data.actif is False:
             raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas désactiver votre propre compte.")
         if nouveau_role is not None and nouveau_role.id != utilisateur.role_id:
             raise ApiError(400, "action_sur_soi", "Vous ne pouvez pas changer votre propre rôle.")
     retire_admin = (
-        data.statut == StatutUtilisateur.desactive
+        data.actif is False
         or (nouveau_role is not None and not _est_role_admin(nouveau_role))
     )
     if retire_admin:
@@ -248,9 +262,9 @@ def modifier_utilisateur(
         utilisateur.prenom = data.prenom.strip()
     if nouveau_role is not None:
         utilisateur.role_id = nouveau_role.id
-    if data.statut is not None:
-        utilisateur.statut = data.statut
-        if data.statut == StatutUtilisateur.desactive:
+    if data.actif is not None:
+        utilisateur.actif = data.actif
+        if not data.actif:
             revoquer_sessions(db, utilisateur.id)
     db.flush()
     db.refresh(utilisateur)

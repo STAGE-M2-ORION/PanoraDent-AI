@@ -30,7 +30,7 @@ def _ou_404(db: Session, utilisateur_id: uuid.UUID) -> Utilisateur:
 
 @router.get("", response_model=list[UtilisateurOut])
 def lister(_: Utilisateur = Depends(exiger(USER_MANAGE)), db: Session = Depends(get_db)):
-    utilisateurs = db.scalars(select(Utilisateur).order_by(Utilisateur.date_creation)).all()
+    utilisateurs = db.scalars(select(Utilisateur).order_by(Utilisateur.cree_le)).all()
     return [UtilisateurOut.depuis(u) for u in utilisateurs]
 
 
@@ -43,8 +43,12 @@ def creer(
 ):
     utilisateur = auth_service.creer_utilisateur(db, body)
     journal.inscrire(
-        db, "creation_compte", journal.SUCCES, request=request, auteur_id=auteur.id,
-        detail=f"compte={utilisateur.id} adresse={utilisateur.email} role={utilisateur.role.libelle}",
+        db, "creation_compte", journal.SUCCES, request=request, utilisateur_id=auteur.id,
+        cible=f"utilisateur:{utilisateur.id}",
+        details={
+            "adresse": utilisateur.email, "role": utilisateur.role.libelle,
+            "modes_connexion": utilisateur.modes_connexion,
+        },
         commit=False,
     )
     db.commit()
@@ -69,10 +73,10 @@ def modifier(
     db: Session = Depends(get_db),
 ):
     utilisateur = auth_service.modifier_utilisateur(db, _ou_404(db, utilisateur_id), body, auteur)
-    champs = ", ".join(sorted(body.model_dump(exclude_none=True)))
     journal.inscrire(
-        db, "modification_compte", journal.SUCCES, request=request, auteur_id=auteur.id,
-        detail=f"compte={utilisateur.id} champs={champs}", commit=False,
+        db, "modification_compte", journal.SUCCES, request=request, utilisateur_id=auteur.id,
+        cible=f"utilisateur:{utilisateur.id}",
+        details={"champs": sorted(body.model_dump(exclude_none=True))}, commit=False,
     )
     db.commit()
     return UtilisateurOut.depuis(utilisateur)

@@ -100,8 +100,8 @@ def retour(
     def refus(code_erreur: str, motif: str, utilisateur_id=None) -> RedirectResponse:
         db.rollback()
         journal.inscrire(
-            db, "connexion", journal.REFUS, request=request,
-            auteur_id=utilisateur_id, detail=f"{code_erreur}: {motif}",
+            db, "connexion", journal.REFUS, request=request, utilisateur_id=utilisateur_id,
+            details={"mode": "google", "code": code_erreur, "motif": motif},
         )
         response = RedirectResponse(
             f"{settings.app_url}/connexion?erreur={code_erreur}", status_code=status.HTTP_302_FOUND
@@ -136,14 +136,14 @@ def retour(
 
     # 3. Rattachement à un compte existant — jamais de création ici.
     try:
-        utilisateur, detail = auth_service.rattacher_identite(db, claims)
+        utilisateur, details = auth_service.rattacher_identite(db, claims)
     except RefusConnexion as exc:
         return refus(exc.code, exc.motif, exc.utilisateur_id)
 
-    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur)
+    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
     journal.inscrire(
         db, "connexion", journal.SUCCES, request=request,
-        auteur_id=utilisateur.id, detail=detail, commit=False,
+        utilisateur_id=utilisateur.id, details=details, commit=False,
     )
     db.commit()
 
@@ -178,11 +178,11 @@ def deconnexion(request: Request, db: Session = Depends(get_db)):
             session = auth_service.session_depuis_id(db, payload.get("sid"))
         except sec.TokenError:
             session = None
-    if session is not None and session.date_revocation is None:
+    if session is not None and session.revoquee_le is None:
         auth_service.revoquer_session(session)
         journal.inscrire(
             db, "deconnexion", journal.SUCCES, request=request,
-            auteur_id=session.utilisateur_id, commit=False,
+            utilisateur_id=session.utilisateur_id, cible=f"session:{session.id}", commit=False,
         )
         db.commit()
     response = Response(status_code=status.HTTP_204_NO_CONTENT)

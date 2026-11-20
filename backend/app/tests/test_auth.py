@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app import auth_security as sec
 from app.auth_deps import COOKIE_ACCES, COOKIE_OAUTH, COOKIE_RAFRAICHISSEMENT, publique, session_ouverte
-from app.auth_models import Journal, SessionUtilisateur, StatutUtilisateur, Utilisateur
+from app.auth_models import Journal, SessionUtilisateur, Utilisateur
 from app.config import Settings
 from app.identity import FournisseurGoogle, fournisseur, sub_factice
 from app.main import app
@@ -41,7 +41,7 @@ def _nb_sessions(db) -> int:
 
 def _journal(db, action=None) -> list[Journal]:
     db.expire_all()
-    q = select(Journal).order_by(Journal.date)
+    q = select(Journal).order_by(Journal.horodatage)
     if action:
         q = q.where(Journal.action == action)
     return db.scalars(q).all()
@@ -101,18 +101,18 @@ def test_aud_d_un_autre_client_refuse(client, db):
     r = connexion(client, ADMIN_EMAIL, aud="autre-application.apps.googleusercontent.com")
     assert erreur(r) == "echec_google"
     assert _nb_sessions(db) == 0
-    assert "aud_invalide" in _journal(db, "connexion")[-1].detail
+    assert "aud_invalide" in _journal(db, "connexion")[-1].details["motif"]
 
 
 def test_jeton_expire_puis_signature_invalide_refuses(client, nouveau_client, db):
     passe = int(time.time()) - 3600
     r = connexion(client, ADMIN_EMAIL, iat=passe - 300, exp=passe)
     assert erreur(r) == "echec_google"
-    assert "jeton_expire" in _journal(db, "connexion")[-1].detail
+    assert "jeton_expire" in _journal(db, "connexion")[-1].details["motif"]
 
     r = connexion(nouveau_client(), ADMIN_EMAIL, cle="etrangere")
     assert erreur(r) == "echec_google"
-    assert "signature_invalide" in _journal(db, "connexion")[-1].detail
+    assert "signature_invalide" in _journal(db, "connexion")[-1].details["motif"]
     assert _nb_sessions(db) == 0
 
 
@@ -163,15 +163,15 @@ def test_adresse_inconnue_refusee_et_aucun_compte_cree(client, db):
     db.expire_all()
     assert len(db.scalars(select(Utilisateur)).all()) == avant
     ligne = _journal(db, "connexion")[-1]
-    assert ligne.resultat == "refus" and "adresse_inconnue" in ligne.detail
+    assert ligne.resultat == "refus" and "adresse_inconnue" in ligne.details["motif"]
 
 
 # --- 8. Compte désactivé ---------------------------------------------------
 
 def test_compte_desactive_refuse(admin, creer_compte, nouveau_client, db):
     compte = creer_compte("dr.martin@cabinet.example.org")
-    r = admin.patch(f"{BASE}/utilisateurs/{compte['id']}", json={"statut": "desactive"})
-    assert r.status_code == 200 and r.json()["statut"] == "desactive"
+    r = admin.patch(f"{BASE}/utilisateurs/{compte['id']}", json={"actif": False})
+    assert r.status_code == 200 and r.json()["actif"] is False
     assert erreur(connexion(nouveau_client(), "dr.martin@cabinet.example.org")) == "compte_desactive"
 
 
@@ -229,8 +229,8 @@ def test_adresse_connue_avec_un_autre_sub_refusee_et_journalisee(client, nouveau
     r = connexion(nouveau_client(), ADMIN_EMAIL, sub="un-autre-compte-google")
     assert erreur(r) == "compte_inconnu"
     ligne = _journal(db, "connexion")[-1]
-    assert ligne.resultat == "refus" and "sub_different" in ligne.detail
-    assert ligne.auteur_id == _user(db, ADMIN_EMAIL).id
+    assert ligne.resultat == "refus" and "sub_different" in ligne.details["motif"]
+    assert ligne.utilisateur_id == _user(db, ADMIN_EMAIL).id
     assert _user(db, ADMIN_EMAIL).google_sub == sub_factice(ADMIN_EMAIL)
 
 
@@ -274,7 +274,7 @@ def test_rafraichir_puis_deconnexion_revoque_des_deux_cotes(admin, db):
 def test_rafraichir_sans_cookie_ou_session_expiree(nouveau_client, admin, db):
     assert nouveau_client().post(f"{BASE}/auth/rafraichir").status_code == 401
     for s in db.scalars(select(SessionUtilisateur)):
-        s.date_expiration = s.date_expiration.replace(year=2000)
+        s.expire_le = s.expire_le.replace(year=2000)
     db.commit()
     assert admin.post(f"{BASE}/auth/rafraichir").status_code == 401
 
@@ -288,7 +288,7 @@ def test_desactivation_coupe_la_session_immediatement(admin, connecte, db):
     praticien = connecte("dr.leroy@cabinet.example.org")
     assert praticien.get(f"{BASE}/moi").status_code == 200
     uid = _user(db, "dr.leroy@cabinet.example.org").id
-    admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
     assert praticien.get(f"{BASE}/moi").status_code == 401
     assert praticien.post(f"{BASE}/auth/rafraichir").status_code == 401
 
@@ -308,7 +308,7 @@ def test_creation_de_compte_403_201_409(admin, connecte, db):
     assert r.status_code == 201
     compte = r.json()
     assert compte["email"] == "dr.bernard@cabinet.example.org"  # stockée en minuscules
-    assert compte["role"]["libelle"] == VIEWER_ROLE and compte["statut"] == "actif"
+    assert compte["role"]["libelle"] == VIEWER_ROLE and compte["actif"] is True
     assert {"analysis:read", "model:read"} == set(compte["permissions"])
     assert "google_sub" not in compte
 
@@ -316,8 +316,8 @@ def test_creation_de_compte_403_201_409(admin, connecte, db):
     assert r.status_code == 409 and r.json()["code"] == "adresse_deja_prise"
 
     ligne = _journal(db, "creation_compte")[-1]
-    assert "dr.bernard@cabinet.example.org" in ligne.detail
-    assert ligne.auteur_id == _user(db, ADMIN_EMAIL).id
+    assert ligne.details["adresse"] == "dr.bernard@cabinet.example.org"
+    assert ligne.utilisateur_id == _user(db, ADMIN_EMAIL).id
 
     liste = admin.get(f"{BASE}/utilisateurs").json()
     assert "dr.bernard@cabinet.example.org" in {u["email"] for u in liste}
@@ -421,17 +421,11 @@ def test_production_exige_secret_et_client_google():
 def test_pas_de_suppression_ni_de_retrait_de_son_propre_acces(admin, db):
     uid = _user(db, ADMIN_EMAIL).id
     roles = {r["libelle"]: r["id"] for r in admin.get(f"{BASE}/roles").json()}
-    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
     assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
     r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"role_id": roles[PRACTITIONER_ROLE]})
     assert r.status_code == 400
     assert admin.delete(f"{BASE}/utilisateurs/{uid}").status_code == 405
-
-
-def test_aucune_colonne_de_mot_de_passe():
-    from app.database import Base
-    colonnes = {c.name for t in Base.metadata.tables.values() for c in t.columns}
-    assert not {c for c in colonnes if "password" in c or "mot_de_passe" in c}
 
 
 def test_jeu_de_depart_rejouable(db):
@@ -443,7 +437,7 @@ def test_jeu_de_depart_rejouable(db):
         db.commit()
     assert len(db.scalars(select(Utilisateur)).all()) == 1
     assert {r.libelle for r in roles.values()} == {"Administrateur", "Praticien", "Lecteur"}
-    assert _user(db, ADMIN_EMAIL).statut == StatutUtilisateur.actif
+    assert _user(db, ADMIN_EMAIL).actif is True
 
 
 # --- Rôles (sprint 2, déjà en place) ---------------------------------------
@@ -552,9 +546,9 @@ def test_photo_refuse_les_fichiers_qui_ne_sont_pas_des_images(client, stockage):
 def test_admin_ne_se_desactive_pas_meme_avec_un_autre_admin(admin, creer_compte, db):
     creer_compte("admin2@cabinet.example.org", "Administrateur")
     uid = _user(db, ADMIN_EMAIL).id
-    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"statut": "desactive"})
+    r = admin.patch(f"{BASE}/utilisateurs/{uid}", json={"actif": False})
     assert r.status_code == 400 and r.json()["code"] == "action_sur_soi"
-    assert _user(db, ADMIN_EMAIL).statut == StatutUtilisateur.actif
+    assert _user(db, ADMIN_EMAIL).actif is True
     # Le dernier administrateur reste protégé quand un AUTRE tente de le retirer.
     autre = _user(db, "admin2@cabinet.example.org").id
-    assert admin.patch(f"{BASE}/utilisateurs/{autre}", json={"statut": "desactive"}).status_code == 200
+    assert admin.patch(f"{BASE}/utilisateurs/{autre}", json={"actif": False}).status_code == 200
