@@ -1,13 +1,16 @@
+import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchRoles } from "@/entities/role";
 import { Permission, SystemRole, displayName, useCurrentUser } from "@/entities/session";
 import { fetchUsers, updateUser } from "@/entities/user";
-import { CreateUserModal, EditUserModal } from "@/features/manage-users";
+import { AccountSheet, CreateUserModal, EditUserModal } from "@/features/manage-users";
 import { toAppError } from "@/shared/api";
 import { formatDate, formatTime, useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, Button, DateCell, GoogleMark, Icon, IconAction, UserPhoto } from "@/shared/ui";
+import { Alert, Badge, Button, ConfirmDialog, DateCell, GoogleMark, Icon, IconAction, KpiRing, Pager, UserPhoto, paginate } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
+
+import { PAGE_SIZE, accountStats, filterAccounts, sortAccounts } from "../model/accounts";
 
 const loadAll = () => Promise.all([fetchUsers(), fetchRoles()]);
 
@@ -18,12 +21,31 @@ function RoleBadge({ user }) {
   return <Badge tone={tone}>{user.role || "—"}</Badge>;
 }
 
+/** En-tête de colonne triable (bouton, `aria-sort`). */
+function SortHeader({ id, label, sort, onSort, className }) {
+  const active = sort.key === id;
+  const ariaSort = active ? (sort.dir === "asc" ? "ascending" : "descending") : "none";
+  return (
+    <th scope="col" className={className} aria-sort={ariaSort}>
+      <button type="button" className="sort-btn" onClick={() => onSort(id)}>
+        {label}
+        <span aria-hidden="true" className="sort-ind">
+          {active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 /**
- * Gestion des comptes : recherche, création, modification (nom, rôle),
- * activation et désactivation. Il n'y a pas de suppression : un compte qui ne
- * doit plus entrer est désactivé. Les refus du serveur s'affichent tels quels.
+ * Gestion des comptes : indicateurs, recherche, filtres, tri, pagination,
+ * création, modification (nom, rôle avec motif), activation et désactivation
+ * (confirmées, motif obligatoire pour désactiver), et fiche d'un compte
+ * (`?compte=<id>`). Il n'y a pas de suppression : un compte qui ne doit plus
+ * entrer est désactivé. Les refus du serveur s'affichent tels quels.
  */
 export function AdminComptesPage() {
+  const router = useRouter();
   const { user: me } = useCurrentUser();
   const { data, error, isLoading, reload } = useAsyncResource(loadAll);
   const [users, setUsers] = useState([]);
@@ -31,6 +53,12 @@ export function AdminComptesPage() {
   const [filters, setFilters] = useState({ q: "", role: "", status: "" });
   const [feedback, setFeedback] = useState(null);
   const [modal, setModal] = useState({ create: false, edit: null });
+  const [toToggle, setToToggle] = useState(null);
+  const [sort, setSort] = useState({ key: "name", dir: "asc" });
+  const [page, setPage] = useState(1);
+  const sheetId = typeof router.query.compte === "string" ? router.query.compte : null;
+  const sheetUser = users.find((u) => String(u.id) === sheetId) ?? null;
+  const openSheet = (u) => router.replace({ pathname: router.pathname, query: u ? { compte: u.id } : {} }, undefined, { shallow: true });
 
   useEffect(() => {
     if (data) {
@@ -42,31 +70,30 @@ export function AdminComptesPage() {
   const activeAdmins = users.filter((u) => isAdminRole(u) && u.isActive);
   // Indication seulement : c'est le serveur qui refuse (`dernier_administrateur`).
   const isLast = (u) => isAdminRole(u) && u.isActive && activeAdmins.length === 1;
-  const list = useMemo(() => {
-    const q = filters.q.trim().toLowerCase();
-    return users.filter(
-      (u) =>
-        (!q || `${u.fullName} ${u.email}`.toLowerCase().includes(q)) &&
-        (!filters.role || String(u.roleId) === filters.role) &&
-        (!filters.status || (filters.status === "actif" ? u.isActive : !u.isActive)),
-    );
-  }, [users, filters]);
+  const list = useMemo(() => sortAccounts(filterAccounts(users, filters), sort), [users, filters, sort]);
+  const { items: visible, pageCount } = paginate(list, Math.min(page, Math.max(1, Math.ceil(list.length / PAGE_SIZE))), PAGE_SIZE);
+  const stats = useMemo(() => accountStats(users), [users]);
+  useEffect(() => setPage(1), [filters, sort]);
+  const onSort = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
 
   const say = (tone, title, text) => setFeedback({ tone, title, text });
   const replace = (updated) => setUsers((list0) => list0.map((u) => (u.id === updated.id ? updated : u)));
 
-  const toggle = async (u) => {
+  /** Après confirmation (et motif pour une désactivation). */
+  const toggle = async (u, reason) => {
+    let updated;
     try {
-      const updated = await updateUser(u.id, { isActive: !u.isActive });
-      replace(updated);
-      say(
-        "success",
-        updated.isActive ? "Compte réactivé" : "Compte désactivé",
-        `${displayName(updated)} ${updated.isActive ? "peut de nouveau se connecter avec Google." : "ne peut plus se connecter."} L’action est inscrite au journal d’audit.`,
-      );
+      updated = await updateUser(u.id, { isActive: !u.isActive, reason });
     } catch (cause) {
-      say("danger", "Action refusée", toAppError(cause).message);
+      throw toAppError(cause);
     }
+    replace(updated);
+    setToToggle(null);
+    say(
+      "success",
+      updated.isActive ? "Compte réactivé" : "Compte désactivé",
+      `${displayName(updated)} ${updated.isActive ? "peut de nouveau se connecter." : "ne peut plus se connecter ; ses sessions ouvertes sont fermées."} L’action est inscrite au journal d’audit.`,
+    );
   };
 
   return (
@@ -106,6 +133,22 @@ export function AdminComptesPage() {
               say("success", "Compte modifié", `${displayName(updated)} a été mis à jour.`);
             }}
           />
+          <ConfirmDialog
+            open={Boolean(toToggle)}
+            title={toToggle?.isActive ? `Désactiver le compte de ${displayName(toToggle)} ?` : `Réactiver le compte de ${toToggle ? displayName(toToggle) : ""} ?`}
+            confirmLabel={toToggle?.isActive ? "Désactiver le compte" : "Réactiver le compte"}
+            tone={toToggle?.isActive ? "danger" : undefined}
+            reason={toToggle?.isActive ? "required" : "optional"}
+            onConfirm={(reason) => toggle(toToggle, reason)}
+            onClose={() => setToToggle(null)}
+          >
+            <p style={{ margin: 0 }}>
+              {toToggle?.isActive
+                ? "La personne ne pourra plus se connecter et ses sessions ouvertes seront fermées immédiatement. Ses analyses et ses lignes de journal sont conservées."
+                : "La personne pourra de nouveau se connecter avec les modes autorisés sur son compte."}
+            </p>
+          </ConfirmDialog>
+          <AccountSheet user={sheetUser} roles={roles} me={me} onClose={() => openSheet(null)} onChanged={replace} />
         </>
       }
     >
@@ -136,6 +179,38 @@ export function AdminComptesPage() {
         ) : null}
       </div>
 
+      <section className="kpi-row" aria-label="Indicateurs des comptes">
+        <KpiRing
+          label="Comptes"
+          icon="users"
+          value={stats.total}
+          ring={stats.total ? Math.round(((stats.total - stats.disabled) / stats.total) * 100) : null}
+          ringText={stats.byRole.map(([r, n]) => `${r} : ${n}`).join(" · ")}
+          delta={stats.byRole.map(([r, n]) => `${r} : ${n}`).join(" · ") || "—"}
+          dir="flat"
+        />
+        <KpiRing
+          label="Jamais connectés"
+          icon="clock"
+          value={stats.neverLoggedIn}
+          ring={stats.total ? Math.round((stats.neverLoggedIn / stats.total) * 100) : null}
+          ringText={`${stats.neverLoggedIn} compte(s) actif(s) sans aucune connexion`}
+          delta={stats.neverLoggedIn ? "Lien de première connexion à renvoyer ?" : "Tous se sont déjà connectés"}
+          dir="flat"
+          tone="warning"
+        />
+        <KpiRing
+          label="Désactivés"
+          icon="lock"
+          value={stats.disabled}
+          ring={stats.total ? Math.round((stats.disabled / stats.total) * 100) : null}
+          ringText={`${stats.disabled} compte(s) désactivé(s)`}
+          delta={stats.disabled ? "Conservés pour le journal" : "Aucun"}
+          dir="flat"
+          tone="navy"
+        />
+      </section>
+
       <Alert tone="info" role="note" title="Protection du dernier administrateur">
         Il doit toujours rester au moins un compte administrateur actif : le serveur refuse de désactiver le dernier ou de lui retirer son rôle tant qu’un autre administrateur
         n’existe pas.
@@ -147,7 +222,7 @@ export function AdminComptesPage() {
             <label className="label" htmlFor="q">
               Rechercher un compte
             </label>
-            <input className="input" id="q" type="search" placeholder="Nom ou adresse Google" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
+            <input className="input" id="q" type="search" placeholder="Nom ou adresse e-mail" value={filters.q} onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))} />
           </div>
           <div className="field">
             <label className="label" htmlFor="f-role">
@@ -170,6 +245,7 @@ export function AdminComptesPage() {
               <option value="">Tous les statuts</option>
               <option value="actif">Actif</option>
               <option value="desactive">Désactivé</option>
+              <option value="jamais">Jamais connecté</option>
             </select>
           </div>
         </div>
@@ -183,18 +259,16 @@ export function AdminComptesPage() {
           <caption className="sr-only">Liste des comptes</caption>
           <thead>
             <tr>
-              <th scope="col">Nom et adresse Google</th>
-              <th scope="col">Rôle</th>
-              <th scope="col">Statut</th>
+              <SortHeader id="name" label="Nom et adresse e-mail" sort={sort} onSort={onSort} />
+              <SortHeader id="role" label="Rôle" sort={sort} onSort={onSort} />
+              <SortHeader id="status" label="Statut" sort={sort} onSort={onSort} />
               <th scope="col">Connexion</th>
-              <th scope="col" className="w">
-                Dernière connexion
-              </th>
+              <SortHeader id="lastLogin" label="Dernière connexion" sort={sort} onSort={onSort} className="w" />
               <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {list.map((u) => {
+            {visible.map((u) => {
               const name = displayName(u);
               return (
                 <tr key={u.id}>
@@ -204,7 +278,9 @@ export function AdminComptesPage() {
                         <UserPhoto src={u.photoUrl} name={name} />
                       </span>
                       <div>
-                        <strong>{name}</strong>
+                        <button type="button" className="link-btn" onClick={() => openSheet(u)} aria-label={`Ouvrir la fiche de ${name}`}>
+                          <strong>{name}</strong>
+                        </button>
                         <span className="sub" title={u.email}>
                           {u.email}
                         </span>
@@ -246,6 +322,7 @@ export function AdminComptesPage() {
                   <td data-label="Dernière connexion">{u.lastLoginAt ? <DateCell date={formatDate(u.lastLoginAt)} time={formatTime(u.lastLoginAt)} /> : <span className="muted">Jamais connecté</span>}</td>
                   <td className="td-actions">
                     <div className="row-actions">
+                      <IconAction icon="user" label={`Fiche du compte de ${name}`} title="Fiche : modes de connexion, sessions, accès" onClick={() => openSheet(u)} />
                       <IconAction icon="edit" label={`Modifier ${name} ou changer son rôle`} title="Modifier le compte ou changer de rôle" onClick={() => setModal((m) => ({ ...m, edit: u }))} />
                       {/* Pas de désactivation de son propre compte (refusée aussi par le serveur). */}
                       {u.id === me?.id ? null : (
@@ -253,7 +330,7 @@ export function AdminComptesPage() {
                           icon={u.isActive ? "lock" : "unlock"}
                           label={`${u.isActive ? "Désactiver" : "Réactiver"} ${name}`}
                           title={u.isActive ? "Désactiver le compte" : "Réactiver le compte"}
-                          onClick={() => toggle(u)}
+                          onClick={() => setToToggle(u)}
                         />
                       )}
                     </div>
@@ -264,6 +341,7 @@ export function AdminComptesPage() {
           </tbody>
         </table>
       </div>
+      <Pager page={Math.min(page, pageCount)} pageCount={pageCount} onChange={setPage} />
       {!isLoading && !error && list.length === 0 ? (
         <div className="card card-pad" style={{ textAlign: "center" }}>
           <p>

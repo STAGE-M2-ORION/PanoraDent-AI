@@ -183,17 +183,18 @@ export function CreateUserModal({ open, roles, onClose, onCreated }) {
 }
 
 /**
- * Modification du prénom, du nom et du rôle. L'adresse Google est
- * l'identifiant de connexion : non modifiable. Le refus « dernier
- * administrateur » vient du serveur et s'affiche tel quel.
+ * Modification du prénom, du nom et du rôle. L'adresse est l'identifiant de
+ * connexion : non modifiable. Un changement de rôle demande un motif (inscrit
+ * au journal). Les refus du serveur (« dernier administrateur »…) s'affichent
+ * tels quels.
  */
 export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
-  const [form, setForm] = useState({ prenom: "", nom: "", roleId: "" });
+  const [form, setForm] = useState({ prenom: "", nom: "", roleId: "", reason: "" });
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (user) setForm({ prenom: user.prenom, nom: user.nom, roleId: user.roleId });
+    if (user) setForm({ prenom: user.prenom, nom: user.nom, roleId: user.roleId, reason: "" });
     setError(null);
   }, [user]);
 
@@ -204,7 +205,14 @@ export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
     const patch = {};
     if (form.prenom.trim() !== user.prenom) patch.prenom = form.prenom.trim();
     if (form.nom.trim() !== user.nom) patch.nom = form.nom.trim();
-    if (String(form.roleId) !== String(user.roleId)) patch.roleId = form.roleId;
+    if (String(form.roleId) !== String(user.roleId)) {
+      if (!form.reason.trim()) {
+        setError("Indiquez le motif du changement de rôle : il est inscrit au journal.");
+        return;
+      }
+      patch.roleId = form.roleId;
+      patch.reason = form.reason.trim();
+    }
     if (!Object.keys(patch).length) {
       onClose();
       return;
@@ -236,7 +244,7 @@ export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
             </label>
             <input className="input" id="e-mail" type="email" value={user?.email ?? ""} readOnly aria-describedby="e-mail-h" style={{ background: "var(--color-subtle)" }} />
             <p className="hint" id="e-mail-h">
-              L’adresse Google est l’identifiant de connexion : elle ne se modifie pas.
+              L’adresse est l’identifiant de connexion : elle ne se modifie pas.
             </p>
           </div>
           <div className="field">
@@ -250,6 +258,17 @@ export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
               C’est le dernier administrateur actif : le serveur refusera de lui retirer ce rôle.
             </p>
           </div>
+          {user && String(form.roleId) !== String(user.roleId) ? (
+            <div className="field">
+              <label className="label" htmlFor="e-motif">
+                Motif du changement de rôle
+              </label>
+              <textarea className="textarea" id="e-motif" rows={2} maxLength={500} required value={form.reason} onChange={set("reason")} aria-describedby="e-motif-h" />
+              <span className="hint" id="e-motif-h">
+                Inscrit au journal d’audit. Les nouveaux droits s’appliquent immédiatement.
+              </span>
+            </div>
+          ) : null}
         </div>
         <div className="modal-actions">
           <Button variant="secondary" onClick={onClose}>

@@ -8,5 +8,18 @@
   .check-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--color-primary); flex: none; }
   .modal-form { display: grid; gap: var(--space-4); }
   .count { font-size: var(--text-sm); color: var(--color-muted); }
+  .kpi-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+  /* En-têtes triables : un vrai bouton, l'ordre annoncé par aria-sort. */
+  .sort-btn { appearance: none; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; text-transform: inherit; letter-spacing: inherit; }
+  .sort-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+  .sort-ind { font-size: 10px; color: var(--color-muted); }
+  th[aria-sort="ascending"] .sort-ind, th[aria-sort="descending"] .sort-ind { color: var(--color-primary); }
+  .link-btn { appearance: none; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+  .link-btn:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+  .link-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+  .pager { margin-top: var(--space-3); }
+  .mode-ico { width: 18px; height: 18px; display: inline-grid; place-items: center; flex: none; }
+  .mode-ico svg { width: 18px; height: 18px; }
+  @media (max-width: 900px) { .kpi-row { grid-template-columns: 1fr; } }
   @media (max-width: 760px) { .filters { grid-template-columns: 1fr; } }
 }
