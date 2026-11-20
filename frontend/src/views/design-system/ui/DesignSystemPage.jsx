@@ -104,7 +104,7 @@ function IconCells({ names }) {
  * apparence. Reprend la planche d'icônes et la page « États communs » de la maquette.
  */
 export function DesignSystemPage() {
-  const { theme, toggle } = useAppTheme();
+  const { theme, toggle } = useAppTheme("clair");
   const toast = useToast();
   const exportRef = useRef(null);
   const [modalOpen, setModalOpen] = useState(false);

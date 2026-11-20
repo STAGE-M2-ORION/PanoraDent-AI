@@ -20,8 +20,19 @@ export const httpClient = axios.create({
   withCredentials: true,
 });
 
-/** Routes qui ne doivent jamais déclencher de rafraîchissement (risque de boucle). */
-const AUTH_PATHS = ["/auth/rafraichir", "/auth/deconnexion"];
+/**
+ * Routes dont un 401 ne doit jamais déclencher de rafraîchissement : le
+ * rafraîchissement lui-même (boucle), la déconnexion, et les routes qui
+ * OUVRENT une session — un 401 y veut dire « identifiants refusés », pas
+ * « session expirée ».
+ */
+const AUTH_PATHS = [
+  "/auth/rafraichir",
+  "/auth/deconnexion",
+  "/auth/connexion",
+  "/auth/mot-de-passe/",
+  "/auth/premiere-connexion",
+];
 
 let onSessionExpired = () => {};
 
@@ -32,9 +43,9 @@ export function setSessionExpiredHandler(handler) {
 
 /**
  * Rafraîchissement partagé : si plusieurs requêtes reçoivent un 401 en même
- * temps, une seule appelle `/auth/rafraichir`. Indispensable car le serveur
- * fait tourner le cookie de rafraîchissement — un second appel avec l'ancien
- * serait refusé et couperait la session.
+ * temps, une seule appelle `/auth/rafraichir`, puis chacune est rejouée une
+ * fois. Si le rafraîchissement échoue, `onSessionExpired` prévient la couche
+ * session, et la garde de route renvoie vers `/connexion`.
  */
 let refreshInFlight = null;
 

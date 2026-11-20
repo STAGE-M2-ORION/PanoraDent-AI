@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { setSessionExpiredHandler } from "@/shared/api";
 
-import { fetchMe, requestLogout } from "../api/session-api";
+import { fetchMe, loginWithPassword, requestLogout } from "../api/session-api";
 
 export const SessionStatus = {
   LOADING: "loading",
@@ -56,6 +56,26 @@ export function SessionProvider({ children }) {
     };
   }, [setAnonymous]);
 
+  /**
+   * Connexion par mot de passe. Les erreurs (401, 423, 403) remontent telles
+   * quelles à l'écran de connexion, qui les affiche.
+   */
+  const login = useCallback(async (email, password) => {
+    const user = await loginWithPassword(email, password);
+    setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
+    return user;
+  }, []);
+
+  /**
+   * Relit `/moi` : après une première connexion ou une réinitialisation, le
+   * serveur a déjà posé les cookies de session ; on charge l'utilisateur.
+   */
+  const reload = useCallback(async () => {
+    const user = await fetchMe();
+    setState({ status: SessionStatus.AUTHENTICATED, user, endReason: null });
+    return user;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await requestLogout();
@@ -75,21 +95,23 @@ export function SessionProvider({ children }) {
     const permissions = state.user?.permissions ?? [];
     return {
       ...state,
+      login,
+      reload,
       logout,
       setUser,
       can: (code) => permissions.includes(code),
       canAny: (codes) => codes.some((code) => permissions.includes(code)),
     };
-  }, [state, logout, setUser]);
+  }, [state, login, reload, logout, setUser]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
 /**
- * Utilisateur courant : `{ status, user, endReason, logout, setUser, can, canAny }`,
- * avec `user = { email, nom, prenom, fullName, role, roleId, permissions, … }`
- * (null hors session). Il n'y a pas de `login` : la connexion est une
- * navigation vers Google (`startGoogleSignIn`).
+ * Utilisateur courant : `{ status, user, endReason, login, reload, logout,
+ * setUser, can, canAny }`, avec `user = { email, nom, prenom, fullName, role,
+ * roleId, permissions, preferences, … }` (null hors session). La connexion
+ * Google n'est pas un appel mais une navigation (`startGoogleSignIn`).
  */
 export function useCurrentUser() {
   const context = useContext(SessionContext);

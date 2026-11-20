@@ -9,9 +9,79 @@ import { API_BASE_URL } from "@/shared/config";
  */
 export const GOOGLE_SIGN_IN_URL = `${API_BASE_URL}/auth/google/demarrer`;
 
+/**
+ * Rattachement du compte Google depuis une session ouverte (profil, première
+ * connexion). Même navigation ; le retour se fait sur
+ * `/profil?onglet=securite&google=rattache` (ou `&erreur=<code>`).
+ */
+export const GOOGLE_LINK_URL = `${GOOGLE_SIGN_IN_URL}?rattacher=1`;
+
 /** Quitte l'application pour la connexion Google (vraie navigation). */
 export function startGoogleSignIn() {
   window.location.assign(GOOGLE_SIGN_IN_URL);
+}
+
+/**
+ * `POST /api/v1/auth/connexion` — adresse e-mail et mot de passe. Succès :
+ * cookies de session posés, utilisateur renvoyé. Refus : 401 neutre,
+ * 423 verrouillé (`details.secondes_restantes`), 403 désactivé.
+ */
+export async function loginWithPassword(email, password) {
+  const { data } = await httpClient.post("/auth/connexion", { email, mot_de_passe: password });
+  return normalizeUser(data);
+}
+
+/** `POST /api/v1/auth/mot-de-passe/oubli` — répond toujours 204, compte connu ou non. */
+export async function requestPasswordReset(email) {
+  await httpClient.post("/auth/mot-de-passe/oubli", { email });
+}
+
+/** `POST /api/v1/auth/mot-de-passe/reinitialiser` — ouvre la session en cas de succès (204). */
+export async function resetPassword(token, password) {
+  await httpClient.post("/auth/mot-de-passe/reinitialiser", { jeton: token, nouveau: password });
+}
+
+/** `POST /api/v1/auth/premiere-connexion` — choix du premier mot de passe ; ouvre la session (204). */
+export async function completeFirstLogin(token, password) {
+  await httpClient.post("/auth/premiere-connexion", { jeton: token, mot_de_passe: password });
+}
+
+/** `PATCH /api/v1/moi` — identité et coordonnées ; `null` ou "" efface un champ. */
+export async function updateMyProfile(fields) {
+  const { data } = await httpClient.patch("/moi", fields);
+  return normalizeUser(data);
+}
+
+/** `PATCH /api/v1/moi/preferences` — mise à jour partielle ; renvoie toutes les préférences. */
+export async function updateMyPreferences(preferences) {
+  const { data } = await httpClient.patch("/moi/preferences", preferences);
+  return data;
+}
+
+/**
+ * `POST /api/v1/moi/mot-de-passe` (204). `current` est omis pour un compte qui
+ * n'a pas encore de mot de passe. Les autres sessions du compte sont fermées.
+ */
+export async function changeMyPassword(current, next) {
+  await httpClient.post("/moi/mot-de-passe", current ? { ancien: current, nouveau: next } : { nouveau: next });
+}
+
+/** `GET /api/v1/moi/sessions` — sessions ouvertes, la plus récente d'abord. */
+export async function fetchMySessions() {
+  const { data } = await httpClient.get("/moi/sessions");
+  return data.map((s) => ({
+    id: s.id,
+    agent: s.agent ?? "",
+    ip: s.ip ?? "",
+    createdAt: new Date(s.cree_le),
+    expiresAt: new Date(s.expire_le),
+    current: Boolean(s.courante),
+  }));
+}
+
+/** `DELETE /api/v1/moi/sessions/{id}` (204) — révoquer la courante revient à se déconnecter. */
+export async function revokeMySession(sessionId) {
+  await httpClient.delete(`/moi/sessions/${sessionId}`);
 }
 
 /** `GET /api/v1/moi` — profil, rôle et permissions du compte connecté. 401 sans session. */

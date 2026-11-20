@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 
 import { fetchModelVersions } from "@/entities/model-version";
-import { SessionStatus, displayName, roleLabel, screenProfile, useCurrentUser } from "@/entities/session";
+import { SessionStatus, displayName, roleLabel, screenProfile, updateMyPreferences, useCurrentUser } from "@/entities/session";
 import { demoNotifications } from "@/shared/demo";
 import { cx, useAppTheme } from "@/shared/lib";
 import { Avatar, Button, Card, Icon, Logo, UserPhoto } from "@/shared/ui";
@@ -146,9 +146,20 @@ function Notifications() {
 }
 
 function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
-  const { user } = useCurrentUser();
-  const { theme, toggle } = useAppTheme();
+  const { user, setUser } = useCurrentUser();
+  // Préférence du compte, lue avec `/moi` au chargement de l'application.
+  const { theme, toggle } = useAppTheme(user?.preferences?.theme);
   const dark = theme === "dark";
+  const switchTheme = async () => {
+    const next = toggle();
+    try {
+      // Mémorisé sur le compte : le même thème sur tous les postes.
+      const preferences = await updateMyPreferences({ theme: next === "dark" ? "sombre" : "clair" });
+      setUser({ ...user, preferences });
+    } catch {
+      /* le basculement local suffit pour cette session */
+    }
+  };
   const themeLabel = dark ? "Passer en mode clair" : "Passer en mode sombre";
   const name = displayName(user);
   return (
@@ -165,7 +176,7 @@ function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
       <div className="spacer" />
       {headerActions}
       <div className="top-tools">
-        <button type="button" className="btn btn-ghost btn-sm theme-toggle" aria-label={themeLabel} title={themeLabel} onClick={toggle}>
+        <button type="button" className="btn btn-ghost btn-sm theme-toggle" aria-label={themeLabel} title={themeLabel} onClick={switchTheme}>
           <Icon name={dark ? "sun" : "contrast"} />
         </button>
         <div className="top-actions">
@@ -211,6 +222,8 @@ export function Forbidden() {
  * - Sans session : renvoie vers `/connexion` (avec `etat=expiree` si la
  *   session vient d'expirer, `etat=deconnecte` après une déconnexion). Le
  *   retour de Google ramène sur `/`, qui oriente selon le rôle.
+ * - Compte qui doit choisir un nouveau mot de passe (`doit_changer_mdp`) :
+ *   toute navigation est renvoyée vers `/premiere-connexion`.
  * - Sans la permission demandée (`permission` ou `anyOf`) : écran 403 dans la
  *   page — le backend refuse de toute façon, la garde ne sert qu'à l'ergonomie.
  *
@@ -221,14 +234,18 @@ export function Forbidden() {
  * `overlay` : modales de la vue, rendues hors de la zone principale.
  */
 export function AppShell({ page, title, crumbs = "Application", docTitle, permission, anyOf, className, overlay, rail, bare, headerContent, headerActions, children }) {
-  const { status, endReason, canAny } = useCurrentUser();
+  const { status, endReason, canAny, user } = useCurrentUser();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const mustChangePassword = status === SessionStatus.AUTHENTICATED && Boolean(user?.mustChangePassword);
 
   useEffect(() => {
-    if (status !== SessionStatus.ANONYMOUS) return;
-    router.replace({ pathname: "/connexion", query: endReason ? { etat: endReason } : {} });
-  }, [status, endReason, router]);
+    if (status === SessionStatus.ANONYMOUS) {
+      router.replace({ pathname: "/connexion", query: endReason ? { etat: endReason } : {} });
+    } else if (mustChangePassword) {
+      router.replace("/premiere-connexion");
+    }
+  }, [status, endReason, mustChangePassword, router]);
 
   const head = (
     <Head>
@@ -236,7 +253,7 @@ export function AppShell({ page, title, crumbs = "Application", docTitle, permis
     </Head>
   );
 
-  if (status !== SessionStatus.AUTHENTICATED) {
+  if (status !== SessionStatus.AUTHENTICATED || mustChangePassword) {
     return (
       <>
         {head}
