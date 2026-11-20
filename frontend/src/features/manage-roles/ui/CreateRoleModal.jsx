@@ -5,7 +5,7 @@ import { toAppError } from "@/shared/api";
 import { Alert, Button, Modal } from "@/shared/ui";
 
 import { PERMISSION_GROUPS, SENSITIVE_PERMISSIONS, permissionLabel } from "../model/permission-groups";
-import { summarizeRole } from "../model/summary";
+import { summarizeRole } from "@/entities/role";
 
 /**
  * Création ou modification d'un rôle personnalisé : nom, description et

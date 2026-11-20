@@ -7,3 +7,4 @@ export {
   normalizeRole,
   updateRole,
 } from "./api/role-api";
+export { frenchList, summarizeRole } from "./model/summary";
