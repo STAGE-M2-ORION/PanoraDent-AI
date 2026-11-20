@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # STARTTLS sur le port 587 ; mettre false uniquement pour un relais local.
     smtp_starttls: bool = True
 
+    # --- Stockage des radiographies ---------------------------------------
+    # Alerte d'administration au-delà de ce volume occupé dans le stockage objet.
+    stockage_alerte_go: float = 50.0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")

@@ -361,8 +361,10 @@ def test_flux_d_analyse_du_praticien(connecte, monkeypatch):
 
     monkeypatch.setattr(analyses_router.inference_client, "infer", fake_infer)
     praticien = connecte("dr.moreau@cabinet.example.org")
-    r = praticien.post(f"{BASE}/analyses", files={"file": ("a.png", _png(), "image/png")})
-    assert r.status_code == 200, r.text
+    pano = io.BytesIO()
+    Image.new("L", (1200, 600), 40).save(pano, format="PNG")
+    r = praticien.post(f"{BASE}/analyses", files={"fichier": ("a.png", pano.getvalue(), "image/png")})
+    assert r.status_code == 201, r.text
     analyse = r.json()
     assert analyse["detections"][0]["fdi"] == 11 and stored
     assert praticien.get(f"{BASE}/analyses/{analyse['id']}").status_code == 200

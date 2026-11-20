@@ -36,6 +36,16 @@ def delete(key: str):
     _s3.delete_object(Bucket=settings.s3_bucket, Key=key)
 
 
+def usage(prefixe: str = "") -> tuple[int, int]:
+    """(nombre d'objets, octets) du bucket, ou d'un préfixe."""
+    objets = octets = 0
+    for page in _s3.get_paginator("list_objects_v2").paginate(Bucket=settings.s3_bucket, Prefix=prefixe):
+        for obj in page.get("Contents", []):
+            objets += 1
+            octets += obj["Size"]
+    return objets, octets
+
+
 def presigned_url(key: str, expires: int = 3600) -> str:
     url = _s3.generate_presigned_url(
         "get_object",

@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from sqlalchemy import String, DateTime, Float, Integer, ForeignKey, Text, Boolean
+from datetime import date, datetime
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -11,13 +11,29 @@ def _uuid() -> str:
 
 class Analysis(Base):
     """Une analyse = une panoramique anonymisée + ses détections.
-    AUCUNE donnée patient identifiante n'est stockée ici (PRD §9)."""
+
+    AUCUNE donnée patient identifiante n'est stockée ici (PRD §9) : la
+    référence est anonyme (« PDX-2026-0042 ») ; c'est au cabinet, dans son
+    propre dossier patient, que le rapprochement se fait. La date d'examen et
+    la note sont facultatives ; l'écran rappelle de n'y mettre aucun nom."""
     __tablename__ = "analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    image_key: Mapped[str] = mapped_column(String)          # clé stockage objet
+    # Référence lisible et anonyme, attribuée à l'import.
+    reference: Mapped[str] = mapped_column(String(20), unique=True)
+    # Déposant : lui seul (et l'administrateur) peut supprimer l'analyse.
+    utilisateur_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    date_examen: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    image_key: Mapped[str] = mapped_column(String)          # pleine résolution (inférence)
+    # Version réduite (3 000 px de large) pour l'affichage, si l'image est plus large.
+    image_affichage_key: Mapped[str | None] = mapped_column(String, nullable=True)
     report_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Zones masquées à l'import, en fractions de l'image : {"auto": [...], "manuelles": [...]}.
+    masques: Mapped[dict] = mapped_column(JSON, default=dict)
     model_version: Mapped[str] = mapped_column(String)
     inference_mode: Mapped[str] = mapped_column(String)     # mock | real
     width: Mapped[int] = mapped_column(Integer)
@@ -26,6 +42,11 @@ class Analysis(Base):
     detections: Mapped[list["Detection"]] = relationship(
         back_populates="analysis", cascade="all, delete-orphan"
     )
+    deposant = relationship("Utilisateur", lazy="joined")
+
+    def cles_stockees(self) -> list[str]:
+        """Tout ce que l'analyse a laissé dans le stockage objet."""
+        return [k for k in (self.image_key, self.image_affichage_key, self.report_key) if k]
 
 
 class Detection(Base):
