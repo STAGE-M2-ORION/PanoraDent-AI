@@ -155,7 +155,7 @@ export function CompteRenduPage() {
                         Analyse n° <b className="mono">{vm.number}</b>
                       </p>
                       <p>
-                        ID anonyme <b className="mono">{vm.ref}</b>
+                        Référence <b className="mono">{vm.ref}</b>
                       </p>
                       <p>
                         Date : <b>{vm.date}</b>

@@ -196,7 +196,7 @@ export function AnalysePage() {
       </p>
       <h1>Analyse n° {number}</h1>
       <div className="head-meta">
-        <Badge className="mono">ID anonyme {vm?.ref ?? "…"}</Badge>
+        <Badge className="mono">Référence {vm?.ref ?? "…"}</Badge>
         <Badge>{vm?.date ?? ""}</Badge>
         <Badge tone={ui.closed ? "success" : "info"} dot>
           {ui.closed ? "Clôturée" : "Relecture en cours"}

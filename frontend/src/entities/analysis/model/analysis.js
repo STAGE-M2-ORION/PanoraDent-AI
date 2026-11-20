@@ -41,8 +41,14 @@ export function normalizeAnalysis(dto) {
   const detections = (dto.detections ?? []).map(normalizeDetection);
   return {
     id: dto.id,
-    ref: anonymousId(dto.id),
+    // Référence anonyme attribuée à l'import (« PDX-2026-0042 »).
+    ref: dto.reference ?? anonymousId(dto.id),
     createdAt: dto.created_at,
+    examDate: dto.date_examen ?? null,
+    note: dto.note ?? "",
+    depositorId: dto.deposant_id ?? null,
+    depositorName: dto.deposant_nom ?? null,
+    maskedZones: dto.zones_masquees ?? { auto: 0, manuelles: 0 },
     imageKey: dto.image_key,
     reportKey: dto.report_key ?? null,
     modelVersion: dto.model_version,
@@ -58,8 +64,11 @@ export function normalizeAnalysis(dto) {
 export function normalizeAnalysisSummary(dto) {
   return {
     id: dto.id,
-    ref: anonymousId(dto.id),
+    ref: dto.reference ?? anonymousId(dto.id),
     createdAt: dto.created_at,
+    examDate: dto.date_examen ?? null,
+    depositorId: dto.deposant_id ?? null,
+    depositorName: dto.deposant_nom ?? null,
     modelVersion: dto.model_version,
     inferenceMode: dto.inference_mode,
     detectionCount: dto.n_detections,

@@ -1,4 +1,4 @@
-export { createAnalysis, deleteAnalysis, fetchAnalyses, fetchAnalysis, fetchAnalysisImageUrl } from "./api/analysis-api";
+export { createAnalysis, deleteAnalysis, fetchAnalyses, fetchAnalysis, fetchAnalysisImageUrl, previewAnalysis } from "./api/analysis-api";
 export {
   ANALYSIS_STATUS,
   AnalysisStatus,

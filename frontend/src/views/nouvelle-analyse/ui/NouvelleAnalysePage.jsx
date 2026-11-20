@@ -1,42 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createAnalysis, fetchAnalysisImageUrl, isMockAnalysis } from "@/entities/analysis";
+import { createAnalysis, isMockAnalysis, previewAnalysis } from "@/entities/analysis";
 import { isAnomaly } from "@/entities/detection";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
-import { Alert, Badge, Button, Icon } from "@/shared/ui";
+import { Alert, Button, Field, Icon } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
+
+import { MaskEditor } from "./MaskEditor";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const ACCEPT = ".dcm,.jpg,.jpeg,.png,image/jpeg,image/png,application/dicom";
 /** Une panoramique est nettement plus large que haute. */
 const MIN_PANO_RATIO = 1.6;
+const NOTE_MAX = 500;
 const ANALYSIS_STEPS = ["Prétraitement", "Numérotation des dents", "Détection des anomalies", "Préparation de la relecture"];
 
 /**
- * États de l'écran (repris de la maquette) :
- * attente → (invalide | invalide-taille | non-pano) → pret → import → analyse → terminee | echec
+ * États de l'écran :
+ * attente → verification → (refuse | pret) → import → analyse → (terminee | echec)
+ *
+ * `verification` : le serveur contrôle et anonymise le fichier et renvoie un
+ * aperçu, SANS rien stocker. `pret` : le praticien vérifie l'aperçu, ajoute
+ * des masques, puis confirme ; c'est seulement là que l'image anonymisée est
+ * stockée. Abandonner avant ne laisse aucune trace.
  */
-const STEP_OF = { attente: 1, invalide: 1, "invalide-taille": 1, "non-pano": 1, pret: 2, import: 3, analyse: 3, echec: 3, terminee: 4 };
-
-function fileKind(file) {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".dcm") || file.type === "application/dicom") return "dicom";
-  if (/\.(jpe?g|png)$/.test(name) || ["image/jpeg", "image/png"].includes(file.type)) return "image";
-  return null;
-}
+const STEP_OF = { attente: 1, verification: 1, refuse: 1, pret: 2, import: 3, analyse: 3, echec: 3, terminee: 4 };
 
 const formatSize = (bytes) => `${(bytes / 1024 / 1024).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Mo`;
-
-/** Dimensions d'une image locale (JPG/PNG) : `{ width, height }`. */
-function readDimensions(url) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
+const today = () => new Date().toISOString().slice(0, 10);
 
 function Progress({ label, value }) {
   return (
@@ -46,52 +38,54 @@ function Progress({ label, value }) {
   );
 }
 
-/** Import d'une panoramique, anonymisation et analyse par le modèle. */
+/** Import d'une panoramique : contrôle, aperçu anonymisé, masques, confirmation, analyse. */
 export function NouvelleAnalysePage() {
   const [state, setState] = useState("attente");
   const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null); // { url, width, height }
+  const [preview, setPreview] = useState(null);
+  const [masks, setMasks] = useState([]);
+  const [meta, setMeta] = useState({ examDate: "", note: "" });
   const [over, setOver] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [analysisPct, setAnalysisPct] = useState(0);
   const [result, setResult] = useState(null);
-  const [resultImage, setResultImage] = useState(null);
   const [error, setError] = useState(null);
   const inputRef = useRef(null);
   const timerRef = useRef(null);
 
-  // Libère l'URL locale de l'aperçu.
-  useEffect(() => () => preview?.url && URL.revokeObjectURL(preview.url), [preview]);
   useEffect(() => () => clearInterval(timerRef.current), []);
 
   const reset = () => {
     setFile(null);
     setPreview(null);
+    setMasks([]);
+    setMeta({ examDate: "", note: "" });
     setResult(null);
-    setResultImage(null);
     setError(null);
     setState("attente");
   };
 
   const pick = async (picked) => {
     if (!picked) return;
-    setError(null);
-    const kind = fileKind(picked);
-    if (!kind) return setState("invalide");
-    if (picked.size > MAX_BYTES) return setState("invalide-taille");
+    reset();
     setFile(picked);
-    if (kind === "image") {
-      const url = URL.createObjectURL(picked);
-      const dims = await readDimensions(url);
-      setPreview({ url, ...(dims ?? {}) });
-      if (dims && dims.width / dims.height < MIN_PANO_RATIO) return setState("non-pano");
-    } else {
-      setPreview(null);
+    if (picked.size > MAX_BYTES) {
+      setError({ title: "Fichier refusé", message: `Le fichier dépasse 20 Mo (${formatSize(picked.size)}).` });
+      return setState("refuse");
     }
-    setState("pret");
+    setUploadPct(0);
+    setState("verification");
+    try {
+      setPreview(await previewAnalysis(picked, { onProgress: setUploadPct }));
+      setState("pret");
+    } catch (cause) {
+      const e = toAppError(cause);
+      setError({ title: "Fichier refusé", message: e.message });
+      setState("refuse");
+    }
   };
 
-  const launch = async () => {
+  const confirm = async () => {
     if (!file) return;
     setError(null);
     setUploadPct(0);
@@ -99,10 +93,13 @@ export function NouvelleAnalysePage() {
     setState("import");
     try {
       const analysis = await createAnalysis(file, {
+        masks,
+        examDate: meta.examDate,
+        note: meta.note,
         onProgress: (pct) => {
           setUploadPct(pct);
           if (pct >= 100) {
-            // Le serveur anonymise puis interroge le modèle : progression estimée.
+            // Le serveur ré-anonymise, stocke puis interroge le modèle : progression estimée.
             setState("analyse");
             clearInterval(timerRef.current);
             timerRef.current = setInterval(() => setAnalysisPct((p) => Math.min(92, p + 2)), 400);
@@ -113,12 +110,9 @@ export function NouvelleAnalysePage() {
       setAnalysisPct(100);
       setResult(analysis);
       setState("terminee");
-      fetchAnalysisImageUrl(analysis.id)
-        .then(setResultImage)
-        .catch(() => {});
     } catch (cause) {
       clearInterval(timerRef.current);
-      setError(toAppError(cause));
+      setError({ title: "Échec de l’import", message: toAppError(cause).message });
       setState("echec");
     }
   };
@@ -128,15 +122,14 @@ export function NouvelleAnalysePage() {
   const currentAnalysisStep = Math.min(3, Math.floor(analysisPct / 25));
   const anomalies = result ? result.detections.filter((d) => isAnomaly(d.label)).length : 0;
   const teeth = result ? result.detections.length - anomalies : 0;
-  const shownImage = resultImage ?? preview?.url;
-  const dims = result ? { width: result.width, height: result.height } : preview;
+  const notPano = preview && preview.width / preview.height < MIN_PANO_RATIO;
 
   return (
     <AppShell page="nouvelle-analyse" title="Nouvelle analyse" permission={Permission.ANALYSIS_CREATE} className="v-nouvelle-analyse">
       <div className="page-head">
         <div>
           <h2>Nouvelle analyse</h2>
-          <p>Déposez une radiographie panoramique. Elle est anonymisée dès l’import, avant tout traitement.</p>
+          <p>Déposez une radiographie panoramique. Elle est anonymisée avant tout traitement, et rien n’est conservé tant que vous n’avez pas confirmé.</p>
         </div>
       </div>
 
@@ -158,18 +151,13 @@ export function NouvelleAnalysePage() {
 
       <div className="layout">
         <div className="stack" aria-live="polite">
-          {state === "invalide" ? (
-            <Alert tone="danger" icon="alert" role="alert" title="Fichier refusé">
-              Ce format n’est pas pris en charge. Formats acceptés : DICOM, JPG, PNG.
-            </Alert>
-          ) : null}
-          {state === "invalide-taille" ? (
-            <Alert tone="danger" icon="alert" role="alert" title="Fichier refusé">
-              Le fichier dépasse 20 Mo.
+          {state === "refuse" ? (
+            <Alert tone="danger" icon="alert" role="alert" title={error?.title} data-erreur="fichier-refuse">
+              {error?.message}
             </Alert>
           ) : null}
 
-          {is("attente", "invalide", "invalide-taille") ? (
+          {is("attente", "refuse") ? (
             <section
               className={over ? "dropzone is-over" : "dropzone"}
               aria-label="Zone de dépôt de la radiographie"
@@ -188,171 +176,84 @@ export function NouvelleAnalysePage() {
               <h3>Glissez votre radiographie ici</h3>
               <p className="muted">ou</p>
               <Button onClick={() => inputRef.current?.click()}>Parcourir les fichiers</Button>
-              <p className="formats">DICOM (.dcm), JPG, PNG · 20 Mo maximum</p>
-              <p className="hint">Radiographies panoramiques uniquement.</p>
+              <p className="formats">DICOM (.dcm), JPG, PNG · 20 Mo maximum · 800 × 400 px minimum</p>
+              <p className="hint">Radiographies panoramiques uniquement. Le nom du fichier n’est pas conservé.</p>
             </section>
           ) : null}
 
-          {state === "non-pano" ? (
-            <section className="stack">
-              <Alert tone="warning" icon="alert" role="alert" title="Image à vérifier">
-                Cette image ne ressemble pas à une radiographie panoramique (format ou proportions inhabituels). L’analyse n’est fiable que sur des panoramiques.
-              </Alert>
-              <div className="card card-pad stack">
-                <p className="mono" style={{ fontSize: "var(--text-sm)" }}>
-                  {file?.name} · {file ? formatSize(file.size) : ""}
-                </p>
-                <div className="actions">
-                  <Button variant="secondary" onClick={() => inputRef.current?.click()}>
-                    Choisir une autre image
-                  </Button>
-                  <button className="btn btn-ghost" type="button" onClick={() => setState("pret")}>
-                    Continuer quand même
-                  </button>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {state === "import" ? (
-            <section className="card card-pad stack" aria-label="Import en cours">
+          {is("verification", "import") ? (
+            <section className="card card-pad stack" aria-label={state === "import" ? "Import en cours" : "Vérification en cours"}>
               <div className="file-line">
                 <strong className="mono" style={{ fontWeight: 500 }}>
-                  {file?.name} · {file ? formatSize(file.size) : ""}
+                  {formatSize(file?.size ?? 0)}
                 </strong>
                 <span className="mono">{uploadPct} %</span>
               </div>
-              <Progress label="Téléversement" value={uploadPct} />
-              <p className="hint">Import et anonymisation en cours. Ne fermez pas la page.</p>
+              <Progress label={state === "import" ? "Téléversement" : "Vérification"} value={uploadPct} />
+              <p className="hint">
+                {state === "import"
+                  ? "Anonymisation et enregistrement de l’image masquée. Ne fermez pas la page."
+                  : "Contrôle du fichier et repérage des inscriptions. Rien n’est enregistré à cette étape."}
+              </p>
             </section>
           ) : null}
 
-          {is("pret", "analyse", "terminee", "echec") ? (
+          {is("pret", "echec") && preview ? (
             <section className="stack">
-              {state === "terminee" ? (
-                <Alert tone="success" icon="check" role="status" title="Anonymisation appliquée">
-                  <ul className="ok-list">
-                    <li>
-                      <Icon name="check" />
-                      Balises DICOM identifiantes supprimées
-                    </li>
-                    <li>
-                      <Icon name="check" />
-                      Métadonnées du fichier effacées
-                    </li>
-                    <li>
-                      <Icon name="check" />
-                      Identifiant anonyme attribué : <span className="mono">{result.ref}</span>
-                    </li>
-                  </ul>
+              {notPano ? (
+                <Alert tone="warning" icon="alert" title="Image à vérifier">
+                  Cette image ne ressemble pas à une radiographie panoramique (proportions inhabituelles). L’analyse n’est fiable que sur des panoramiques.
                 </Alert>
               ) : null}
+              <div className="card card-pad stack">
+                <h3 style={{ fontSize: "var(--text-lg)" }}>Vérifiez l’anonymisation</h3>
+                <MaskEditor preview={preview} masks={masks} onChange={setMasks} disabled={state !== "pret"} />
+                <p className="hint" style={{ margin: 0 }}>
+                  {preview.width.toLocaleString("fr-FR")} × {preview.height.toLocaleString("fr-FR")} px · métadonnées et en-têtes DICOM retirés · seule l’image
+                  masquée sera enregistrée.
+                </p>
+              </div>
 
               <div className="card card-pad stack">
-                <h3 style={{ fontSize: "var(--text-lg)" }}>{state === "terminee" ? "Aperçu de l’image anonymisée" : "Aperçu de l’image"}</h3>
-                <div className="preview-grid">
-                  <div className="viewer">
-                    {shownImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img className="pano" src={shownImage} alt={state === "terminee" ? "Radiographie panoramique anonymisée" : "Aperçu de la radiographie importée"} style={{ width: "100%", height: "auto", display: "block" }} />
-                    ) : (
-                      <div style={{ aspectRatio: "2 / 1", display: "grid", placeItems: "center", color: "var(--color-viewer-muted)", fontSize: "var(--text-sm)", padding: "var(--space-6)", textAlign: "center" }}>
-                        Fichier DICOM : l’aperçu s’affiche une fois l’image anonymisée par le serveur.
-                      </div>
-                    )}
-                  </div>
-                  <dl className="info-list">
-                    <div>
-                      <dt>ID anonyme</dt>
-                      <dd className="mono">{result ? result.ref : "attribué à l’import"}</dd>
-                    </div>
-                    <div>
-                      <dt>Dimensions</dt>
-                      <dd className="mono">{dims?.width ? `${dims.width.toLocaleString("fr-FR")} × ${dims.height.toLocaleString("fr-FR")} px` : "—"}</dd>
-                    </div>
-                    <div>
-                      <dt>Type</dt>
-                      <dd>
-                        <Badge tone="success">Panoramique</Badge>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Fichier</dt>
-                      <dd className="mono" style={{ overflowWrap: "anywhere" }}>
-                        {file?.name}
-                      </dd>
-                    </div>
-                  </dl>
+                <h3 style={{ fontSize: "var(--text-lg)" }}>Informations de l’analyse</h3>
+                <div className="meta-grid">
+                  <Field label="Date de l’examen" htmlFor="m-date" hint="Facultative.">
+                    <input className="input" id="m-date" type="date" max={today()} value={meta.examDate} onChange={(e) => setMeta((m) => ({ ...m, examDate: e.target.value }))} />
+                  </Field>
+                  <Field label="Note" htmlFor="m-note" hint={`N’y inscrivez aucune donnée qui identifie le patient (nom, date de naissance…). ${meta.note.length} / ${NOTE_MAX}`}>
+                    <textarea className="textarea" id="m-note" rows={2} maxLength={NOTE_MAX} value={meta.note} onChange={(e) => setMeta((m) => ({ ...m, note: e.target.value }))} />
+                  </Field>
                 </div>
+                <p className="hint" style={{ margin: 0 }}>
+                  Une référence anonyme (« PDX-AAAA-NNNN ») est attribuée à la confirmation : c’est elle, et non le nom du fichier, qui désignera l’analyse.
+                </p>
               </div>
 
               {state === "pret" ? (
                 <div className="actions">
-                  <Button onClick={launch}>
+                  <Button onClick={confirm}>
                     <Icon name="sparkle" />
-                    Lancer l’analyse
+                    Confirmer et lancer l’analyse
                   </Button>
                   <Button variant="secondary" onClick={reset}>
-                    Remplacer l’image
+                    Abandonner
                   </Button>
-                </div>
-              ) : null}
-
-              {state === "analyse" ? (
-                <div className="card card-pad stack" aria-label="Analyse en cours">
-                  <div className="file-line" style={{ alignItems: "baseline" }}>
-                    <strong>Analyse en cours</strong>
-                    <span className="big-pct">{analysisPct} %</span>
-                  </div>
-                  <Progress label="Progression de l’analyse" value={analysisPct} />
-                  <ol className="astep-list">
-                    {ANALYSIS_STEPS.map((label, i) => {
-                      const s = analysisPct >= 100 || i < currentAnalysisStep ? "done" : i === currentAnalysisStep ? "now" : "";
-                      return (
-                        <li key={label} data-s={s} aria-current={s === "now" ? "step" : undefined}>
-                          <span className="dot" />
-                          {label}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  <div className="actions">
-                    <span className="hint">Environ 20 secondes. Ne fermez pas la page.</span>
-                  </div>
-                </div>
-              ) : null}
-
-              {state === "terminee" ? (
-                <div className="stack">
-                  <Alert tone="success" icon="check" role="status" title="Analyse terminée">
-                    {teeth} dent{teeth > 1 ? "s" : ""} numérotée{teeth > 1 ? "s" : ""}, {anomalies} anomalie{anomalies > 1 ? "s" : ""} proposée{anomalies > 1 ? "s" : ""}.
-                  </Alert>
-                  {isMockAnalysis(result) ? (
-                    <Alert tone="warning" icon="info" title="Mode démonstration">
-                      Le service d’inférence tourne sans modèle entraîné : ces détections sont factices et n’ont aucune valeur diagnostique.
-                    </Alert>
-                  ) : null}
-                  <div className="actions">
-                    <Button href={`/analyse?id=${result.id}`}>
-                      Ouvrir la relecture
-                      <Icon name="chevron" />
-                    </Button>
-                  </div>
+                  <span className="hint">Abandonner ne laisse aucune trace : rien n’a encore été enregistré.</span>
                 </div>
               ) : null}
 
               {state === "echec" ? (
                 <div className="stack">
-                  <Alert tone="danger" icon="alert" role="alert" title="Échec de l’analyse">
-                    L’analyse n’a pas pu aboutir : {error?.message} Votre fichier est toujours sélectionné, vous pouvez relancer.
+                  <Alert tone="danger" icon="alert" role="alert" title={error?.title}>
+                    {error?.message} Votre fichier et vos masques sont toujours là : vous pouvez réessayer.
                   </Alert>
                   <div className="actions">
-                    <Button onClick={launch}>
+                    <Button onClick={confirm}>
                       <Icon name="refresh" />
-                      Relancer l’analyse
+                      Réessayer
                     </Button>
                     <Button variant="secondary" onClick={reset}>
-                      Remplacer l’image
+                      Abandonner
                     </Button>
                   </div>
                 </div>
@@ -360,7 +261,69 @@ export function NouvelleAnalysePage() {
             </section>
           ) : null}
 
-          {result ? <p className="hint">Modèle utilisé : {result.modelVersion}</p> : null}
+          {state === "analyse" ? (
+            <div className="card card-pad stack" aria-label="Analyse en cours">
+              <div className="file-line" style={{ alignItems: "baseline" }}>
+                <strong>Analyse en cours</strong>
+                <span className="big-pct">{analysisPct} %</span>
+              </div>
+              <Progress label="Progression de l’analyse" value={analysisPct} />
+              <ol className="astep-list">
+                {ANALYSIS_STEPS.map((label, i) => {
+                  const s = analysisPct >= 100 || i < currentAnalysisStep ? "done" : i === currentAnalysisStep ? "now" : "";
+                  return (
+                    <li key={label} data-s={s} aria-current={s === "now" ? "step" : undefined}>
+                      <span className="dot" />
+                      {label}
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="actions">
+                <span className="hint">Environ 20 secondes. Ne fermez pas la page.</span>
+              </div>
+            </div>
+          ) : null}
+
+          {state === "terminee" ? (
+            <div className="stack">
+              <Alert tone="success" icon="check" role="status" title="Anonymisation appliquée" data-etat="import-termine">
+                <ul className="ok-list">
+                  <li>
+                    <Icon name="check" />
+                    Métadonnées et en-têtes DICOM retirés
+                  </li>
+                  <li>
+                    <Icon name="check" />
+                    {result.maskedZones.auto} inscription{result.maskedZones.auto > 1 ? "s" : ""} masquée{result.maskedZones.auto > 1 ? "s" : ""}
+                    {result.maskedZones.manuelles ? `, ${result.maskedZones.manuelles} masque${result.maskedZones.manuelles > 1 ? "s" : ""} ajouté${result.maskedZones.manuelles > 1 ? "s" : ""} à la main` : ""}
+                  </li>
+                  <li>
+                    <Icon name="check" />
+                    Référence anonyme : <span className="mono">{result.ref}</span>
+                  </li>
+                </ul>
+              </Alert>
+              <Alert tone="success" icon="check" role="status" title="Analyse terminée">
+                {teeth} dent{teeth > 1 ? "s" : ""} numérotée{teeth > 1 ? "s" : ""}, {anomalies} anomalie{anomalies > 1 ? "s" : ""} proposée{anomalies > 1 ? "s" : ""}.
+              </Alert>
+              {isMockAnalysis(result) ? (
+                <Alert tone="warning" icon="info" title="Mode démonstration">
+                  Le service d’inférence tourne sans modèle entraîné : ces détections sont factices et n’ont aucune valeur diagnostique.
+                </Alert>
+              ) : null}
+              <div className="actions">
+                <Button href={`/analyse?id=${result.id}`}>
+                  Ouvrir la relecture
+                  <Icon name="chevron" />
+                </Button>
+                <Button variant="secondary" onClick={reset}>
+                  Importer une autre radiographie
+                </Button>
+              </div>
+              <p className="hint">Modèle utilisé : {result.modelVersion}</p>
+            </div>
+          ) : null}
         </div>
 
         <aside className="card card-pad side" aria-labelledby="side-h">
@@ -376,10 +339,10 @@ export function NouvelleAnalysePage() {
           />
           <h3 id="side-h">Ce qui se passe à l’import</h3>
           <ol>
-            <li>Suppression des balises DICOM identifiantes (nom, date de naissance, identifiant patient, établissement).</li>
-            <li>Effacement des métadonnées du fichier (EXIF).</li>
-            <li>Masquage du texte incrusté dans l’image.</li>
-            <li>Attribution d’un identifiant anonyme.</li>
+            <li>Contrôle du fichier : format réel (et non l’extension), 20 Mo au plus.</li>
+            <li>Seuls les pixels sont gardés : en-têtes DICOM (nom, date de naissance, identifiant) et métadonnées (EXIF) disparaissent.</li>
+            <li>Les inscriptions incrustées dans l’image sont repérées et masquées en noir ; vous pouvez en ajouter.</li>
+            <li>À la confirmation seulement : enregistrement de l’image masquée sous une référence anonyme. L’original n’est jamais conservé.</li>
           </ol>
           <p className="hint" style={{ marginTop: "var(--space-4)" }}>
             L’image reste sur le serveur du cabinet : elle n’est jamais envoyée à un service externe.
