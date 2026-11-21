@@ -153,7 +153,15 @@ Compose. Principes :
    restées `en_cours` (arrêt brutal). En production, le mode mock est refusé.
    L'interface relit `GET /{id}/statut` toutes les 2 s tant que l'analyse est en
    file ou en cours.
-6. **Revue praticien** — schéma prêt, API et UI absentes (cf. limites).
+6. **Relecture** ([revue.py](backend/app/services/revue.py)) — le praticien
+   valide, corrige (type, dent, cadre) ou rejette chaque détection, avec un
+   commentaire facultatif, et trace celles que le modèle n'a pas vues. Une
+   proposition du modèle n'est **jamais écrasée** : chaque verdict est une ligne
+   de `verdicts` qui porte les valeurs retenues, la détection garde les siennes.
+   La clôture exige un verdict sur chaque anomalie (les cadres de numérotation
+   des dents servent de repère et n'en demandent pas) ; elle verrouille
+   l'analyse, ce que **le service** vérifie avant toute écriture. Seul
+   l'administrateur rouvre, avec un motif inscrit au journal.
 7. **Rapport PDF** — `POST /api/v1/analyses/{id}/report` relit l'image, la ré-annote
    côté serveur, génère un PDF A4 (image, tableau, mention légale), le stocke
    sous `reports/<id>.pdf` et renvoie une URL présignée (1 h). Un second appel
@@ -251,7 +259,16 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 | `POST` | `/api/v1/analyses/{id}/lancer` | Relance après échec (journalisée) ; déjà en file ou en cours : rien ne change ; terminée : `409` — `analysis:create` |
 | `GET` | `/api/v1/analyses/{id}/image` | URL présignée (1 h) de la version d'affichage ; `?taille=pleine` pour la pleine résolution — `analysis:read` |
 | `DELETE` | `/api/v1/analyses/{id}` | Déposant ou administrateur ; efface image, version d'affichage et compte rendu **puis** la ligne — `analysis:delete` |
-| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF, renvoie une URL présignée ; analyse non terminée : `409` — `report:generate` |
+| `POST` | `/api/v1/analyses/{id}/detections/{det}/verdict` | `{action: valider\|corriger\|rejeter, commentaire?, label?, fdi?, cadre?}` (cadre en fractions, borné à [0, 1]) — `detection:review` |
+| `POST` | `/api/v1/analyses/{id}/detections/{det}/annuler` | Annule le dernier verdict de la détection ; un ajout annulé est retiré — `detection:review` |
+| `POST` | `/api/v1/analyses/{id}/detections` | Ajout d'une détection tracée : origine praticien, née validée, `201` — `detection:review` |
+| `PUT` | `/api/v1/analyses/{id}/conclusion` | Brouillon de la conclusion — `detection:review` |
+| `POST` | `/api/v1/analyses/{id}/cloturer` | Clôture ; `409 detections_a_revoir` (avec le compte) tant qu'une anomalie reste sans verdict ; journalisée — `detection:review` |
+| `POST` | `/api/v1/analyses/{id}/rouvrir` | Réouverture, motif obligatoire, journalisée — `analysis:reopen` |
+| `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF (valeurs retenues, rejets exclus), renvoie une URL présignée ; analyse non terminée : `409` — `report:generate` |
+
+Toute écriture de relecture sur une analyse **clôturée** répond `409
+analyse_cloturee`.
 | `GET` | `/api/v1/stockage` | Volume occupé dans le stockage objet, alerte au-delà de `STOCKAGE_ALERTE_GO` — `user:manage` |
 | `GET` | `/api/v1/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
@@ -385,7 +402,9 @@ second fige la liste des routes publiques.
 |---|---|
 | `analysis:create` | `POST /api/v1/analyses`, `/apercu`, `/{id}/lancer` |
 | `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/statut`, `/{id}/image` |
-| `analysis:delete`, `detection:review` | *définies, aucune route pour l'instant* |
+| `analysis:delete` | `DELETE /api/v1/analyses/{id}` (déposant ou administrateur) |
+| `detection:review` | verdicts, annulation, ajout, conclusion, clôture (toute analyse du cabinet) |
+| `analysis:reopen` | `POST /api/v1/analyses/{id}/rouvrir` (administrateur seul) |
 | `report:generate` | `POST /api/v1/analyses/{id}/report` |
 | `model:read` | `GET /api/v1/model/versions` |
 | `user:manage` | `/api/v1/utilisateurs` (liste, création, modification), `/{id}/sessions` (liste, fermeture), `/{id}/renvoyer-lien`, `/{id}/reinitialiser-mot-de-passe` |
@@ -394,7 +413,7 @@ second fige la liste des routes publiques.
 
 | Rôle système | Permissions |
 |---|---|
-| Administrateur | les huit |
+| Administrateur | les neuf (dont `analysis:reopen`) |
 | Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
 | Lecteur | `analysis:read`, `model:read` |
 
@@ -469,10 +488,18 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   `image_affichage_key?` (3 000 px), `report_key?`, `masques` (zones masquées à
   l'import, en fractions), `model_version`, `inference_mode` (`mock` | `real`),
   `width`, `height`.
-- **`detections`** — `id`, `analysis_id` (FK `ON DELETE CASCADE`), `label`,
-  `fdi?`, `confidence` (0–1), `x`/`y`/`w`/`h` en pixels, `reviewed` (défaut
-  `false`), `source` (`model` | `human`). Relation en
-  `cascade="all, delete-orphan"`.
+- **`detections`** — `id`, `analysis_id` (FK `ON DELETE CASCADE`), valeurs
+  **proposées** jamais modifiées (`label`, `fdi?`, `confidence?` — vide pour un
+  ajout du praticien —, `x`/`y`/`w`/`h` en fractions de l'image),
+  `model_version`, `source` (`model` | `human`), `etat` (`a_revoir`, `validee`,
+  `corrigee`, `rejetee`), `revu_par_id?`, `revu_le?`, `cree_le`.
+- **`verdicts`** (migration `0009_revue_cloture`) — un verdict par ligne, jamais
+  modifié : `detection_id`, `numero` (rang sur la détection), `action`
+  (`valider`, `corriger`, `rejeter`, `ajouter`), valeurs **retenues** (`label`,
+  `fdi`, `x`/`y`/`w`/`h`), `commentaire`, `auteur_id`, `cree_le`, et en cas
+  d'annulation `annule_le` / `annule_par_id`. L'écart entre le modèle et le
+  praticien reste ainsi mesurable.
+- **`analyses`**, relecture : `conclusion`, `cloturee_le?`, `cloturee_par_id?`.
 - **`model_versions`** — `version` (unique), `dataset`, `metrics_json`, `notes`.
 - **Authentification** (migrations `0003_auth_google`, `0004_photo_profil`,
   `0005_mot_de_passe_profil`) : `utilisateur` (UUID, `email` citext unique,
@@ -642,7 +669,14 @@ anonymisation, modèle et contraintes de la base, mots de passe et politique,
 connexion par mot de passe et verrouillage, liens (oubli, réinitialisation,
 première connexion), connexion et rattachement Google (les six contrôles du jeton
 d'identité), routes `/moi`, création de compte et e-mails, rôles, et le test qui
-**échoue si une route n'est ni gardée ni déclarée publique**. Seul
+**échoue si une route n'est ni gardée ni déclarée publique** ; relecture
+(sprint 5, [test_revue.py](backend/app/tests/test_revue.py)) : les quatre
+verdicts avec auteur et date, correction qui laisse la proposition d'origine
+intacte, ajout du praticien (origine, état validé), clôture refusée avec le
+compte des détections à revoir, réouverture réservée à l'administrateur et
+journalisée, reprise après fermeture du navigateur, et le test qui **échoue si
+une route d'écriture sur une analyse n'est ni verrouillée par la clôture ni
+exemptée explicitement** (écriture refusée, route par route). Seul
 [`pytest.ini`](backend/pytest.ini) fixe le dossier de tests : un module
 applicatif nommé comme un test (`test_*.py`, `*_test.py`) serait sinon importé
 avant `conftest.py`, avec la mauvaise configuration.
@@ -659,7 +693,12 @@ fractions et ramenées aux pixels, statuts de la file, **seuil de confiance
 appliqué sans aucun appel réseau** (client HTTP et `fetch` piégés), **cadres
 alignés sur l'image quel que soit le zoom** (point sous le curseur immobile,
 aller-retour écran ↔ image exact), navigation J / K, raccourcis inactifs dans
-un champ de saisie, contenu et nom de l'export PNG.
+un champ de saisie, contenu et nom de l'export PNG ; pour la relecture
+(sprint 5) : état serveur → statut affiché, proposition d'origine et
+historique, cadres édités **toujours dans l'image** (déplacement,
+redimensionnement par chaque coin, tracé), envoi en fractions bornées à
+[0, 1], seules les valeurs corrigées envoyées au serveur, annulation d'un
+ajout, décompte de l'écran de clôture.
 
 **Parcours dans un navigateur** — Playwright
 ([parcours-connexion.spec.js](frontend/e2e/parcours-connexion.spec.js)), contre une
@@ -686,7 +725,15 @@ réimporter ; dans la visionneuse, le seuil filtre sans requête vers l'API, un
 cadre garde sa place sur l'image après zoom, J / K / + / 0 / H agissent, et
 l'export PNG est téléchargé sous la seule référence anonyme. Ces étapes
 arrêtent un instant des conteneurs de la stack de test avec la CLI `docker`
-(sautées si elle n'est pas accessible). Sur un poste qui fait
+(sautées si elle n'est pas accessible)
+([parcours-relecture.spec.js](frontend/e2e/parcours-relecture.spec.js), sprint 5) :
+le praticien valide (touche V), rejette avec un commentaire, voit la clôture
+refusée tant qu'une détection reste à revoir, corrige le type et le cadre
+(poignée) — la proposition d'origine reste affichée, cadre fantôme compris —,
+annule ce verdict, trace une détection oubliée, recharge la page et retrouve
+son avancement et sa sélection, puis clôture avec une conclusion : l'analyse
+passe en lecture seule, que le praticien ne peut pas rouvrir ; l'administrateur
+la rouvre avec un motif. Sur un poste qui fait
 déjà tourner la stack de développement, la stack de test est un projet séparé
 (sa propre base) sur le port 3100 :
 
@@ -832,11 +879,11 @@ certification** (`tls internal`), sans rien demander à l'extérieur.
 
 ## Limites connues
 
-**Fonctionnel** — revue praticien non implémentée (colonnes `reviewed`/`source`
-présentes, aucune route ni UI d'édition) · permission `detection:review` définie
-mais sans route correspondante · l'analyse par le modèle est lancée à la
-confirmation de l'import, en direct (la file de traitement arrive au sprint 4) ·
-table `model_versions` alimentée uniquement par
+**Fonctionnel** — le compte rendu PDF reprend les valeurs retenues mais pas
+encore la conclusion ni l'auteur de la relecture (sprint du compte rendu) ·
+deux praticiens sur la même analyse : les écritures sont sérialisées, mais
+l'écran de l'un ne se met pas à jour avec les verdicts de l'autre sans
+rechargement · table `model_versions` alimentée uniquement par
 [`training/publish_model.py`](training/publish_model.py), sans page de
 restitution des métriques.
 
@@ -883,8 +930,8 @@ mode réel emprunte la déduction géométrique.
 ## Feuille de route
 
 1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
-2. **Routes de revue praticien** — `PATCH`/`POST`/`DELETE`, puis édition dans le
-   viewer. Le rapport devient un document validé.
+2. ~~**Relecture par le praticien**~~ Fait (sprint 5) : verdicts, ajouts, clôture,
+   verrouillage ; reste à porter la conclusion dans le compte rendu.
 3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
 4. ~~**Historique dans l'UI**~~ Fait (sprint 3), avec le suivi de la file (sprint 4).
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
