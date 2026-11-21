@@ -75,6 +75,20 @@ def test_empreinte_fausse_refusee(tmp_path, faux_fichier):
         td.telecharger("essai.zip", tmp_path)
 
 
+def test_archive_rangee_sous_son_nom(tmp_path):
+    archive = tmp_path / "test_data.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("disease/label/test_1.json", "{}")
+    dossier = td.extraire(archive, tmp_path / "dest")
+    assert dossier == tmp_path / "dest" / "test_data"
+    assert (dossier / "disease" / "label" / "test_1.json").exists()
+
+    archive = tmp_path / "validation_data.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("validation_data/x.png", "x")
+    assert (td.extraire(archive, tmp_path / "dest") / "x.png").exists()   # pas d'imbrication
+
+
 def test_zip_slip_refuse(tmp_path):
     archive = tmp_path / "piege.zip"
     with zipfile.ZipFile(archive, "w") as z:

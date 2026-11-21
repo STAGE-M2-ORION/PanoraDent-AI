@@ -99,19 +99,27 @@ def telecharger(nom: str, dossier: Path) -> Path:
     return cible
 
 
-def extraire(archive: Path, dest: Path) -> None:
-    """Extrait une archive vérifiée ; sautée si le dossier racine existe déjà."""
+def extraire(archive: Path, dest: Path) -> Path:
+    """Extrait une archive vérifiée dans `dest/<nom de l'archive>`.
+
+    L'archive de test a pour racine `disease/`, celle d'entraînement
+    `training_data/` : on range chacune sous son propre nom pour qu'on ne
+    confonde jamais les deux. Sautée si le dossier existe déjà.
+    """
     with zipfile.ZipFile(archive) as z:
+        racines = {n.split("/", 1)[0] for n in z.namelist()}
+        cible = dest if racines == {archive.stem} else dest / archive.stem
         for membre in z.namelist():
             # Garde contre les chemins sortant du dossier (« zip slip »).
-            if not (dest / membre).resolve().is_relative_to(dest.resolve()):
+            if not (cible / membre).resolve().is_relative_to(cible.resolve()):
                 raise FichierInvalide(f"{archive.name} : chemin suspect {membre!r}")
-        racines = {n.split("/", 1)[0] for n in z.namelist()}
-        if all((dest / r).exists() for r in racines):
+        dossier = dest / archive.stem
+        if dossier.exists():
             print(f"  {archive.name} : déjà extraite")
-            return
+            return dossier
         print(f"  {archive.name} : extraction")
-        z.extractall(dest)
+        z.extractall(cible)
+        return dossier
 
 
 def main(argv=None):
