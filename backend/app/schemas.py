@@ -121,6 +121,7 @@ class AnalysisSummary(BaseModel):
     # Relecture : clôturée (lecture seule), détections sans verdict.
     cloturee: bool = False
     a_revoir: int = 0
+    revues: int = 0
 
 
 def analyse_out(a) -> AnalysisOut:

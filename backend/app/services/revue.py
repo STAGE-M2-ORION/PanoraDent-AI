@@ -108,7 +108,9 @@ def statuer(db: Session, a: Analysis, d: Detection, action: str, *, auteur_id, c
             nouvelles["fdi"] = _fdi(fdi)
         if cadre is not None:
             nouvelles.update(zip(("x", "y", "w", "h"), _cadre(*cadre)))
-        if nouvelles == valeurs:
+        # Sans changement, seule une correction existante peut être reconfirmée
+        # (pour en changer le commentaire, par exemple).
+        if nouvelles == valeurs and d.etat != EtatDetection.CORRIGEE:
             raise ApiError(422, "correction_vide", "La correction ne change ni le type, ni la dent, ni le cadre.")
         valeurs = nouvelles
     db.add(_poser(d, action, valeurs, _commentaire(commentaire), auteur_id))

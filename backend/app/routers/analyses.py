@@ -210,7 +210,7 @@ def list_analyses(
             n_detections=len(a.detections), statut=a.statut,
             labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
             has_report=a.report_key is not None,
-            cloturee=a.cloturee, a_revoir=len(revue.a_revoir(a)),
+            cloturee=a.cloturee, a_revoir=len(revue.a_revoir(a)), revues=revue.avancement(a)["revues"],
         ) for a in rows
     ]
 

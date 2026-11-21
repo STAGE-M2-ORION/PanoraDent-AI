@@ -305,3 +305,18 @@ def test_compte_rendu_avec_les_valeurs_retenues_sans_les_rejets(connecte, analys
     assert praticien.post(_url(analyse, "/report")).status_code == 200
     resume = sorted((d["label"], d["fdi"], d["confidence"]) for d in vu["dets"])
     assert resume == [("caries", 36, 0.55), ("caries", 36, 0.81), ("impacted_tooth", 48, None), ("tooth", 36, 0.97)]
+
+
+def test_correction_reconfirmee_pour_changer_son_commentaire(connecte, analyse):
+    praticien = connecte(PRATICIEN)
+    _verdict(praticien, analyse, "profonde", "corriger", label="caries")
+    r = _verdict(praticien, analyse, "profonde", "corriger", commentaire="Atteinte limitée à l'émail")
+    assert r.status_code == 200, r.text
+    assert (r.json()["etat"], r.json()["label"], r.json()["commentaire"]) == ("corrigee", "caries", "Atteinte limitée à l'émail")
+
+
+def test_liste_avancement_de_la_relecture(connecte, analyse):
+    praticien = connecte(PRATICIEN)
+    _verdict(praticien, analyse, "carie", "valider")
+    resume = next(x for x in praticien.get(f"{BASE}/analyses").json() if x["id"] == analyse["id"])
+    assert (resume["revues"], resume["a_revoir"], resume["cloturee"]) == (1, 2, False)
