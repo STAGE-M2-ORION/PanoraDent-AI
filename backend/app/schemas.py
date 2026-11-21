@@ -10,22 +10,66 @@ def _nom(utilisateur) -> str | None:
     return nom or utilisateur.email
 
 
-class DetectionOut(BaseModel):
-    """Boîte en FRACTIONS de l'image (0 à 1)."""
-    id: str
+class ValeursOut(BaseModel):
+    """Type, dent et cadre (fractions de l'image)."""
     label: str
     fdi: int | None
-    confidence: float
     x: float
     y: float
     w: float
     h: float
-    reviewed: bool
-    source: str
-    model_version: str = ""
 
-    class Config:
-        from_attributes = True
+
+class VerdictOut(BaseModel):
+    action: str
+    label: str
+    fdi: int | None
+    commentaire: str = ""
+    auteur_nom: str | None = None
+    cree_le: datetime
+    annule_le: datetime | None = None
+
+
+class DetectionOut(BaseModel):
+    """Valeurs RETENUES (dernier verdict actif, sinon la proposition), boîte
+    en FRACTIONS de l'image (0 à 1). `proposition` : valeurs d'origine,
+    jamais modifiées ; `verdicts` : historique, annulations comprises."""
+    id: str
+    label: str
+    fdi: int | None
+    confidence: float | None
+    x: float
+    y: float
+    w: float
+    h: float
+    source: str                 # model | human
+    model_version: str = ""
+    etat: str                   # a_revoir | validee | corrigee | rejetee
+    reviewed: bool
+    commentaire: str = ""
+    revu_par_nom: str | None = None
+    revu_le: datetime | None = None
+    proposition: ValeursOut
+    verdicts: list[VerdictOut] = []
+
+
+def detection_out(d) -> DetectionOut:
+    courant = d.verdict_courant
+    return DetectionOut(
+        id=d.id, confidence=d.confidence, source=d.source, model_version=d.model_version or "",
+        etat=d.etat, reviewed=d.reviewed, commentaire=courant.commentaire if courant else "",
+        revu_par_nom=_nom(d.revu_par), revu_le=d.revu_le,
+        proposition=ValeursOut(label=d.label, fdi=d.fdi, x=d.x, y=d.y, w=d.w, h=d.h),
+        verdicts=[VerdictOut(action=v.action, label=v.label, fdi=v.fdi, commentaire=v.commentaire,
+                             auteur_nom=_nom(v.auteur), cree_le=v.cree_le, annule_le=v.annule_le)
+                  for v in d.verdicts],
+        **d.retenu(),
+    )
+
+
+class AvancementOut(BaseModel):
+    revues: int
+    total: int
 
 
 class AnalysisOut(BaseModel):
@@ -52,9 +96,12 @@ class AnalysisOut(BaseModel):
     width: int
     height: int
     detections: list[DetectionOut] = []
-
-    class Config:
-        from_attributes = True
+    # Relecture (sprint 5).
+    conclusion: str = ""
+    cloturee: bool = False
+    cloturee_le: datetime | None = None
+    cloturee_par_nom: str | None = None
+    avancement: AvancementOut = AvancementOut(revues=0, total=0)
 
 
 class AnalysisSummary(BaseModel):
@@ -70,11 +117,15 @@ class AnalysisSummary(BaseModel):
     n_detections: int
     # Classes d'anomalies présentes (sans doublon) : filtres de l'historique.
     labels: list[str] = []
-    # Un rapport PDF a été généré : l'analyse est considérée clôturée.
     has_report: bool = False
+    # Relecture : clôturée (lecture seule), détections sans verdict.
+    cloturee: bool = False
+    a_revoir: int = 0
 
 
 def analyse_out(a) -> AnalysisOut:
+    from .services.revue import avancement
+
     masques = a.masques or {}
     return AnalysisOut.model_validate({
         **{c: getattr(a, c) for c in (
@@ -82,7 +133,12 @@ def analyse_out(a) -> AnalysisOut:
             "model_version", "inference_mode", "width", "height",
             "statut", "erreur", "tentatives", "lance_le", "termine_le", "duree_ms",
         )},
-        "detections": a.detections,
+        "detections": [detection_out(d) for d in a.detections],
+        "conclusion": a.conclusion or "",
+        "cloturee": a.cloturee,
+        "cloturee_le": a.cloturee_le,
+        "cloturee_par_nom": _nom(a.cloturee_par),
+        "avancement": avancement(a),
         "deposant_id": a.utilisateur_id,
         "deposant_nom": _nom(a.deposant),
         "zones_masquees": {"auto": len(masques.get("auto", [])), "manuelles": len(masques.get("manuelles", []))},

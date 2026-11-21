@@ -34,11 +34,11 @@ from ..auth_deps import exiger
 from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
-from ..models import Analysis, StatutAnalyse
+from ..models import Analysis, EtatDetection, StatutAnalyse
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_CREATE, ANALYSIS_DELETE, ANALYSIS_READ, REPORT_GENERATE
 from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, StatutOut, ZoneOut, _nom, analyse_out
 from ..services import anonymize as anon
-from ..services import report as report_svc, storage
+from ..services import report as report_svc, revue, storage
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -210,6 +210,7 @@ def list_analyses(
             n_detections=len(a.detections), statut=a.statut,
             labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
             has_report=a.report_key is not None,
+            cloturee=a.cloturee, a_revoir=len(revue.a_revoir(a)),
         ) for a in rows
     ]
 
@@ -332,8 +333,14 @@ def build_report(
         raise ApiError(409, "analyse_non_terminee", "L'analyse n'est pas terminée : pas de compte rendu.")
     image = Image.open(io.BytesIO(storage.get(a.image_key))).convert("L")
     L, H = image.size  # boîtes stockées en fractions → pixels de cette image
-    dets = [dict(label=d.label, fdi=d.fdi, confidence=d.confidence,
-                 x=round(d.x * L), y=round(d.y * H), w=round(d.w * L), h=round(d.h * H)) for d in a.detections]
+    # Valeurs retenues par le praticien ; les détections rejetées sont exclues.
+    dets = []
+    for d in a.detections:
+        if d.etat == EtatDetection.REJETEE:
+            continue
+        r = d.retenu()
+        dets.append(dict(label=r["label"], fdi=r["fdi"], confidence=d.confidence,
+                         x=round(r["x"] * L), y=round(r["y"] * H), w=round(r["w"] * L), h=round(r["h"] * H)))
     pdf = report_svc.build(image, dets, a.reference, a.model_version)
     report_key = f"reports/{uuid.uuid4()}.pdf"
     storage.put(report_key, pdf, "application/pdf")

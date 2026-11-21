@@ -12,6 +12,7 @@ ANALYSIS_CREATE = "analysis:create"
 ANALYSIS_READ = "analysis:read"
 ANALYSIS_DELETE = "analysis:delete"
 DETECTION_REVIEW = "detection:review"
+ANALYSIS_REOPEN = "analysis:reopen"
 REPORT_GENERATE = "report:generate"
 MODEL_READ = "model:read"
 USER_MANAGE = "user:manage"
@@ -23,6 +24,7 @@ PERMISSIONS: dict[str, str] = {
     ANALYSIS_READ: "Consulter les analyses et leurs détections",
     ANALYSIS_DELETE: "Supprimer une analyse",
     DETECTION_REVIEW: "Valider, corriger ou ajouter des détections",
+    ANALYSIS_REOPEN: "Rouvrir une analyse clôturée",
     REPORT_GENERATE: "Générer le rapport PDF d'une analyse",
     MODEL_READ: "Consulter les versions de modèle et leurs métriques",
     USER_MANAGE: "Gérer les comptes utilisateurs",
