@@ -52,4 +52,13 @@ describe("normalisation d'une analyse (sprint 4)", () => {
       position: 2,
     });
   });
+
+  it("relecture : en cours dès un premier verdict, clôturée d'après le serveur", () => {
+    expect(displayStatus(Processing.DONE, false, 0)).toBe(AnalysisStatus.PENDING);
+    expect(displayStatus(Processing.DONE, false, 2)).toBe(AnalysisStatus.IN_PROGRESS);
+    expect(displayStatus(Processing.DONE, true, 2)).toBe(AnalysisStatus.CLOSED);
+    const a = normalizeAnalysis(dto({ cloturee: true, cloturee_par_nom: "Dr Rabe", conclusion: "RAS", avancement: { revues: 3, total: 3 } }));
+    expect(a).toMatchObject({ closed: true, closedBy: "Dr Rabe", conclusion: "RAS", progress: { reviewed: 3, total: 3 }, status: AnalysisStatus.CLOSED });
+    expect(normalizeAnalysisSummary({ id: "a", statut: "terminee", revues: 1, a_revoir: 2 })).toMatchObject({ status: AnalysisStatus.IN_PROGRESS, toReview: 2 });
+  });
 });
