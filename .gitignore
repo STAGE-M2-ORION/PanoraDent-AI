@@ -16,6 +16,8 @@ dist/
 
 # Env & secrets
 .env
+.env.*
+!.env.example
 *.local
 
 # Modèles & données (NE JAMAIS committer poids ni données patient)
