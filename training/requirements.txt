@@ -1,8 +1,14 @@
 # Environnement d'ENTRAÎNEMENT — distinct du service d'inférence (PRD §12).
 # Python 3.11 requis : torch ne publie pas encore pour 3.14.
-ultralytics==8.2.0
+# 8.3 au moins : YOLO11 n'existe pas en 8.2. Le service d'inférence doit
+# charger les poids avec la MÊME version.
+ultralytics==8.3.40
+# torch : version processeur par défaut. Sur une carte NVIDIA, installer AVANT
+# ce fichier la version CUDA (voir training/README.md) :
+#   pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
 torch==2.3.1
 torchvision==0.18.1
+pytest==8.2.0
 pyyaml==6.0.1
 pillow==10.3.0
 numpy==1.26.4
