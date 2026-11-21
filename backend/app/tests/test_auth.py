@@ -509,7 +509,7 @@ def test_jeu_de_depart_sans_lien_une_fois_le_mot_de_passe_choisi(db):
 
 def test_roles_systeme_et_crud(admin):
     roles = {r["libelle"]: r for r in admin.get(f"{BASE}/roles").json()}
-    assert len(roles["Administrateur"]["permissions"]) == 8
+    assert len(roles["Administrateur"]["permissions"]) == 9
     assert set(roles["Lecteur"]["permissions"]) == {"analysis:read", "model:read"}
     assert set(roles["Praticien"]["permissions"]) == {
         "analysis:create", "analysis:read", "analysis:delete",
