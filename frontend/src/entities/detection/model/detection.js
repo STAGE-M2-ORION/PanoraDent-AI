@@ -31,20 +31,54 @@ export const ANOMALY_LABELS = [
   DetectionLabel.IMPACTED_TOOTH,
 ];
 
-/** Statut de relecture d'une détection. */
+/** Statut de relecture d'une détection (« added » : tracée par le praticien, retenue). */
 export const ReviewStatus = {
   PENDING: "pending",
   VALIDATED: "validated",
   CORRECTED: "corrected",
+  REJECTED: "rejected",
   ADDED: "added",
 };
 
 export const REVIEW_STATUS = {
-  [ReviewStatus.PENDING]: { label: "Non revue", tone: undefined },
+  [ReviewStatus.PENDING]: { label: "À revoir", tone: "warning" },
   [ReviewStatus.VALIDATED]: { label: "Validée", tone: "success" },
   [ReviewStatus.CORRECTED]: { label: "Corrigée", tone: "info" },
+  [ReviewStatus.REJECTED]: { label: "Rejetée", tone: "danger" },
   [ReviewStatus.ADDED]: { label: "Ajoutée par le praticien", tone: "primary" },
 };
+
+/** État serveur → statut affiché. */
+const STATUS_OF_STATE = {
+  a_revoir: ReviewStatus.PENDING,
+  validee: ReviewStatus.VALIDATED,
+  corrigee: ReviewStatus.CORRECTED,
+  rejetee: ReviewStatus.REJECTED,
+};
+
+/** Verdicts envoyés au serveur. */
+export const Verdict = { VALIDATE: "valider", CORRECT: "corriger", REJECT: "rejeter" };
+
+/** Statut d'une détection d'après son état serveur et son origine. */
+export function reviewStatus(etat, fromUser) {
+  const status = STATUS_OF_STATE[etat] ?? ReviewStatus.PENDING;
+  return fromUser && status === ReviewStatus.VALIDATED ? ReviewStatus.ADDED : status;
+}
+
+const round6 = (v) => Math.round(v * 1e6) / 1e6;
+
+/**
+ * Cadre en pixels de l'image → fractions (0 à 1) attendues par le serveur,
+ * borné à l'image : un cadre qui déborde est ramené dedans, jamais refusé
+ * pour quelques pixels.
+ */
+export function toFractionBox(box, imageWidth, imageHeight) {
+  const x0 = Math.min(Math.max(box.x, 0), imageWidth);
+  const y0 = Math.min(Math.max(box.y, 0), imageHeight);
+  const x1 = Math.min(Math.max(box.x + box.w, 0), imageWidth);
+  const y1 = Math.min(Math.max(box.y + box.h, 0), imageHeight);
+  return { x: round6(x0 / imageWidth), y: round6(y0 / imageHeight), w: round6((x1 - x0) / imageWidth), h: round6((y1 - y0) / imageHeight) };
+}
 
 /** Toute classe autre que `tooth` est une anomalie à signaler au praticien. */
 export function isAnomaly(label) {
@@ -67,6 +101,8 @@ export function detectionLabelText(label) {
  */
 export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}) {
   const fromUser = dto.source === "human" || dto.source === "user";
+  const px = (v) => ({ x: v.x * imageWidth, y: v.y * imageHeight, width: v.w * imageWidth, height: v.h * imageHeight });
+  const proposal = dto.proposition ? { label: dto.proposition.label, fdi: dto.proposition.fdi ?? null, ...px(dto.proposition) } : null;
   return {
     id: dto.id,
     label: dto.label,
@@ -79,6 +115,20 @@ export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}
     height: dto.h * imageHeight,
     modelVersion: dto.model_version ?? "",
     source: fromUser ? "user" : "ai",
-    status: fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
+    status: dto.etat ? reviewStatus(dto.etat, fromUser) : fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
+    // Relecture : commentaire du verdict courant, auteur, proposition d'origine, historique.
+    comment: dto.commentaire ?? "",
+    reviewedBy: dto.revu_par_nom ?? null,
+    reviewedAt: dto.revu_le ?? null,
+    proposal,
+    history: (dto.verdicts ?? []).map((v) => ({
+      action: v.action,
+      label: v.label,
+      fdi: v.fdi ?? null,
+      comment: v.commentaire ?? "",
+      author: v.auteur_nom ?? null,
+      at: v.cree_le,
+      cancelledAt: v.annule_le ?? null,
+    })),
   };
 }

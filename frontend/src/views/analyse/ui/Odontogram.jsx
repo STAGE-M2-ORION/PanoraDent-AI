@@ -39,7 +39,8 @@ export function Odontogram({ present, dets, selectedTooth, onPick }) {
         </div>
       );
     }
-    const ds = dets.filter((d) => d.fdi === fdi);
+    // Une détection rejetée (fausse alerte) ne marque plus la dent.
+    const ds = dets.filter((d) => d.fdi === fdi && d.status !== "rejected");
     const allOk = ds.length > 0 && ds.every((d) => d.status !== "pending");
     const label = `Dent ${fdi}${ds.length ? ` : ${ds.map((d) => `${detectionType(d.label).label} (${STATUS_LABEL[d.status].toLowerCase()})`).join(", ")}` : " : aucune anomalie proposée"}`;
     const marks = (

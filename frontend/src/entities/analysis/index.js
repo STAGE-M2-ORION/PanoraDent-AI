@@ -1,4 +1,6 @@
 export {
+  addDetection,
+  closeAnalysis,
   createAnalysis,
   deleteAnalysis,
   fetchAnalyses,
@@ -6,7 +8,11 @@ export {
   fetchAnalysisImageUrl,
   fetchAnalysisStatus,
   launchAnalysis,
+  postVerdict,
   previewAnalysis,
+  reopenAnalysis,
+  saveConclusion,
+  undoVerdict,
 } from "./api/analysis-api";
 export {
   ANALYSIS_STATUS,

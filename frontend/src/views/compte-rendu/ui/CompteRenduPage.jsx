@@ -56,7 +56,7 @@ export function CompteRenduPage() {
 
   // Démonstration : les non revues sont exclues. Réel : la relecture n'est pas
   // encore enregistrée côté serveur, le PDF reprend toutes les détections.
-  const retained = vm ? [...(vm.demo ? vm.dets.filter((d) => d.status !== "pending") : vm.dets)].sort((a, b) => (a.fdi ?? 0) - (b.fdi ?? 0) || String(a.id).localeCompare(String(b.id))) : [];
+  const retained = vm ? [...(vm.demo ? vm.dets.filter((d) => d.status !== "pending") : vm.dets.filter((d) => d.status !== "rejected"))].sort((a, b) => (a.fdi ?? 0) - (b.fdi ?? 0) || String(a.id).localeCompare(String(b.id))) : [];
   const pendingN = vm?.demo ? vm.dets.filter((d) => d.status === "pending").length : 0;
   const today = formatDate(new Date());
   const reviewer = vm?.demo ? "Dr Rakoto" : displayName(user);

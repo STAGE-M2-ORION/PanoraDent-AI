@@ -3,8 +3,8 @@ import { detectionType } from "@/entities/detection";
 import { isDashed, pct } from "../model/view-model";
 
 /**
- * Formes à dessiner sur l'export : exactement ce que montre la visionneuse
- * (calques affichés, seuil de confiance appliqué), en pixels de l'image.
+ * Formes à dessiner sur l'export : ce que montre la visionneuse (calques
+ * affichés, seuil de confiance appliqué), sans les rejets, en pixels de l'image.
  * Fonction pure, testée sans navigateur.
  */
 export function buildAnnotations(vm, dets, { visible, show }) {
@@ -12,7 +12,8 @@ export function buildAnnotations(vm, dets, { visible, show }) {
   if (show.tooth) {
     vm.teeth.forEach((t) => shapes.push({ kind: "tooth", box: t.box, color: "#56B4E9", dashed: false, text: String(t.fdi), upper: t.upper }));
   }
-  dets.filter(visible).forEach((d) => {
+  // Les détections rejetées (fausses alertes) ne figurent pas sur l'export.
+  dets.filter((d) => visible(d) && d.status !== "rejected").forEach((d) => {
     const type = detectionType(d.label);
     shapes.push({
       kind: "detection",

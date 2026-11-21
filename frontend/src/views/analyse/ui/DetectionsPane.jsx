@@ -5,12 +5,17 @@ import { Icon } from "@/shared/ui";
 
 import { STATUS_LABEL, isDashed, pct, sortDetections } from "@/widgets/analysis-workspace";
 
+const ACTION_LABEL = { valider: "Validée", corriger: "Corrigée", rejeter: "Rejetée", ajouter: "Ajoutée" };
+
+/** Date et heure courtes (« 21/11/2026 10:42 »), depuis une date ISO UTC du serveur. */
+const when = (iso) => (iso ? new Date(`${String(iso).replace(/Z?$/, "Z")}`).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
+
 function Row({ d, selected, hovered, hiddenLayer, dim, onSelect, onHover, reviewerName }) {
   const t = detectionType(d.label);
   return (
     <button
       type="button"
-      className={`row${hovered ? " hover" : ""}${dim ? " dim" : ""}`}
+      className={`row${hovered ? " hover" : ""}${dim ? " dim" : ""}${d.status === "rejected" ? " rejected" : ""}`}
       role="listitem"
       aria-pressed={selected}
       onClick={() => onSelect(d.id)}
@@ -26,7 +31,7 @@ function Row({ d, selected, hovered, hiddenLayer, dim, onSelect, onHover, review
             <Icon name="eyeoff" />
           </span>
         ) : null}
-        <span>{d.source === "user" ? `par ${reviewerName}` : "IA"}</span>
+        <span>{d.source === "user" ? `par ${d.reviewedBy ?? reviewerName}` : "IA"}</span>
       </span>
     </button>
   );
@@ -63,7 +68,7 @@ function TypeToothFields({ prefix, label, fdi, teeth, onChange }) {
   );
 }
 
-function NewDetection({ near, teeth, onCancel, onSave }) {
+function NewDetection({ near, teeth, onCancel, onSave, busy }) {
   const [form, setForm] = useState({ label: "caries", fdi: near, note: "" });
   useEffect(() => setForm((f) => ({ ...f, fdi: near })), [near]);
   return (
@@ -84,7 +89,7 @@ function NewDetection({ near, teeth, onCancel, onSave }) {
         <button type="button" className="vbtn outline" onClick={onCancel}>
           Annuler
         </button>
-        <button type="button" className="vbtn accent" onClick={() => onSave(form)}>
+        <button type="button" className="vbtn accent" disabled={busy} onClick={() => onSave(form)}>
           Enregistrer la détection
         </button>
       </div>
@@ -97,10 +102,11 @@ function NewDetection({ near, teeth, onCancel, onSave }) {
  * détail de la détection sélectionnée et actions de revue.
  */
 export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) {
-  const { dets, sel, hover, threshold, sort, onlyPending, tooth, show, mode, confirmDel, closed, autoNext, draft } = state;
+  const { dets, sel, hover, threshold, sort, onlyPending, tooth, show, mode, closed, autoNext, draft, busy } = state;
   const current = dets.find((d) => d.id === sel);
   const locked = closed || !canReview;
   const [note, setNote] = useState(current?.note ?? "");
+  const noteChanged = Boolean(current) && note.trim() !== (current.note ?? "").trim();
   const [correction, setCorrection] = useState(null);
   useEffect(() => setNote(current?.note ?? ""), [current?.id, current?.note]);
   useEffect(() => {
@@ -141,7 +147,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
 
   let detail;
   if (mode === "drawn" && draft) {
-    detail = <NewDetection near={state.nearTooth} teeth={vm.teeth} onCancel={actions.cancelDraw} onSave={actions.saveNew} />;
+    detail = <NewDetection near={state.nearTooth} teeth={vm.teeth} onCancel={actions.cancelDraw} onSave={actions.saveNew} busy={busy} />;
   } else if (!current) {
     detail = (
       <p className="empty-sel">
@@ -161,12 +167,32 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <dt>Confiance</dt>
           <dd className="mono">{current.confidence == null ? "— (ajout manuel)" : pct(current.confidence)}</dd>
           <dt>Origine</dt>
-          <dd>{current.source === "user" ? `Ajoutée par ${reviewerName}` : `Détection de l'IA · modèle ${vm.modelShort ?? vm.modelVersion}`}</dd>
+          <dd>
+            {current.source === "user"
+              ? `Ajoutée par ${current.reviewedBy ?? reviewerName}`
+              : current.status === "corrected"
+                ? `Proposée par l'IA, corrigée par le praticien`
+                : `Détection de l'IA · modèle ${vm.modelShort ?? vm.modelVersion}`}
+          </dd>
           <dt>Statut</dt>
           <dd>
             <span className={`st ${current.status}`}>{STATUS_LABEL[current.status]}</span>
+            {current.reviewedBy && current.status !== "pending" ? (
+              <span className="muted-sm">
+                {" "}
+                par {current.reviewedBy}
+                {current.reviewedAt ? `, le ${when(current.reviewedAt)}` : ""}
+              </span>
+            ) : null}
           </dd>
-          {current.was ? (
+          {current.status === "corrected" && current.proposal ? (
+            <>
+              <dt>Proposition</dt>
+              <dd data-testid="proposition">
+                {detectionType(current.proposal.label).label} · dent {current.proposal.fdi ?? "?"} (proposition d&apos;origine du modèle, conservée)
+              </dd>
+            </>
+          ) : current.was ? (
             <>
               <dt>Avant</dt>
               <dd>{detectionType(current.was).label} (proposition de l&apos;IA)</dd>
@@ -184,44 +210,51 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
               <button type="button" className="vbtn outline" onClick={actions.cancelCorrect}>
                 Annuler
               </button>
-              <button type="button" className="vbtn accent" onClick={() => actions.saveCorrect(correction)}>
+              <button type="button" className="vbtn accent" disabled={busy} onClick={() => actions.saveCorrect(correction, note)}>
                 Enregistrer la correction
               </button>
             </div>
           </>
-        ) : confirmDel ? (
-          <div className="inline-confirm">
-            <strong>Supprimer cette détection ?</strong>
-            <span style={{ color: "var(--color-viewer-muted)" }}>Elle disparaît de l&apos;image et du compte rendu. La suppression est tracée au journal d&apos;audit.</span>
-            <div className="two">
-              <button type="button" className="vbtn outline" onClick={() => actions.setConfirmDel(false)}>
-                Garder
-              </button>
-              <button type="button" className="vbtn danger outline" onClick={actions.remove}>
-                <Icon name="trash" />
-                Supprimer
-              </button>
-            </div>
-          </div>
         ) : !locked ? (
           <>
-            <div className="actions">
-              <button type="button" className={`vbtn${current.status === "pending" ? " accent" : ""}`} onClick={actions.validate}>
+            <div className="actions" role="group" aria-label="Verdict">
+              <button
+                type="button"
+                className={`vbtn${current.status === "pending" ? " accent" : ""}`}
+                aria-pressed={current.status === "validated" || current.status === "added"}
+                disabled={busy}
+                title="Valider (V)"
+                onClick={() => actions.validate(note)}
+              >
                 <Icon name="check" />
-                {current.status === "validated" ? "Validée" : "Valider"}
+                {current.status === "validated" || current.status === "added" ? "Validée" : "Valider"}
               </button>
-              <button type="button" className="vbtn" onClick={actions.startCorrect}>
+              <button type="button" className="vbtn" disabled={busy} title="Corriger le type, la dent ou le cadre (C)" onClick={actions.startCorrect}>
                 <Icon name="edit" />
                 Corriger
               </button>
-              <button type="button" className="vbtn danger" onClick={() => actions.setConfirmDel(true)}>
-                <Icon name="trash" />
-                Supprimer
+              <button
+                type="button"
+                className="vbtn danger"
+                aria-pressed={current.status === "rejected"}
+                disabled={busy}
+                title="Rejeter : fausse alerte, exclue du compte rendu (R)"
+                onClick={() => actions.reject(note)}
+              >
+                <Icon name="x" />
+                {current.status === "rejected" ? "Rejetée" : "Rejeter"}
               </button>
             </div>
+            {current.status !== "pending" ? (
+              <button type="button" className="vbtn outline" style={{ justifySelf: "start" }} disabled={busy} title="Annuler le dernier verdict (U)" onClick={actions.undo}>
+                <Icon name="refresh" />
+                {current.source === "user" && current.history?.filter((h) => !h.cancelledAt).length <= 1 ? "Retirer cette détection" : "Annuler le dernier verdict"}
+              </button>
+            ) : null}
             <label className="note-ro" style={{ cursor: "pointer", alignItems: "center" }}>
-              <input type="checkbox" checked={autoNext} onChange={(e) => actions.setAutoNext(e.target.checked)} /> Passer ensuite à la prochaine détection non revue
+              <input type="checkbox" checked={autoNext} onChange={(e) => actions.setAutoNext(e.target.checked)} /> Passer ensuite à la prochaine détection à revoir
             </label>
+            <p className="kbd-hint">V valider · C corriger · R rejeter · U annuler · J / K détection suivante / précédente</p>
           </>
         ) : (
           <p className="note-ro">
@@ -230,16 +263,35 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           </p>
         )}
         <label className="vfield">
-          Commentaire du praticien
+          {current.status === "pending" && !locked ? "Commentaire (joint au verdict, facultatif)" : "Commentaire du praticien"}
           <textarea
             className="vinput"
             readOnly={locked}
+            maxLength={1000}
             placeholder={locked ? "Aucun commentaire" : "Ajouter une observation (reprise dans le compte rendu)"}
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            onBlur={() => !locked && note !== (current.note ?? "") && actions.saveNote(note)}
           />
         </label>
+        {!locked && current.status !== "pending" && noteChanged ? (
+          <button type="button" className="vbtn outline" style={{ justifySelf: "start" }} disabled={busy} onClick={() => actions.saveNote(note)}>
+            Enregistrer le commentaire
+          </button>
+        ) : null}
+        {current.history?.length ? (
+          <details className="history">
+            <summary>Historique des verdicts ({current.history.length})</summary>
+            <ol>
+              {current.history.map((h, i) => (
+                <li key={i} className={h.cancelledAt ? "cancelled" : undefined}>
+                  <strong>{ACTION_LABEL[h.action] ?? h.action}</strong> par {h.author ?? "—"} · {when(h.at)}
+                  {h.comment ? <span className="h-comment"> — « {h.comment} »</span> : null}
+                  {h.cancelledAt ? <span> (annulé le {when(h.cancelledAt)})</span> : null}
+                </li>
+              ))}
+            </ol>
+          </details>
+        ) : null}
         <button type="button" className="vbtn outline" style={{ justifySelf: "start" }} onClick={() => actions.askAbout(current)}>
           <Icon name="message" />
           Demander à l&apos;assistant
@@ -268,7 +320,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <option value="status">par statut</option>
         </select>
         <label>
-          <input type="checkbox" checked={onlyPending} onChange={(e) => actions.setOnlyPending(e.target.checked)} /> Non revues seulement
+          <input type="checkbox" checked={onlyPending} onChange={(e) => actions.setOnlyPending(e.target.checked)} /> À revoir seulement
         </label>
         {tooth ? (
           <button type="button" className="vbtn" style={{ minHeight: 28, fontSize: "var(--text-xs)" }} aria-label={`Retirer le filtre de la dent ${tooth}`} onClick={() => actions.setTooth(null)}>
@@ -283,7 +335,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <p className="empty-sel" style={{ padding: "var(--space-4)" }}>
             <Icon name="info" />
             <span>
-              Aucune détection {tooth ? `sur la dent ${tooth} ` : ""}au-dessus du seuil{onlyPending ? " parmi les non revues" : ""}.
+              Aucune détection {tooth ? `sur la dent ${tooth} ` : ""}au-dessus du seuil{onlyPending ? " parmi celles à revoir" : ""}.
             </span>
           </p>
         )}
@@ -303,7 +355,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
       </div>
       {canReview ? (
         <div className="add-bar">
-          <button type="button" className="vbtn outline" disabled={closed} onClick={actions.startDraw}>
+          <button type="button" className="vbtn outline" disabled={closed || busy} onClick={actions.startDraw}>
             <Icon name="plus" />
             Ajouter une détection
           </button>

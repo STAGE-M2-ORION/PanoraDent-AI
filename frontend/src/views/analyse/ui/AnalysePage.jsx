@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Processing } from "@/entities/analysis";
-import { detectionType } from "@/entities/detection";
+import { Verdict, detectionType } from "@/entities/detection";
 import { Permission, displayName, useCurrentUser } from "@/entities/session";
+import { toAppError } from "@/shared/api";
 import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
@@ -20,7 +21,9 @@ import {
   stepDetection,
   useAnalysisViewModel,
 } from "@/widgets/analysis-workspace";
+import { makeReview, readResume, reviewSummary, verdictOfStatus, writeResume } from "../model/review-api";
 import { AssistantPane } from "./AssistantPane";
+import { ClosureModal } from "./ClosureModal";
 import { DetectionsPane } from "./DetectionsPane";
 import { Odontogram } from "./Odontogram";
 import { ProcessingState } from "./ProcessingState";
@@ -40,6 +43,7 @@ export function AnalysePage() {
   const { user, can } = useCurrentUser();
   const canReview = can(Permission.DETECTION_REVIEW);
   const canReport = can(Permission.REPORT_GENERATE);
+  const canReopen = can(Permission.ANALYSIS_REOPEN);
   const reviewerName = displayName(user) || "le praticien";
   const { vm, loading, error, reload } = useAnalysisViewModel(id, router.isReady);
   const viewerRef = useRef(null);
@@ -55,8 +59,8 @@ export function AnalysePage() {
     show: ALL_LAYERS,
     mode: null,
     draft: null,
-    confirmDel: false,
     closed: false,
+    busy: false,
     autoNext: true,
     hint: "",
     tab: "det",
@@ -67,6 +71,8 @@ export function AnalysePage() {
   const [toast, setToast] = useState(null); // { text, undo }
   const [question, setQuestion] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [closure, setClosure] = useState({ closedAt: null, closedBy: null, conclusion: "" });
+  const review = useMemo(() => makeReview(vm, reviewerName), [vm, reviewerName]);
   const pending = Boolean(vm && !vm.demo && vm.processing !== Processing.DONE);
   const backup = useRef(null);
   const toastTimer = useRef(null);
@@ -74,9 +80,15 @@ export function AnalysePage() {
   useEffect(() => {
     if (!vm) return;
     setDets(vm.dets);
+    setClosure({ closedAt: vm.closedAt, closedBy: vm.closedBy, conclusion: vm.conclusion ?? "" });
+    // Reprise d'une relecture interrompue : la détection où l'on s'était arrêté.
+    const saved = readResume(vm.id);
     const firstPending = sortDetections(vm.dets.filter((d) => d.status === "pending"), "tooth")[0];
-    setUi((u) => ({ ...u, closed: vm.closed, sel: vm.demo ? "d2" : firstPending?.id ?? vm.dets[0]?.id ?? null }));
+    const sel = vm.demo ? "d2" : vm.dets.some((d) => d.id === saved) ? saved : firstPending?.id ?? vm.dets[0]?.id ?? null;
+    setUi((u) => ({ ...u, closed: vm.closed, sel }));
   }, [vm]);
+
+  useEffect(() => writeResume(vm?.id, ui.sel), [vm?.id, ui.sel]);
 
   const patch = useCallback((p) => setUi((u) => ({ ...u, ...(typeof p === "function" ? p(u) : p) })), []);
   const showToast = useCallback((text, undo) => {
@@ -97,7 +109,7 @@ export function AnalysePage() {
 
   const select = (detId, fromList) => {
     if (ui.mode === "correct") restoreBackup();
-    patch({ sel: detId, tooth: null, mode: null, confirmDel: false, hint: "" });
+    patch({ sel: detId, tooth: null, mode: null, hint: "" });
     const d = dets.find((x) => x.id === detId);
     if (d && fromList) viewerRef.current?.centerOn(d.box);
   };
@@ -116,17 +128,10 @@ export function AnalysePage() {
     setOnlyPending: (onlyPending) => patch({ onlyPending }),
     setTooth: (tooth) => patch({ tooth }),
     setAutoNext: (autoNext) => patch({ autoNext }),
-    setConfirmDel: (confirmDel) => patch({ confirmDel }),
-    validate: () => {
-      const d = current;
-      const status = d.status === "validated" ? "pending" : d.status === "pending" ? "validated" : d.status;
-      const next = dets.map((x) => (x.id === d.id ? { ...x, status } : x));
-      setDets(next);
-      if (status === "validated") {
-        showToast(`Détection validée : dent ${d.fdi}, ${detectionType(d.label).label.toLowerCase()}.`);
-        goNextPending(next);
-      }
-    },
+    validate: (comment) => decide(current, Verdict.VALIDATE, { comment }),
+    reject: (comment) => decide(current, Verdict.REJECT, { comment }),
+    saveNote: (comment) => decide(current, verdictOfStatus(current.status), { comment }, { quiet: true }),
+    undo: () => undoLast(current),
     startCorrect: () => {
       backup.current = { box: { ...current.box }, label: current.label, fdi: current.fdi };
       patch({ mode: "correct", hint: "Correction : déplacez ou redimensionnez le cadre" });
@@ -135,29 +140,13 @@ export function AnalysePage() {
       restoreBackup();
       patch({ mode: null, hint: "" });
     },
-    saveCorrect: ({ label, fdi }) => {
-      const d = current;
-      const change = { label, fdi };
-      if (label !== d.label && !d.was && d.source === "ai") change.was = d.label;
-      if (d.source === "ai") change.status = "corrected";
-      updateDet(d.id, change);
-      backup.current = null;
-      patch({ mode: null, hint: "" });
-      showToast("Correction enregistrée : le cadre passe en pointillé.");
-    },
-    remove: () => {
-      const d = current;
-      const index = dets.indexOf(d);
-      setDets((list) => list.filter((x) => x.id !== d.id));
-      patch({ confirmDel: false, sel: null });
-      showToast(`Détection supprimée (dent ${d.fdi}).`, () => {
-        setDets((list) => [...list.slice(0, index), d, ...list.slice(index)]);
-        patch({ sel: d.id });
-      });
-    },
-    saveNote: (note) => {
-      updateDet(current.id, { note });
-      showToast("Commentaire enregistré.");
+    saveCorrect: async ({ label, fdi }, comment) => {
+      const original = backup.current;
+      const ok = await decide(current, Verdict.CORRECT, { comment, label, fdi, box: current.box, originalBox: original?.box });
+      if (ok) {
+        backup.current = null;
+        patch({ mode: null, hint: "" });
+      }
     },
     askAbout: (d) => {
       patch({ tab: "chat" });
@@ -168,13 +157,61 @@ export function AnalysePage() {
       patch({ mode: "draw", sel: null, draft: null, hint: "Tracez un cadre sur l'image (glisser), puis choisissez le type" });
     },
     cancelDraw: () => patch({ mode: null, draft: null }),
-    saveNew: ({ label, fdi, note }) => {
-      const newId = `u${Date.now()}`;
-      setDets((list) => [...list, { id: newId, fdi, label, confidence: null, status: "added", source: "user", note: note.trim(), box: { ...ui.draft } }]);
-      patch({ mode: null, draft: null, sel: newId });
-      showToast(`Détection ajoutée sur la dent ${fdi}.`);
-    },
+    saveNew: ({ label, fdi, note }) =>
+      run(async () => {
+        const d = await review.add({ label, fdi, box: ui.draft, note });
+        setDets((list) => [...list, d]);
+        patch({ mode: null, draft: null, sel: d.id });
+        showToast(`Détection ajoutée sur la dent ${fdi}.`, () => undoLast(d));
+      }),
   };
+
+  /** Exécute un geste de relecture ; une erreur du serveur s'affiche sans rien perdre. */
+  async function run(fn) {
+    if (ui.busy) return false;
+    patch({ busy: true });
+    try {
+      await fn();
+      return true;
+    } catch (cause) {
+      showToast(toAppError(cause).message);
+      return false;
+    } finally {
+      patch({ busy: false });
+    }
+  }
+
+  const replaceDet = (d) => setDets((list) => list.map((x) => (x.id === d.id ? d : x)));
+
+  /** Verdict sur une détection, puis (au choix) passage à la suivante à revoir. */
+  function decide(d, verdict, opts, { quiet = false } = {}) {
+    if (!d) return Promise.resolve(false);
+    return run(async () => {
+      const next = await review.verdict(d, verdict, opts);
+      const list = dets.map((x) => (x.id === next.id ? next : x));
+      setDets(list);
+      const what = `dent ${next.fdi ?? "?"}, ${detectionType(next.label).label.toLowerCase()}`;
+      const text = quiet ? "Commentaire enregistré." : { valider: `Détection validée : ${what}.`, corriger: `Correction enregistrée : ${what}.`, rejeter: `Détection rejetée : ${what}.` }[verdict];
+      showToast(text, quiet ? undefined : () => undoLast(next));
+      if (!quiet) goNextPending(list);
+    });
+  }
+
+  /** Annule le dernier verdict d'une détection (un ajout annulé est retiré). */
+  function undoLast(d) {
+    return run(async () => {
+      const next = await review.undo(d);
+      if (next) {
+        replaceDet(next);
+        patch({ sel: next.id });
+        showToast("Verdict annulé.");
+      } else {
+        setDets((list) => list.filter((x) => x.id !== d.id));
+        patch({ sel: null });
+        showToast("Détection ajoutée retirée.");
+      }
+    });
+  }
 
   const onDrawEnd = () => {
     const minSize = 10 * ((vm?.width ?? 1200) / 1200);
@@ -224,6 +261,10 @@ export function AnalysePage() {
     else if (k === "-" || k === "_") viewerRef.current?.zoomOut();
     else if (k === "0") viewerRef.current?.fit();
     else if (k === "h" || k === "H") toggleAll();
+    else if (canEdit && current && (k === "v" || k === "V")) actions.validate(current.note);
+    else if (canEdit && current && (k === "r" || k === "R")) actions.reject(current.note);
+    else if (canEdit && current && (k === "c" || k === "C")) actions.startCorrect();
+    else if (canEdit && current && current.status !== "pending" && (k === "u" || k === "U")) actions.undo();
     else return;
     e.preventDefault();
   };
@@ -233,6 +274,7 @@ export function AnalysePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const canEdit = canReview && !ui.closed && !ui.busy;
   const total = dets.length;
   const done = dets.filter((d) => d.status !== "pending").length;
   const left = total - done;
@@ -249,7 +291,7 @@ export function AnalysePage() {
     <span className="trace">
       Modèle <span className="mono">{vm.modelVersion}</span> · seuil {pct(ui.threshold)} · analysée le {vm.date} à {vm.time}
       {vm.durationMs != null ? ` en ${formatDuration(vm.durationMs)}` : ""} · {vm.teeth.length} dents numérotées
-      {vm.demo ? " · données fictives" : " · relecture conservée pour cette session"}
+      {vm.demo ? " · données fictives" : " · chaque verdict est enregistré avec son auteur"}
     </span>
   ) : null;
 
@@ -312,35 +354,33 @@ export function AnalysePage() {
       headerActions={headerActions}
       overlay={
         <>
-          <Modal open={modal === "close"} onClose={() => setModal(null)} labelledBy="closeTitle">
-            <h2 id="closeTitle">Clôturer l&apos;analyse n° {number} ?</h2>
-            {left ? (
-              <Alert tone="warning" icon="alert" title={`${left} détection${left > 1 ? "s ne sont" : " n'est"} pas revue${left > 1 ? "s" : ""}.`}>
-                Elles seront exclues du compte rendu. Vous pouvez aussi les relire d&apos;abord.
-              </Alert>
-            ) : null}
-            <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
-              La clôture verrouille les résultats : plus aucune détection ne peut être modifiée. Une réouverture reste possible, avec un motif inscrit au journal d&apos;audit.
-            </p>
-            <div className="modal-actions">
-              <Button variant="secondary" onClick={() => setModal(null)}>
-                Continuer la relecture
-              </Button>
-              <Button
-                onClick={() => {
-                  patch({ closed: true, mode: null });
-                  setModal(null);
-                  showToast("Analyse clôturée. Le compte rendu peut être généré.");
-                }}
-              >
-                Clôturer l&apos;analyse
-              </Button>
-            </div>
-          </Modal>
+          <ClosureModal
+            open={modal === "close"}
+            number={number}
+            summary={reviewSummary(dets)}
+            conclusion={closure.conclusion}
+            onConclusionChange={(conclusion) => setClosure((c) => ({ ...c, conclusion }))}
+            onConclusionBlur={() => review.saveConclusion(closure.conclusion).catch(() => {})}
+            onCancel={() => setModal(null)}
+            onGoNext={() => {
+              setModal(null);
+              goNext();
+            }}
+            onConfirm={() =>
+              run(async () => {
+                const next = await review.close(closure.conclusion);
+                setClosure((c) => ({ ...c, ...next }));
+                patch({ closed: true, mode: null, draft: null });
+                setModal(null);
+                showToast("Analyse clôturée : elle est désormais en lecture seule.");
+              })
+            }
+            busy={ui.busy}
+          />
           <Modal open={modal === "reopen"} onClose={() => setModal(null)} labelledBy="reopenTitle">
             <h2 id="reopenTitle">Rouvrir l&apos;analyse n° {number} ?</h2>
             <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
-              Les détections redeviennent modifiables. Le compte rendu déjà généré devra être régénéré.
+              Les détections redeviennent modifiables ; les verdicts déjà posés sont conservés. Le compte rendu déjà généré devra être régénéré.
             </p>
             <div className="field">
               <label className="label" htmlFor="reopenWhy">
@@ -354,13 +394,17 @@ export function AnalysePage() {
                 Annuler
               </Button>
               <Button
-                disabled={reopenWhy.trim().length < 5}
-                onClick={() => {
-                  patch({ closed: false });
-                  setModal(null);
-                  setReopenWhy("");
-                  showToast("Analyse rouverte. Motif inscrit au journal d'audit.");
-                }}
+                disabled={reopenWhy.trim().length < 5 || ui.busy}
+                onClick={() =>
+                  run(async () => {
+                    const next = await review.reopen(reopenWhy.trim());
+                    setClosure((c) => ({ ...c, ...next }));
+                    patch({ closed: false });
+                    setModal(null);
+                    setReopenWhy("");
+                    showToast("Analyse rouverte. Motif inscrit au journal d'audit.");
+                  })
+                }
               >
                 Rouvrir l&apos;analyse
               </Button>
@@ -392,14 +436,17 @@ export function AnalysePage() {
         <div className="strip">
           {ui.closed ? (
             <>
-              <span className="locked">
+              <span className="locked" data-etat="lecture-seule">
                 <Icon name="lock" />
-                Analyse clôturée — résultats verrouillés
+                Analyse clôturée — lecture seule
               </span>
               <span style={{ color: "var(--color-viewer-muted)" }}>
-                {done} détection{done > 1 ? "s" : ""} retenue{done > 1 ? "s" : ""} · {left} non revue{left > 1 ? "s" : ""} exclue{left > 1 ? "s" : ""}
+                {closure.closedBy ? `par ${closure.closedBy}` : ""}
+                {closure.closedAt ? ` le ${new Date(`${String(closure.closedAt).replace(/Z?$/, "Z")}`).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                {" · "}
+                {total - reviewSummary(dets).rejected} détection{total - reviewSummary(dets).rejected > 1 ? "s" : ""} retenue{total - reviewSummary(dets).rejected > 1 ? "s" : ""}
               </span>
-              {canReview ? (
+              {canReopen ? (
                 <button type="button" className="vbtn outline" onClick={() => setModal("reopen")}>
                   <Icon name="unlock" />
                   Rouvrir l&apos;analyse
@@ -410,7 +457,7 @@ export function AnalysePage() {
           ) : (
             <>
               <strong style={{ fontWeight: 600 }}>
-                <span className="mono">{done}</span> sur <span className="mono">{total}</span> détections relues
+                <span className="mono">{done}</span> sur <span className="mono">{total}</span> détections revues
               </strong>
               <span className="progress" role="progressbar" aria-valuemin="0" aria-valuemax={total} aria-valuenow={done} aria-label="Avancement de la relecture">
                 <span style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
@@ -418,10 +465,10 @@ export function AnalysePage() {
               {left ? (
                 <>
                   <span style={{ color: "#FBBF24" }}>
-                    {left} non revue{left > 1 ? "s" : ""}
+                    {left} à revoir
                   </span>
                   <button type="button" className="vbtn outline" onClick={goNext}>
-                    Aller à la suivante <Icon name="chevron" />
+                    Suivante à revoir <Icon name="chevron" />
                   </button>
                 </>
               ) : (

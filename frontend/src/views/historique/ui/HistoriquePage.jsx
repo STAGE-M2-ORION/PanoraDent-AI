@@ -107,7 +107,7 @@ export function HistoriquePage() {
   const relaunch = async (r) => {
     try {
       const next = await launchAnalysis(r.id);
-      setRows((list) => list.map((x) => (x.id === r.id ? { ...x, processing: next.processing, status: displayStatus(next.processing, x.hasReport) } : x)));
+      setRows((list) => list.map((x) => (x.id === r.id ? { ...x, processing: next.processing, status: displayStatus(next.processing, x.closed, x.reviewed) } : x)));
       toast(`Analyse ${r.ref} remise en file d’attente.`);
     } catch (cause) {
       toast(toAppError(cause).message);

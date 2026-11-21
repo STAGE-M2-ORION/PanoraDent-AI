@@ -124,6 +124,18 @@
   .st.corrected { color: #7DD3FC; border-color: rgba(125, 211, 252, .35); }
   .st.added { color: var(--color-viewer-accent); border-color: rgba(34, 211, 238, .35); }
   .st.pending { color: #FBBF24; border-color: rgba(251, 191, 36, .35); }
+  .st.rejected { color: #FCA5A5; border-color: rgba(252, 165, 165, .35); text-decoration: line-through; }
+  .row.rejected .t, .row.rejected .c { opacity: .55; text-decoration: line-through; }
+  .muted-sm { color: var(--color-viewer-muted); font-size: var(--text-xs); }
+  .kbd-hint { margin: 0; color: var(--color-viewer-muted); font-size: var(--text-xs); }
+  .history { font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .history summary { cursor: pointer; color: var(--color-viewer-text); }
+  .history ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+  .history li.cancelled { text-decoration: line-through; opacity: .7; }
+  .closure-recap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
+  .closure-recap > div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--color-border); padding: 4px 0; }
+  .closure-recap dt { color: var(--color-text-muted); font-size: var(--text-sm); }
+  .closure-recap dd { margin: 0; font-weight: 600; }
   details.below summary { cursor: pointer; font-size: var(--text-xs); color: var(--color-viewer-muted); padding: var(--space-3) var(--space-2) 4px; }
 
   .detail { border-top: 1px solid var(--color-viewer-border); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); background: var(--color-viewer-bg); max-height: 44%; overflow-y: auto; }

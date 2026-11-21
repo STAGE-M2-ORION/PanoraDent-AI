@@ -35,12 +35,16 @@ export const Processing = {
   FAILED: "echouee",
 };
 
-/** Statut affiché : celui de la file tant que l'analyse n'est pas terminée, puis celui de la relecture. */
-export function displayStatus(processing, hasReport) {
+/**
+ * Statut affiché : celui de la file tant que l'analyse n'est pas terminée,
+ * puis celui de la relecture (à relire, en cours dès un premier verdict, clôturée).
+ */
+export function displayStatus(processing, closed, reviewed = 0) {
   if (processing === Processing.QUEUED) return AnalysisStatus.QUEUED;
   if (processing === Processing.RUNNING) return AnalysisStatus.RUNNING;
   if (processing === Processing.FAILED) return AnalysisStatus.FAILED;
-  return hasReport ? AnalysisStatus.CLOSED : AnalysisStatus.PENDING;
+  if (closed) return AnalysisStatus.CLOSED;
+  return reviewed > 0 ? AnalysisStatus.IN_PROGRESS : AnalysisStatus.PENDING;
 }
 
 /** Statut de la file → modèle (`GET /analyses/{id}/statut`). */
@@ -93,7 +97,13 @@ export function normalizeAnalysis(dto) {
     error: dto.erreur ?? "",
     attempts: dto.tentatives ?? 0,
     durationMs: dto.duree_ms ?? null,
-    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.report_key)),
+    // Relecture.
+    conclusion: dto.conclusion ?? "",
+    closed: Boolean(dto.cloturee),
+    closedAt: dto.cloturee_le ?? null,
+    closedBy: dto.cloturee_par_nom ?? null,
+    progress: { reviewed: dto.avancement?.revues ?? 0, total: dto.avancement?.total ?? 0 },
+    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.cloturee), dto.avancement?.revues ?? 0),
   };
 }
 
@@ -111,8 +121,11 @@ export function normalizeAnalysisSummary(dto) {
     detectionCount: dto.n_detections,
     labels: dto.labels ?? [],
     hasReport: Boolean(dto.has_report),
+    closed: Boolean(dto.cloturee),
+    toReview: dto.a_revoir ?? 0,
+    reviewed: dto.revues ?? 0,
     processing: dto.statut ?? Processing.DONE,
-    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.has_report)),
+    status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.cloturee), dto.revues ?? 0),
   };
 }
 

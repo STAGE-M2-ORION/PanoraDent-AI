@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { DETECTION_TYPES, SimulatedPanoImage, detectionType } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
-import { isDashed, pct, renderAnnotatedPng, screenToImage, zoomAround } from "@/widgets/analysis-workspace";
+import { boxFromPoints, isDashed, moveBox, pct, renderAnnotatedPng, resizeBox, screenToImage, zoomAround } from "@/widgets/analysis-workspace";
 
 const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted_tooth"];
 
@@ -22,6 +22,7 @@ export const Viewer = forwardRef(function Viewer(
   const imageSvgRef = useRef(null);
   const ratio = vm ? vm.width / vm.height : 2;
   const W = vm?.width ?? 1200;
+  const H = vm?.height ?? 600;
   const unit = W / 1200;
   const [view, setView] = useState({ zoom: 1, tx: 0, ty: 0, base: 800 });
   const [adjust, setAdjust] = useState({ open: false, bright: 100, contrast: 100, invert: false });
@@ -117,7 +118,7 @@ export const Viewer = forwardRef(function Viewer(
     }
     const current = dets.find((d) => d.id === sel);
     if (mode === "correct" && current && (handle || hit?.dataset.det === sel)) {
-      drag.current = { kind: handle ? "resize" : "move", p0: p, b0: { ...current.box } };
+      drag.current = { kind: handle ? "resize" : "move", corner: handle?.dataset.handle, p0: p, b0: { ...current.box } };
       stageRef.current.setPointerCapture(e.pointerId);
       return;
     }
@@ -144,15 +145,12 @@ export const Viewer = forwardRef(function Viewer(
     }
     const p = toImg(e);
     if (d.kind === "draw") {
-      onDraft({ x: Math.min(p.x, d.x0), y: Math.min(p.y, d.y0), w: Math.abs(p.x - d.x0), h: Math.abs(p.y - d.y0) });
+      onDraft(boxFromPoints({ x: d.x0, y: d.y0 }, p, W, H));
     } else {
+      // Cadre toujours contenu dans l'image : il part ensuite en fractions bornées à [0, 1].
       const dx = p.x - d.p0.x;
       const dy = p.y - d.p0.y;
-      const min = 14 * unit;
-      onBoxChange(
-        sel,
-        d.kind === "move" ? { ...d.b0, x: d.b0.x + dx, y: d.b0.y + dy } : { ...d.b0, w: Math.max(min, d.b0.w + dx), h: Math.max(min, d.b0.h + dy) },
-      );
+      onBoxChange(sel, d.kind === "move" ? moveBox(d.b0, dx, dy, W, H) : resizeBox(d.b0, d.corner ?? "br", dx, dy, W, H, 14 * unit));
     }
   };
 
@@ -322,14 +320,15 @@ export const Viewer = forwardRef(function Viewer(
               ) : null}
               {ordered.map((d) => {
                 const b = d.box;
-                const col = detectionType(d.label).color;
+                const col = d.status === "rejected" ? "#94A3B8" : detectionType(d.label).color;
                 const selected = d.id === sel;
                 const hovered = d.id === hover;
-                const dim = sel && !selected && !hovered ? 0.55 : 1;
+                const rejected = d.status === "rejected";
+                const dim = rejected ? (selected ? 0.75 : 0.35) : sel && !selected && !hovered ? 0.55 : 1;
                 const cl = Math.min(b.w, b.h) * 0.32;
                 const cw = ((selected || hovered ? 4.2 : 3.2) * unit) / view.zoom ** 0.6;
                 const o = cw / 2;
-                const text = `${d.fdi ?? "?"} · ${d.confidence == null ? "ajoutée" : pct(d.confidence)} · ${detectionType(d.label).short}`;
+                const text = `${d.fdi ?? "?"} · ${d.confidence == null ? "ajoutée" : pct(d.confidence)} · ${detectionType(d.label).short}${d.status === "rejected" ? " · rejetée" : ""}`;
                 const tw = text.length * fs * 0.62 + fs * 1.6;
                 const th = fs * 1.55;
                 let lx = b.x;
@@ -348,7 +347,7 @@ export const Viewer = forwardRef(function Viewer(
                 }
                 placed.push({ x: lx, y: lyy, w: tw, h: th });
                 return (
-                  <g key={d.id} data-det={d.id} style={{ cursor: "pointer" }} opacity={dim} aria-label={`Dent ${d.fdi}, ${detectionType(d.label).label}, confiance ${pct(d.confidence)}`}>
+                  <g key={d.id} data-det={d.id} style={{ cursor: "pointer" }} opacity={dim} aria-label={`Dent ${d.fdi}, ${detectionType(d.label).label}, confiance ${pct(d.confidence)}${d.status === "rejected" ? ", rejetée" : ""}`}>
                     {selected ? (
                       <rect x={b.x - 5 * unit} y={b.y - 5 * unit} width={b.w + 10 * unit} height={b.h + 10 * unit} rx={8 * unit} fill="none" stroke="#22D3EE" strokeWidth={((1.5 / view.zoom) * 1.3) * unit} strokeDasharray={`${2 * unit} ${3 * unit}`} />
                     ) : null}
@@ -364,6 +363,7 @@ export const Viewer = forwardRef(function Viewer(
                       strokeWidth={((selected || hovered ? 2 : 1.4) * unit) / view.zoom ** 0.6}
                       strokeDasharray={isDashed(d) ? `${7 * unit} ${5 * unit}` : "none"}
                     />
+                    {rejected ? null : (
                     <path
                       d={`M${b.x - o} ${b.y + cl} V${b.y - o} H${b.x + cl} M${b.x + b.w - cl} ${b.y - o} H${b.x + b.w + o} V${b.y + cl} M${b.x + b.w + o} ${b.y + b.h - cl} V${b.y + b.h + o} H${b.x + b.w - cl} M${b.x + cl} ${b.y + b.h + o} H${b.x - o} V${b.y + b.h - cl}`}
                       fill="none"
@@ -371,26 +371,60 @@ export const Viewer = forwardRef(function Viewer(
                       strokeWidth={cw}
                       strokeLinecap="square"
                     />
+                    )}
                     <rect x={lx} y={lyy} width={tw} height={th} rx={th * 0.3} fill="#0E7490" stroke={selected ? "#22D3EE" : "none"} strokeWidth={(1.5 / view.zoom) * unit} />
                     <rect x={lx + fs * 0.4} y={lyy + th / 2 - fs * 0.3} width={fs * 0.6} height={fs * 0.6} rx={1.5 * unit} fill={col} />
                     <text x={lx + fs * 1.25} y={lyy + th * 0.7} fill="#FFFFFF" fontSize={fs} fontFamily="JetBrains Mono, monospace" fontWeight="500">
                       {text}
                     </text>
-                    {selected && mode === "correct" ? (
-                      <circle
-                        cx={b.x + b.w}
-                        cy={b.y + b.h}
-                        r={((7 / view.zoom) * 1.3) * unit}
-                        fill="#22D3EE"
-                        stroke="#0B1220"
-                        strokeWidth={(2 / view.zoom) * unit}
-                        data-handle="br"
-                        style={{ cursor: "nwse-resize" }}
-                      />
-                    ) : null}
+                    {selected && mode === "correct"
+                      ? [
+                          ["tl", b.x, b.y, "nwse-resize"],
+                          ["tr", b.x + b.w, b.y, "nesw-resize"],
+                          ["bl", b.x, b.y + b.h, "nesw-resize"],
+                          ["br", b.x + b.w, b.y + b.h, "nwse-resize"],
+                        ].map(([corner, cx, cy, cursor]) => (
+                          <circle
+                            key={corner}
+                            cx={cx}
+                            cy={cy}
+                            r={((7 / view.zoom) * 1.3) * unit}
+                            fill="#22D3EE"
+                            stroke="#0B1220"
+                            strokeWidth={(2 / view.zoom) * unit}
+                            data-handle={corner}
+                            aria-label={`Poignée ${corner}`}
+                            style={{ cursor }}
+                          />
+                        ))
+                      : null}
                   </g>
                 );
               })}
+              {(() => {
+                // Détection corrigée sélectionnée : cadre proposé à l'origine, en fantôme.
+                const c = dets.find((d) => d.id === sel);
+                const o = c?.status === "corrected" ? c.proposal?.box : null;
+                if (!o || (o.x === c.box.x && o.y === c.box.y && o.w === c.box.w && o.h === c.box.h)) return null;
+                return (
+                  <rect
+                    data-testid="cadre-origine"
+                    x={o.x}
+                    y={o.y}
+                    width={o.w}
+                    height={o.h}
+                    rx={6 * unit}
+                    fill="none"
+                    stroke="#94A3B8"
+                    strokeWidth={(1.4 * unit) / view.zoom ** 0.6}
+                    strokeDasharray={`${3 * unit} ${4 * unit}`}
+                    opacity={0.8}
+                    pointerEvents="none"
+                  >
+                    <title>Cadre proposé à l&apos;origine par le modèle</title>
+                  </rect>
+                );
+              })()}
               {draft ? (
                 <rect x={draft.x} y={draft.y} width={draft.w} height={draft.h} rx={5 * unit} fill="#22D3EE" fillOpacity=".1" stroke="#22D3EE" strokeWidth={(2.4 / view.zoom) * unit} strokeDasharray={`${8 * unit} ${5 * unit}`} />
               ) : null}
@@ -401,7 +435,7 @@ export const Viewer = forwardRef(function Viewer(
           {hint}
         </div>
         <span className="minimap-note">
-          Molette ou + / − : zoom · 0 : ajuster · J / K ou flèches : détection suivante / précédente · H : tout masquer{vm?.demo ? " · Image simulée" : ""}
+          Molette ou + / − : zoom · 0 : ajuster · J / K : suivante / précédente · V / C / R : valider, corriger, rejeter · U : annuler · H : tout masquer{vm?.demo ? " · Image simulée" : ""}
         </span>
         <div className="overlay-state" data-show={loading ? "true" : "false"}>
           <div style={{ width: "70%", display: "grid", gap: 12 }}>

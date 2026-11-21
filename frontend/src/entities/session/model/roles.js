@@ -27,6 +27,7 @@ export const Permission = {
   ANALYSIS_READ: "analysis:read",
   ANALYSIS_DELETE: "analysis:delete",
   DETECTION_REVIEW: "detection:review",
+  ANALYSIS_REOPEN: "analysis:reopen",
   REPORT_GENERATE: "report:generate",
   MODEL_READ: "model:read",
   USER_MANAGE: "user:manage",

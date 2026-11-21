@@ -36,8 +36,36 @@ export function demoViewModel() {
     height: PANO_H,
     imageUrl: null,
     closed: false,
+    closedAt: null,
+    closedBy: null,
+    conclusion: "",
+    api: null, // démonstration : relecture locale, rien n'est envoyé
     teeth: Object.values(PANO_TEETH).map((t) => ({ fdi: t.fdi, box: t.box, cx: t.cx, upper: t.upper })),
     dets,
+  };
+}
+
+/**
+ * Détection (entité) → forme de la vue. `note` : commentaire du verdict
+ * courant ; `proposal` : valeurs d'origine (cadre en pixels) ; `was` : type
+ * proposé quand le praticien l'a corrigé.
+ */
+export function toViewDetection(d) {
+  const proposal = d.proposal ? { label: d.proposal.label, fdi: d.proposal.fdi, box: { x: d.proposal.x, y: d.proposal.y, w: d.proposal.width, h: d.proposal.height } } : null;
+  return {
+    id: d.id,
+    fdi: d.fdi,
+    label: d.label,
+    confidence: d.confidence,
+    status: d.status,
+    source: d.source,
+    note: d.comment ?? "",
+    reviewedBy: d.reviewedBy ?? null,
+    reviewedAt: d.reviewedAt ?? null,
+    history: d.history ?? [],
+    proposal,
+    was: proposal && d.status === "corrected" && proposal.label !== d.label ? proposal.label : undefined,
+    box: { x: d.x, y: d.y, w: d.width, h: d.height },
   };
 }
 
@@ -49,7 +77,7 @@ export function realViewModel(analysis, { imageUrl, number }) {
     .map((d) => ({ fdi: d.fdi, box: toBox(d), cx: d.x + d.width / 2, upper: d.fdi < 30 }));
   const dets = analysis.detections
     .filter((d) => d.label !== DetectionLabel.TOOTH)
-    .map((d) => ({ id: d.id, fdi: d.fdi, label: d.label, confidence: d.confidence, status: d.status, source: d.source, note: "", box: toBox(d) }));
+    .map(toViewDetection);
   return {
     id: analysis.id,
     demo: false,
@@ -65,7 +93,12 @@ export function realViewModel(analysis, { imageUrl, number }) {
     width: analysis.width,
     height: analysis.height,
     imageUrl,
-    closed: Boolean(analysis.reportKey),
+    closed: analysis.closed,
+    closedAt: analysis.closedAt,
+    closedBy: analysis.closedBy,
+    conclusion: analysis.conclusion,
+    // Ce dont les appels de relecture ont besoin (identifiant, dimensions de l'image).
+    api: { id: analysis.id, width: analysis.width, height: analysis.height },
     teeth,
     dets,
   };
@@ -87,7 +120,7 @@ export function nearestTooth(teeth, box) {
   return best ?? 11;
 }
 
-export const STATUS_LABEL = { pending: "Non revue", validated: "Validée", corrected: "Corrigée", added: "Ajoutée par le praticien" };
+export const STATUS_LABEL = { pending: "À revoir", validated: "Validée", corrected: "Corrigée", rejected: "Rejetée", added: "Ajoutée par le praticien" };
 export const isDashed = (d) => d.source === "user" || d.status === "corrected";
 export const pct = (n) => (n == null ? "—" : `${n} %`);
 
@@ -112,7 +145,7 @@ export function sortDetections(list, sort) {
   const a = [...list];
   if (sort === "conf") a.sort((x, y) => (y.confidence ?? 101) - (x.confidence ?? 101));
   else if (sort === "status") {
-    const o = { pending: 0, corrected: 1, added: 2, validated: 3 };
+    const o = { pending: 0, corrected: 1, added: 2, validated: 3, rejected: 4 };
     a.sort((x, y) => o[x.status] - o[y.status] || (x.fdi ?? 0) - (y.fdi ?? 0));
   } else a.sort((x, y) => (x.fdi ?? 0) - (y.fdi ?? 0) || (y.confidence ?? 0) - (x.confidence ?? 0));
   return a;

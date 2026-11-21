@@ -1,3 +1,4 @@
+import { normalizeDetection, toFractionBox } from "@/entities/detection/@x/analysis";
 import { httpClient } from "@/shared/api";
 
 import { normalizeAnalysis, normalizeAnalysisSummary, normalizeProcessing, withNumbers } from "../model/analysis";
@@ -69,6 +70,65 @@ export async function fetchAnalysisStatus(analysisId) {
 export async function launchAnalysis(analysisId) {
   const { data } = await httpClient.post(`/analyses/${analysisId}/lancer`);
   return normalizeProcessing(data);
+}
+
+/* ---------- Relecture (sprint 5) ----------
+ * Les cadres circulent en pixels de l'image dans l'interface et partent au
+ * serveur en fractions bornées à [0, 1] ; chaque réponse est la détection
+ * normalisée (valeurs retenues, proposition d'origine, historique).
+ */
+const dimsOf = (analysis) => ({ imageWidth: analysis.width, imageHeight: analysis.height });
+
+/**
+ * `POST /analyses/{id}/detections/{det}/verdict` — `verdict` : valider,
+ * corriger ou rejeter ; correction : `label`, `fdi`, `box` (pixels).
+ */
+export async function postVerdict(analysis, detectionId, verdict, { comment, label, fdi, box } = {}) {
+  const body = { action: verdict };
+  if (comment != null) body.commentaire = comment;
+  if (label != null) body.label = label;
+  if (fdi !== undefined) body.fdi = fdi;
+  if (box) body.cadre = toFractionBox(box, analysis.width, analysis.height);
+  const { data } = await httpClient.post(`/analyses/${analysis.id}/detections/${detectionId}/verdict`, body);
+  return normalizeDetection(data, dimsOf(analysis));
+}
+
+/**
+ * `POST /analyses/{id}/detections/{det}/annuler` — annule le dernier verdict.
+ * Renvoie la détection, ou `null` si c'était un ajout du praticien (retiré).
+ */
+export async function undoVerdict(analysis, detectionId) {
+  const { data } = await httpClient.post(`/analyses/${analysis.id}/detections/${detectionId}/annuler`);
+  return data.detection ? normalizeDetection(data.detection, dimsOf(analysis)) : null;
+}
+
+/** `POST /analyses/{id}/detections` (201) — détection tracée par le praticien, née validée. */
+export async function addDetection(analysis, { label, fdi, box, comment }) {
+  const { data } = await httpClient.post(`/analyses/${analysis.id}/detections`, {
+    label,
+    fdi: fdi ?? null,
+    cadre: toFractionBox(box, analysis.width, analysis.height),
+    commentaire: comment?.trim() || null,
+  });
+  return normalizeDetection(data, dimsOf(analysis));
+}
+
+/** `PUT /analyses/{id}/conclusion` — brouillon de la conclusion. */
+export async function saveConclusion(analysisId, conclusion) {
+  const { data } = await httpClient.put(`/analyses/${analysisId}/conclusion`, { conclusion });
+  return normalizeAnalysis(data);
+}
+
+/** `POST /analyses/{id}/cloturer` — 409 `detections_a_revoir` (avec le compte) tant qu'il en reste. */
+export async function closeAnalysis(analysisId, conclusion) {
+  const { data } = await httpClient.post(`/analyses/${analysisId}/cloturer`, { conclusion });
+  return normalizeAnalysis(data);
+}
+
+/** `POST /analyses/{id}/rouvrir` — administrateur ; motif obligatoire, journalisé. */
+export async function reopenAnalysis(analysisId, motif) {
+  const { data } = await httpClient.post(`/analyses/${analysisId}/rouvrir`, { motif });
+  return normalizeAnalysis(data);
 }
 
 /** `GET /api/v1/analyses/{id}/image` — URL présignée (1 h) de la version d'affichage. */
