@@ -115,6 +115,10 @@ export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}
     height: dto.h * imageHeight,
     modelVersion: dto.model_version ?? "",
     source: fromUser ? "user" : "ai",
+    // Numérotation (sprint 7) : rang appris (dent), dent porteuse (anomalie), numéro à vérifier.
+    rank: dto.rang ?? null,
+    toothId: dto.dent_id ?? null,
+    doubtful: Boolean(dto.douteux),
     status: dto.etat ? reviewStatus(dto.etat, fromUser) : fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
     // Relecture : commentaire du verdict courant, auteur, proposition d'origine, historique.
     comment: dto.commentaire ?? "",
