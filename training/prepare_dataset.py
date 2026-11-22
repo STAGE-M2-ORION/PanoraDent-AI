@@ -27,6 +27,7 @@ Sortie (`--out`, défaut `data/yolo`) :
 
     dents/      data.yaml, split.json, {train,val,test}/{images,labels,fdi}
     anomalies/  idem
+    rangs/      idem, mêmes clichés que dents ; classe = rang de la dent (1 à 8)
     externe/    data.yaml, split.json, test/{images,labels,fdi}
     rapport_preparation.md
 
@@ -44,7 +45,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import dentex
-from config import CLASSES, git_commit
+from config import CLASSES, CLASSES_RANGS, git_commit
 from decoupage import PARTITIONS, decouper, effectifs, empreinte_decoupage, tableau
 
 TOOTH = CLASSES.index("tooth")
@@ -149,6 +150,10 @@ def construire(ensembles: dict, empreinte: dict, ratios, graine: int) -> dict:
             classes_groupe[empreinte[c.identifiant]].update(
                 CLASSES[i] for i in classes_du_cliche(c, nom))
     affectation = decouper(dict(classes_groupe), ratios, graine)
+    # Sprint 7 : jeu « rangs » = mêmes clichés que « dents », chaque dent
+    # portant son rang (1 à 8). Ajouté APRÈS le découpage, qui ne change donc
+    # pas : les modèles déjà entraînés restent mesurés sur les mêmes clichés.
+    jeux["rangs"] = jeux["dents"]
     return {"jeux": jeux, "externe": externe, "affectation": affectation, "journal": journal}
 
 
@@ -170,6 +175,19 @@ def deposer_image(source: Path, cible: Path, copier: bool) -> None:
     shutil.copy2(source, cible)
 
 
+def classes_du_jeu(jeu: str) -> list[str]:
+    return CLASSES_RANGS if jeu == "rangs" else CLASSES
+
+
+def classe_de(b, jeu: str) -> int | None:
+    """Index de classe d'une boîte dans le jeu, ou None si elle n'y figure pas."""
+    if jeu == "dents":
+        return TOOTH
+    if jeu == "rangs":
+        return (b.fdi % 10) - 1 if b.fdi else None
+    return CLASSES.index(b.diagnostic) if b.diagnostic else None
+
+
 def ecrire_cliche(c, jeu: str, dossier: Path, copier: bool) -> Counter:
     """Image, étiquettes YOLO et vérité terrain FDI d'un cliché."""
     nom = f"{c.source}__{Path(c.nom).stem}"
@@ -177,14 +195,15 @@ def ecrire_cliche(c, jeu: str, dossier: Path, copier: bool) -> Counter:
         (dossier / sous).mkdir(parents=True, exist_ok=True)
     deposer_image(c.image, dossier / "images" / f"{nom}{c.image.suffix}", copier)
 
+    noms = classes_du_jeu(jeu)
     lignes, verite, compte = [], [], Counter()
     for b in c.boites:
-        classe = TOOTH if jeu == "dents" else (CLASSES.index(b.diagnostic) if b.diagnostic else None)
+        classe = classe_de(b, jeu)
         if classe is None or b.w <= 0 or b.h <= 0:
             continue
         lignes.append(ligne_yolo(classe, b))
-        verite.append({**asdict(b), "classe": CLASSES[classe]})
-        compte[CLASSES[classe]] += 1
+        verite.append({**asdict(b), "classe": noms[classe]})
+        compte[noms[classe]] += 1
     (dossier / "labels" / f"{nom}.txt").write_text(
         "\n".join(lignes) + ("\n" if lignes else ""), encoding="utf-8")
     (dossier / "fdi" / f"{nom}.json").write_text(json.dumps(
@@ -194,13 +213,13 @@ def ecrire_cliche(c, jeu: str, dossier: Path, copier: bool) -> Counter:
 
 
 def ecrire_data_yaml(dossier: Path, train="train/images", val="val/images", test="test/images",
-                     note="") -> Path:
+                     note="", noms=CLASSES) -> Path:
     chemin = dossier / "data.yaml"
     chemin.write_text(
         "# Généré par training/prepare_dataset.py — ne pas éditer à la main.\n"
         + (f"# {note}\n" if note else "")
         + f"path: {dossier.resolve().as_posix()}\ntrain: {train}\nval: {val}\ntest: {test}\n"
-        f"nc: {len(CLASSES)}\nnames: {json.dumps(CLASSES, ensure_ascii=False)}\n",
+        f"nc: {len(noms)}\nnames: {json.dumps(noms, ensure_ascii=False)}\n",
         encoding="utf-8")
     return chemin
 
@@ -224,7 +243,7 @@ def ecrire(resultat: dict, empreinte: dict, args) -> dict:
             liste[partition].append(c.identifiant)
         affect_jeu = {c.identifiant: affectation[empreinte[c.identifiant]] for c in cliches}
         bilan[jeu] = effectifs(par_groupe, affect_jeu)
-        ecrire_data_yaml(dossier)
+        ecrire_data_yaml(dossier, noms=classes_du_jeu(jeu))
         (dossier / "split.json").write_text(json.dumps({
             "empreinte": signature, "graine": args.graine,
             "ratios": dict(zip(PARTITIONS, args.ratios)),
@@ -265,8 +284,8 @@ def rapport(resultat: dict, sortie: dict, args) -> str:
               f"empreinte du découpage `{sortie['empreinte'][:16]}`.", "",
               "## Écarts et retraits", ""]
     lignes += [f"- {k} : {v}" for k, v in resultat["journal"].items()]
-    for jeu in ("dents", "anomalies"):
-        lignes += ["", f"## Jeu `{jeu}`", "", "```", tableau(sortie["bilan"][jeu], CLASSES), "```"]
+    for jeu in ("dents", "anomalies", "rangs"):
+        lignes += ["", f"## Jeu `{jeu}`", "", "```", tableau(sortie["bilan"][jeu], classes_du_jeu(jeu)), "```"]
     ext = sortie["bilan"]["externe"]
     lignes += ["", "## Jeu `externe` (test officiel, évalué une seule fois)", "",
                f"{ext['groupes']['test']} clichés ; boîtes : {ext['boites']['test']}.",

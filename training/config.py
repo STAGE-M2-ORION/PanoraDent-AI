@@ -48,6 +48,12 @@ def _inference_config():
 #: Ordre contractuel des classes — index YOLO ↔ libellé du service.
 CLASSES: list[str] = list(_inference_config().CLASSES)
 
+#: Classes du modèle « rangs » (sprint 7) : rang 1 à 8 de chaque dent.
+CLASSES_RANGS: list[str] = list(_inference_config().CLASSES_RANGS)
+
+#: Listes de classes admises pour un jeu : celle du contrat, ou celle des rangs.
+LISTES_ADMISES = (CLASSES, CLASSES_RANGS)
+
 #: Classe portant la denture ; les autres sont des anomalies.
 TOOTH_CLASS = "tooth"
 ANOMALY_CLASSES = [c for c in CLASSES if c != TOOTH_CLASS]

@@ -14,6 +14,12 @@ MODEL_VERSION = os.getenv("MODEL_VERSION", "mock-0.0.0")
 # le lit ici même pour qu'il n'existe qu'une seule source de vérité.
 CLASSES = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted_tooth"]
 
+# Modèle « rangs » (sprint 7, numérotation hybride) : chaque dent porte son
+# RANG dans le quadrant (1 = incisive centrale … 8 = troisième molaire). Le
+# rang est le même des deux côtés : le miroir horizontal reste valable sans
+# renuméroter. Le quadrant, lui, est déduit de la géométrie (fdi.py).
+CLASSES_RANGS = [f"dent_{rang}" for rang in range(1, 9)]
+
 # --- Mode réel : le prétraitement doit être IDENTIQUE à l'entraînement -------
 # `imgsz` reproduit le redimensionnement letterbox appliqué pendant
 # l'entraînement. Une valeur divergente dégrade silencieusement les détections.

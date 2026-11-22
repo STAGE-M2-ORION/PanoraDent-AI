@@ -3,7 +3,8 @@
 Ultralytics fait le travail. Ce script ajoute ce qui manque pour qu'un
 entraînement soit **défendable** et **reprenable** :
 
-- refus de démarrer si l'ordre des classes du `data.yaml` diffère de `CLASSES`
+- refus de démarrer si l'ordre des classes du `data.yaml` n'est pas celui du
+  contrat (`CLASSES`) ou des rangs (`CLASSES_RANGS`, sprint 7)
   (un décalage d'un cran rendrait toutes les prédictions fausses en silence) ;
 - nos augmentations (`augmentations.py`), jamais de retournement vertical ;
 - graine fixe et mode déterministe ;
@@ -30,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import augmentations
-from config import CLASSES, git_commit
+from config import CLASSES, LISTES_ADMISES, git_commit
 
 JOURNAL = "journal.jsonl"
 RUN = "run.json"
@@ -79,11 +80,11 @@ def read_class_names(data_yaml: Path) -> list[str]:
 
 def check_class_order(data_yaml: Path) -> None:
     noms = read_class_names(data_yaml)
-    if noms != CLASSES:
+    if noms not in LISTES_ADMISES:
         raise SystemExit(
             "ORDRE DES CLASSES INCOHÉRENT — entraînement refusé.\n"
             f"  data.yaml : {noms}\n"
-            f"  attendu   : {CLASSES}\n"
+            f"  attendu   : {' ou '.join(map(str, LISTES_ADMISES))}\n"
             "Le service d'inférence mappe l'index prédit sur sa propre liste : "
             "un décalage produirait des diagnostics faux sans lever d'erreur. "
             "Régénérer le dataset avec prepare_dataset.py."
@@ -236,7 +237,7 @@ def entrainer(args, rappels: dict | None = None) -> Path:
     (run_dir / RUN).write_text(json.dumps({
         "debut_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
-        "classes": CLASSES,
+        "classes": read_class_names(args.data),
         "modele_initial": args.model,
         "data_yaml": str(args.data.resolve()),
         "decoupage": decoupage,

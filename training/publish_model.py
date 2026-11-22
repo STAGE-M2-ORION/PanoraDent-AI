@@ -30,7 +30,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import CLASSES, REPO_ROOT
+from config import CLASSES, CLASSES_RANGS, REPO_ROOT
 
 DOSSIER_POIDS = REPO_ROOT / "inference" / "weights"
 VERSION_VALIDE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")   # = service d'inférence
@@ -66,7 +66,7 @@ def sha256_de(chemin: Path) -> str:
     return h.hexdigest()
 
 
-def lire_run(run_dir: Path, partition: str) -> dict:
+def lire_run(run_dir: Path, partition: str, admises=(CLASSES,)) -> dict:
     """Poids, run.json et mesures d'un run ; refus explicite s'il manque quelque chose."""
     poids = run_dir / "weights" / "best.pt"
     run_json = run_dir / "run.json"
@@ -77,9 +77,9 @@ def lire_run(run_dir: Path, partition: str) -> dict:
     run = json.loads(run_json.read_text(encoding="utf-8"))
     metrics = json.loads(mesures.read_text(encoding="utf-8"))
     for source, classes in (("run.json", run.get("classes")), ("metrics.json", metrics.get("classes"))):
-        if classes != CLASSES:
+        if classes not in admises:
             raise PublicationRefusee(
-                f"{run_dir} : {source} porte un autre ordre de classes ({classes}) que {CLASSES}.")
+                f"{run_dir} : {source} porte un autre ordre de classes ({classes}) que {' ou '.join(map(str, admises))}.")
     externe = next(run_dir.glob("evaluation_externe_*/metrics.json"), None)
     return {"poids": poids, "run": run, "metrics": metrics,
             "externe": json.loads(externe.read_text(encoding="utf-8")) if externe else None}
@@ -95,7 +95,9 @@ def preparer(args) -> dict:
     """Vérifications et ligne à écrire ; aucune écriture."""
     if not VERSION_VALIDE.match(args.version):
         raise PublicationRefusee(f"Nom de version invalide : {args.version!r} (lettres, chiffres, . _ -).")
-    runs = {role: lire_run(getattr(args, role), args.partition) for role in ROLES}
+    # Le modèle dents peut être un modèle « rangs » (sprint 7, numérotation hybride).
+    admises = {"dents": (CLASSES, CLASSES_RANGS), "anomalies": (CLASSES,)}
+    runs = {role: lire_run(getattr(args, role), args.partition, admises[role]) for role in ROLES}
     empreintes = {role: r["run"].get("decoupage", {}).get("empreinte") for role, r in runs.items()}
     if None in empreintes.values() or len(set(empreintes.values())) != 1:
         raise PublicationRefusee(
