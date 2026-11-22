@@ -61,6 +61,37 @@ def test_reprise_apres_interruption(jeu_synthetique, tmp_path):
     assert "metrics/mAP50(B)" in meta["validation_meilleur"]   # réévaluation de best.pt
 
 
+@pytest.mark.parametrize("choix, carte, attendu", [
+    ("auto", "NVIDIA GeForce GTX 1650", False),
+    ("auto", "NVIDIA GeForce GTX 1660 Ti", False),
+    ("auto", "NVIDIA GeForce RTX 3060", True),
+    ("auto", None, True),            # processeur : ultralytics la coupe de lui-même
+    ("oui", "NVIDIA GeForce GTX 1650", True),
+    ("non", "NVIDIA GeForce RTX 3060", False),
+])
+def test_precision_mixte_selon_la_carte(choix, carte, attendu):
+    assert train.resoudre_amp(choix, carte) is attendu
+
+
+@pytest.mark.lent
+def test_perte_nan_arrete_l_entrainement(jeu_synthetique, tmp_path):
+    import torch
+
+    def empoisonner(trainer):
+        trainer.tloss = torch.tensor([float("nan"), 1.0, 1.0])
+
+    # Posée au début du lot, la perte NaN se propage dans la moyenne courante
+    # qu'ultralytics calcule pendant le lot : la garde la voit en fin de lot.
+    with pytest.raises(train.PerteNonFinie, match="--amp non"):
+        train.entrainer(args_cpu(jeu_synthetique, tmp_path / "runs"),
+                        rappels={"on_train_batch_start": empoisonner})
+
+
+def test_journal_sans_nan():
+    assert train._nombre(float("nan"), 3) is None
+    assert train._nombre(1.23456, 2) == 1.23
+
+
 def test_ordre_des_classes_verifie(jeu_synthetique, tmp_path):
     texte = jeu_synthetique.read_text(encoding="utf-8")
     jeu_synthetique.write_text(texte.replace('"tooth", "caries"', '"caries", "tooth"'),

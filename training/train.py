@@ -25,6 +25,7 @@ Reprise après coupure :
 """
 import argparse
 import json
+import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,8 +53,9 @@ def _parse_args(argv=None):
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="0", help="'0' pour la première carte NVIDIA, 'cpu' sinon")
     p.add_argument("--workers", type=int, default=4)
-    p.add_argument("--amp", choices=("auto", "non"), default="auto",
-                   help="précision mixte. 'non' si les pertes deviennent NaN (cartes GTX 16xx)")
+    p.add_argument("--amp", choices=("auto", "oui", "non"), default="auto",
+                   help="précision mixte. 'auto' : coupée sur les cartes connues pour produire "
+                        "des pertes NaN (GTX 16xx), activée ailleurs")
     p.add_argument("--contraste", type=float, default=augmentations.CONTRASTE)
     p.add_argument("--plots", action=argparse.BooleanOptionalAction, default=True,
                    help="courbes et matrices d'ultralytics (télécharge une police au premier usage)")
@@ -108,6 +110,27 @@ def _versions(device: str) -> dict:
             "cuda": torch.version.cuda, "carte": carte}
 
 
+#: Cartes sur lesquelles la précision mixte produit des pertes NaN, alors que
+#: le test d'AMP d'ultralytics passe (constaté sur GTX 1650, 2026-11-22).
+CARTES_SANS_AMP = ("GTX 16",)
+
+
+class PerteNonFinie(RuntimeError):
+    """Perte NaN ou infinie : l'entraînement ne mènerait à rien."""
+
+
+def resoudre_amp(choix: str, carte: str | None) -> bool:
+    if choix != "auto":
+        return choix == "oui"
+    return not (carte and any(motif in carte for motif in CARTES_SANS_AMP))
+
+
+def _nombre(v, chiffres: int):
+    """Arrondi, ou None si la valeur n'est pas finie (NaN n'est pas du JSON)."""
+    v = float(v)
+    return round(v, chiffres) if math.isfinite(v) else None
+
+
 def _ligne_journal(trainer) -> dict:
     pertes = trainer.label_loss_items(trainer.tloss, prefix="train")
     return {
@@ -115,11 +138,21 @@ def _ligne_journal(trainer) -> dict:
         "epoques": trainer.epochs,
         "horodatage_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "duree_s": round(float(getattr(trainer, "epoch_time", 0) or 0), 1),
-        "pertes": pertes,
-        "mesures": {k: round(float(v), 5) for k, v in (trainer.metrics or {}).items()},
-        "lr": {k: round(float(v), 7) for k, v in (trainer.lr or {}).items()},
-        "fitness": None if trainer.fitness is None else round(float(trainer.fitness), 5),
+        "pertes": {k: _nombre(v, 5) for k, v in pertes.items()},
+        "mesures": {k: _nombre(v, 5) for k, v in (trainer.metrics or {}).items()},
+        "lr": {k: _nombre(v, 7) for k, v in (trainer.lr or {}).items()},
+        "fitness": None if trainer.fitness is None else _nombre(trainer.fitness, 5),
     }
+
+
+def ajouter_garde_nan(modele) -> None:
+    """Arrête l'entraînement au premier lot dont la perte n'est pas finie."""
+    def verifier(trainer):
+        if trainer.tloss is not None and not bool(trainer.tloss.isfinite().all()):
+            raise PerteNonFinie(
+                f"perte non finie à l'époque {trainer.epoch + 1} : entraînement arrêté. "
+                f"Relancer avec --amp non (précision mixte instable sur cette carte).")
+    modele.add_callback("on_train_batch_end", verifier)
 
 
 def _derniere_epoque(journal: Path) -> int:
@@ -176,6 +209,7 @@ def entrainer(args, rappels: dict | None = None) -> Path:
         (run_dir / RUN).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
         modele = YOLO(str(args.reprendre))
         ajouter_journal(modele)
+        ajouter_garde_nan(modele)
         for evenement, fonction in (rappels or {}).items():
             modele.add_callback(evenement, fonction)
         debut = time.time()
@@ -190,9 +224,11 @@ def entrainer(args, rappels: dict | None = None) -> Path:
     if run_dir.exists():
         raise SystemExit(f"{run_dir} existe déjà : choisir un autre --name, ou --reprendre.")
 
+    versions = _versions(args.device)
+    amp = resoudre_amp(args.amp, versions["carte"])
     hyp = {"epochs": args.epochs, "imgsz": args.imgsz, "batch": args.batch,
            "patience": args.patience, "seed": args.seed, "device": args.device,
-           "amp": args.amp, "contraste": args.contraste,
+           "amp": amp, "amp_demande": args.amp, "contraste": args.contraste,
            "augmentations": augmentations.HYPERPARAMETRES}
     run_dir.mkdir(parents=True)
     (run_dir / RUN).write_text(json.dumps({
@@ -203,11 +239,15 @@ def entrainer(args, rappels: dict | None = None) -> Path:
         "data_yaml": str(args.data.resolve()),
         "decoupage": decoupage,
         "hyperparametres": hyp,
-        "versions": _versions(args.device),
+        "versions": versions,
     }, indent=2, ensure_ascii=False), encoding="utf-8")
+    if args.amp == "auto" and not amp and versions["carte"]:
+        print(f"Précision mixte coupée sur {versions['carte']} (pertes NaN connues). "
+              f"--amp oui pour la forcer.")
 
     modele = YOLO(args.model)
     ajouter_journal(modele)
+    ajouter_garde_nan(modele)
     for evenement, fonction in (rappels or {}).items():
         modele.add_callback(evenement, fonction)
 
@@ -217,7 +257,7 @@ def entrainer(args, rappels: dict | None = None) -> Path:
         data=str(args.data.resolve()),
         epochs=args.epochs, imgsz=args.imgsz, batch=args.batch, patience=args.patience,
         seed=args.seed, deterministic=True, device=args.device, workers=args.workers,
-        amp=args.amp == "auto", plots=args.plots,
+        amp=amp, plots=args.plots,
         project=str(run_dir.parent), name=run_dir.name, exist_ok=True,
         **augmentations.HYPERPARAMETRES,
     )
