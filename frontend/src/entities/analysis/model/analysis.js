@@ -109,6 +109,8 @@ export function normalizeAnalysis(dto) {
     // Numérotation (sprint 7) : signalements du serveur, dents déclarées absentes.
     incoherences: (dto.incoherences ?? []).map((i) => ({ type: i.type, fdi: i.fdi ?? [], message: i.message })),
     absentTeeth: (dto.dents_absentes ?? []).map((x) => ({ fdi: x.fdi, author: x.auteur_nom ?? null, at: x.cree_le })),
+    // Seuils d'exploitation par classe, en fractions comme le serveur (null : version sans seuils).
+    thresholds: dto.seuils ?? null,
     status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.cloturee), dto.avancement?.revues ?? 0),
   };
 }

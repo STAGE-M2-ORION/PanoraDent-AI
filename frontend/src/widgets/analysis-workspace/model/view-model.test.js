@@ -13,7 +13,7 @@ import { normalizeAnalysis } from "@/entities/analysis";
 import { httpClient } from "@/shared/api";
 
 import { buildAnnotations, exportFileName } from "../lib/export-png";
-import { isVisible, realViewModel, stepDetection } from "./view-model";
+import { aboveThreshold, forReport, isProposed, isVisible, realViewModel, stepDetection, thresholdFor } from "./view-model";
 
 const ALL = { tooth: true, caries: true, deep_caries: true, periapical_lesion: true, impacted_tooth: true };
 const det = (id, label, confidence, fdi) => ({ id, label, confidence, fdi, status: "pending", source: confidence == null ? "user" : "ai", box: { x: 0, y: 0, w: 10, h: 10 } });
@@ -103,5 +103,45 @@ describe("analyse réelle → modèle de la vue et export", () => {
 
   it("nom du fichier exporté : la référence anonyme seule", () => {
     expect(exportFileName(vm)).toBe("panoradent-PDX-2026-0042-annotee.png");
+  });
+});
+
+describe("seuils d'exploitation par classe (sprint 7)", () => {
+  const seuils = { caries: 0.1, impacted_tooth: 0.25 };
+  const d = (label, score, status = "pending") => ({ label, score, confidence: score == null ? null : Math.round(score * 100), status });
+
+  it("sans curseur, chaque classe suit son seuil ; le curseur les remplace tous", () => {
+    expect(aboveThreshold(d("caries", 0.12), { threshold: null, thresholds: seuils })).toBe(true);
+    expect(aboveThreshold(d("impacted_tooth", 0.12), { threshold: null, thresholds: seuils })).toBe(false);
+    expect(aboveThreshold(d("caries", 0.12), { threshold: 50, thresholds: seuils })).toBe(false);
+    expect(thresholdFor("impacted_tooth", { threshold: null, thresholds: seuils })).toBe(25);
+    expect(thresholdFor("caries", { threshold: 40, thresholds: seuils })).toBe(40);
+    // classe sans seuil publié, ou version sans seuils : tout est au-dessus
+    expect(aboveThreshold(d("deep_caries", 0.11), { threshold: null, thresholds: seuils })).toBe(true);
+    expect(aboveThreshold(d("caries", 0.11), { threshold: null, thresholds: null })).toBe(true);
+  });
+
+  it("proposée : comparaison exacte, comme le serveur ; ajout du praticien toujours proposé", () => {
+    expect(isProposed(d("impacted_tooth", 0.245), seuils)).toBe(false); // affichée « 25 % »
+    expect(isProposed(d("impacted_tooth", 0.25), seuils)).toBe(true);
+    expect(isProposed(d("caries", null), seuils)).toBe(true);
+    expect(isProposed(d("impacted_tooth", 0.01), null)).toBe(true);
+  });
+
+  it("compte rendu : ni rejetée, ni restée sous le seuil sans verdict", () => {
+    expect(forReport(d("impacted_tooth", 0.12), seuils)).toBe(false);
+    expect(forReport(d("impacted_tooth", 0.12, "validated"), seuils)).toBe(true);
+    expect(forReport(d("caries", 0.9, "rejected"), seuils)).toBe(false);
+  });
+
+  it("l'analyse réelle porte ses seuils jusqu'à la vue, et la confiance exacte", () => {
+    const vm = realViewModel(
+      normalizeAnalysis({ id: "a", reference: "PDX-1", statut: "terminee", width: 100, height: 100, created_at: "2026-11-22T10:00:00",
+        model_version: "v", inference_mode: "real", seuils: seuils,
+        detections: [{ id: "c", label: "caries", fdi: 36, confidence: 0.245, x: 0.1, y: 0.1, w: 0.1, h: 0.1, source: "model", etat: "a_revoir" }] }),
+      { imageUrl: null, number: 1 },
+    );
+    expect(vm.thresholds).toEqual(seuils);
+    expect(vm.dets[0]).toMatchObject({ confidence: 25, score: 0.245 });
   });
 });

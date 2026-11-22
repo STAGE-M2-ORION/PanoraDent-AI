@@ -121,7 +121,20 @@ describe("démonstration : mêmes gestes, rien n'est envoyé", () => {
 describe("écran de clôture et commentaire", () => {
   it("décompte par statut", () => {
     const s = reviewSummary([{ status: "pending" }, { status: "validated" }, { status: "validated" }, { status: "rejected" }, { status: "added" }]);
-    expect(s).toEqual({ total: 5, pending: 1, validated: 2, corrected: 0, rejected: 1, added: 1 });
+    expect(s).toEqual({ total: 5, pending: 1, optional: 0, retained: 4, validated: 2, corrected: 0, rejected: 1, added: 1 });
+  });
+
+  it("seuils d'exploitation : seules les détections proposées bloquent la clôture", () => {
+    const seuils = { caries: 0.25, periapical_lesion: 0.1 };
+    const dets = [
+      { label: "caries", status: "pending", confidence: 25, score: 0.245 }, // arrondie à 25 %, mais sous 0,25
+      { label: "caries", status: "pending", confidence: 40, score: 0.4 },
+      { label: "periapical_lesion", status: "validated", confidence: 5, score: 0.05 }, // sous le seuil, revue : retenue
+      { label: "caries", status: "pending", confidence: null, score: null, source: "user" },
+    ];
+    expect(reviewSummary(dets, seuils)).toMatchObject({ pending: 2, optional: 1, retained: 3 });
+    // Sans seuils (version antérieure) : toutes attendent un verdict.
+    expect(reviewSummary(dets)).toMatchObject({ pending: 3, optional: 0, retained: 4 });
   });
 
   it("changer le seul commentaire repose le verdict courant", () => {
