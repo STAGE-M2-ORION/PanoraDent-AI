@@ -1,96 +1,154 @@
+import { useEffect, useRef, useState } from "react";
+
 import { detectionType } from "@/entities/detection";
+import { Icon } from "@/shared/ui";
 
-import { STATUS_LABEL, isDashed } from "@/widgets/analysis-workspace";
+import { ToothState, VIEWBOX, nextTooth, toothKind, toothLabel } from "../model/odontogram";
 
-const UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
-const LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+const typeText = (label) => detectionType(label).label;
 
-function Glyph({ k, upper, color = "#94A3B8" }) {
-  const molar = k >= 6;
-  const w = molar ? 14 : k >= 4 ? 11 : 9;
+/** Une dent : couronne vers le plan d'occlusion, racines vers l'extérieur. */
+function Tooth({ s, selected, focusable, choosing, onActivate, onKey, setRef }) {
+  const upper = s.fdi < 30;
+  const kind = toothKind(s.fdi);
+  const largeur = kind === "molaire" ? 26 : kind === "prémolaire" ? 20 : 16;
+  const couronne = upper ? 52 : 108; // haut de la couronne
+  const x = (s.cx ?? 0) - largeur / 2;
+  const racines =
+    kind === "molaire"
+      ? [x + 6, x + largeur - 6]
+      : [s.cx];
+  const yNum = upper ? 18 : 164;
+  const classes = ["tooth", `t-${s.state}`, s.doubtful ? "t-doubtful" : "", choosing ? "t-choosing" : ""].join(" ");
   return (
-    <svg viewBox="0 0 16 18" aria-hidden="true" style={{ color }}>
-      {molar ? (
-        <path
-          d={`M${8 - w / 2 + 2} ${upper ? 10 : 8} L5 ${upper ? 1 : 17} M${8 + w / 2 - 2} ${upper ? 10 : 8} L11 ${upper ? 1 : 17}`}
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      ) : (
-        <path d={`M8 ${upper ? 10 : 8} L8 ${upper ? 1 : 17}`} stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-      )}
-      <rect x={8 - w / 2} y={upper ? 10 : 1} width={w} height="7" rx="2" fill="currentColor" opacity=".9" />
-    </svg>
+    <g
+      ref={setRef}
+      className={classes}
+      role="button"
+      tabIndex={focusable ? 0 : -1}
+      aria-pressed={selected}
+      aria-label={toothLabel(s, typeText)}
+      data-fdi={s.fdi}
+      data-etat={s.state}
+      data-douteux={s.doubtful ? "oui" : undefined}
+      onClick={() => onActivate(s.fdi)}
+      onKeyDown={(e) => onKey(e, s.fdi)}
+    >
+      <title>{toothLabel(s, typeText)}</title>
+      <rect className="cell" x={s.cx - 19} y={upper ? 4 : 92} width={38} height={80} rx={6} />
+      {racines.map((rx) => (
+        <line key={rx} className="root" x1={rx} y1={upper ? couronne : couronne + 18} x2={rx} y2={upper ? couronne - 22 : couronne + 40} />
+      ))}
+      <rect className="crown" x={x} y={couronne} width={largeur} height={18} rx={4} />
+      {s.state === ToothState.ABSENT ? <line className="cross" x1={x - 2} y1={couronne - 2} x2={x + largeur + 2} y2={couronne + 20} /> : null}
+      <text className="num" x={s.cx} y={yNum} textAnchor="middle">
+        {s.fdi}
+      </text>
+      {s.anomalies.slice(0, 3).map((d, i) => (
+        <g key={d.id} className="mark">
+          <circle cx={s.cx - 9 + i * 9} cy={upper ? 80 : 98} r={4} fill={detectionType(d.label).color} />
+        </g>
+      ))}
+      {s.reviewed ? <path className="ok" d={`M${s.cx + 10} ${upper ? 8 : 150} l3 3 l6 -6`} /> : null}
+    </g>
   );
 }
 
-/** Schéma dentaire FDI : un clic sur une dent la retrouve sur l'image et dans la liste. */
-export function Odontogram({ present, dets, selectedTooth, onPick }) {
-  const cell = (fdi, mid) => {
-    const k = fdi % 10;
-    const upper = fdi < 30;
-    if (!present.has(fdi)) {
-      return (
-        <div key={fdi} className={`tcell absent${mid ? " mid" : ""}`} aria-label={`Dent ${fdi} : non détectée`}>
-          <span className="num">{fdi}</span>
-          <Glyph k={k} upper={upper} color="#334155" />
-          <span style={{ fontSize: 9, color: "var(--color-viewer-muted)" }}>absente</span>
-        </div>
-      );
+/**
+ * Schéma dentaire FDI en SVG (sprint 7).
+ *
+ * - Un clic ou Entrée sur une dent la retrouve sur l'image et dans la liste,
+ *   et ouvre sa fiche ; ← → ↑ ↓ Début Fin déplacent le focus d'une dent à
+ *   l'autre (une seule dent dans l'ordre de tabulation à la fois).
+ * - `choosing` : mode « choisir le nouveau numéro » d'une dent ; le prochain
+ *   clic désigne le numéro, Échap annule.
+ * - États : présente, porteuse d'anomalie (pastilles), déclarée absente
+ *   (barrée), non détectée (atténuée) ; contour orange : numéro à vérifier.
+ */
+export function Odontogram({ states, positions, selectedTooth, onPick, choosing, onChoose, onCancelChoose, onExport, exporting }) {
+  const [focus, setFocus] = useState(selectedTooth ?? 11);
+  const refs = useRef({});
+
+  useEffect(() => {
+    if (selectedTooth) setFocus(selectedTooth);
+  }, [selectedTooth]);
+
+  const activate = (fdi) => (choosing ? onChoose(fdi) : onPick(fdi));
+  const onKey = (e, fdi) => {
+    if (e.key === "Escape" && choosing) {
+      e.preventDefault();
+      onCancelChoose();
+      return;
     }
-    // Une détection rejetée (fausse alerte) ne marque plus la dent.
-    const ds = dets.filter((d) => d.fdi === fdi && d.status !== "rejected");
-    const allOk = ds.length > 0 && ds.every((d) => d.status !== "pending");
-    const label = `Dent ${fdi}${ds.length ? ` : ${ds.map((d) => `${detectionType(d.label).label} (${STATUS_LABEL[d.status].toLowerCase()})`).join(", ")}` : " : aucune anomalie proposée"}`;
-    const marks = (
-      <span className="marks">
-        {ds.map((d) => (
-          <span
-            key={d.id}
-            className="mk"
-            style={{ background: detectionType(d.label).color, ...(isDashed(d) ? { outline: "1px dashed #E2E8F0", outlineOffset: 1 } : null) }}
-            title={detectionType(d.label).label}
-          >
-            {detectionType(d.label).abbr}
-          </span>
-        ))}
-      </span>
-    );
-    return (
-      <button key={fdi} type="button" className={`tcell${mid ? " mid" : ""}`} aria-pressed={selectedTooth === fdi} aria-label={label} title={label} onClick={() => onPick(fdi)}>
-        {allOk ? (
-          <svg className="ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="m5 12 5 5L20 7" />
-          </svg>
-        ) : null}
-        {upper ? (
-          <>
-            <span className="num">{fdi}</span>
-            <Glyph k={k} upper />
-          </>
-        ) : (
-          <>
-            <Glyph k={k} upper={false} />
-            <span className="num">{fdi}</span>
-          </>
-        )}
-        {marks}
-      </button>
-    );
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      activate(fdi);
+      return;
+    }
+    const cible = nextTooth(fdi, e.key);
+    if (cible) {
+      e.preventDefault();
+      setFocus(cible);
+      refs.current[cible]?.focus();
+    }
   };
+
   return (
-    <div className="odonto">
+    <div className={`odonto${choosing ? " choosing" : ""}`}>
       <div className="odonto-head">
-        <h3>Schéma dentaire (FDI)</h3>
-        <p>Cliquez sur une dent pour la retrouver sur l&apos;image et dans la liste.</p>
+        <h3 id="odonto-titre">Schéma dentaire (FDI)</h3>
+        {choosing ? (
+          <p className="choose-hint" role="status">
+            Choisissez le nouveau numéro de la dent {choosing.fdi} dans le schéma ·{" "}
+            <button type="button" className="linkish" onClick={onCancelChoose}>
+              Annuler (Échap)
+            </button>
+          </p>
+        ) : (
+          <p>Cliquez sur une dent pour la retrouver sur l&apos;image, dans la liste et dans sa fiche. Flèches : dent voisine.</p>
+        )}
+        {onExport ? (
+          <button type="button" className="vbtn outline" onClick={onExport} disabled={exporting} aria-label="Exporter le schéma dentaire en image (PNG)">
+            <Icon name="download" />
+            Exporter le schéma
+          </button>
+        ) : null}
       </div>
-      <div className="arch" aria-label="Arcade supérieure">
-        {UPPER.map((f, i) => cell(f, i === 8))}
-      </div>
-      <div className="arch" aria-label="Arcade inférieure">
-        {LOWER.map((f, i) => cell(f, i === 8))}
-      </div>
+      <svg className="odonto-svg" viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} role="group" aria-labelledby="odonto-titre">
+        <line className="midline" x1={VIEWBOX.width / 2} y1={2} x2={VIEWBOX.width / 2} y2={VIEWBOX.height - 2} />
+        <line className="occlusal" x1={4} y1={VIEWBOX.height / 2} x2={VIEWBOX.width - 4} y2={VIEWBOX.height / 2} />
+        {Object.values(states).map((s) => (
+          <Tooth
+            key={s.fdi}
+            s={{ ...s, cx: positions[s.fdi].cx }}
+            selected={selectedTooth === s.fdi}
+            focusable={focus === s.fdi}
+            choosing={Boolean(choosing)}
+            onActivate={activate}
+            onKey={onKey}
+            setRef={(el) => {
+              refs.current[s.fdi] = el;
+            }}
+          />
+        ))}
+      </svg>
+      <ul className="odonto-legend" aria-label="Légende du schéma">
+        <li>
+          <span className="lg lg-present" aria-hidden="true" /> présente
+        </li>
+        <li>
+          <span className="lg lg-anomaly" aria-hidden="true" /> porteuse d&apos;anomalie
+        </li>
+        <li>
+          <span className="lg lg-absent" aria-hidden="true" /> déclarée absente
+        </li>
+        <li>
+          <span className="lg lg-undetected" aria-hidden="true" /> non détectée
+        </li>
+        <li>
+          <span className="lg lg-doubtful" aria-hidden="true" /> numéro à vérifier
+        </li>
+      </ul>
     </div>
   );
 }

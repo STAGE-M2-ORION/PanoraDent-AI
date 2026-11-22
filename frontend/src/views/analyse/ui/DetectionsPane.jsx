@@ -335,7 +335,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <p className="empty-sel" style={{ padding: "var(--space-4)" }}>
             <Icon name="info" />
             <span>
-              Aucune détection {tooth ? `sur la dent ${tooth} ` : ""}au-dessus du seuil{onlyPending ? " parmi celles à revoir" : ""}.
+              {tooth ? `Aucune anomalie proposée sur la dent ${tooth} ` : "Aucune détection "}au-dessus du seuil{onlyPending ? " parmi celles à revoir" : ""}.
             </span>
           </p>
         )}
