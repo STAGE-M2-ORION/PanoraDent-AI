@@ -24,6 +24,7 @@ dist/
 inference/weights/*.pt
 # Poids de départ téléchargés par ultralytics dans le dossier courant
 training/*.pt
+/*.pt
 data/
 *.dcm
 runs/
