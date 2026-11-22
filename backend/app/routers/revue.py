@@ -23,7 +23,7 @@ from ..errors import ApiError
 from ..models import Analysis, Detection
 from ..permissions import ANALYSIS_REOPEN, DETECTION_REVIEW
 from ..schemas import AnalysisOut, DetectionOut, analyse_out, detection_out
-from ..services import revue
+from ..services import numerotation, revue
 
 router = APIRouter(prefix="/analyses", tags=["relecture"])
 
@@ -188,6 +188,47 @@ def rouvrir(
         db, "reouverture_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
         cible=f"analyse:{a.id}", details={"reference": a.reference, "motif": motif}, commit=False,
     )
+    db.commit()
+    db.refresh(a)
+    return analyse_out(a)
+
+
+# --- Dents absentes (sprint 7) --------------------------------------------------------------
+
+@router.post("/{analysis_id}/dents/{fdi}/absente", response_model=AnalysisOut)
+def declarer_absente(
+    analysis_id: str,
+    fdi: int,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
+    db: Session = Depends(get_db),
+):
+    """Le praticien déclare une dent absente, après l'avoir vérifié sur le
+    cliché. Refusé si une dent porte ce numéro (la rejeter ou la renuméroter
+    d'abord). Analyse clôturée : 409."""
+    a = _analyse(db, analysis_id, verrou=True)
+    numerotation.declarer_absente(db, a, fdi, utilisateur.id)
+    journal.inscrire(db, "dent_absente", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+                     cible=f"analyse:{a.id}", details={"reference": a.reference, "fdi": fdi}, commit=False)
+    db.commit()
+    db.refresh(a)
+    return analyse_out(a)
+
+
+@router.delete("/{analysis_id}/dents/{fdi}/absente", response_model=AnalysisOut)
+def retirer_absente(
+    analysis_id: str,
+    fdi: int,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
+    db: Session = Depends(get_db),
+):
+    """Retire la déclaration d'absence. Analyse clôturée : 409."""
+    a = _analyse(db, analysis_id, verrou=True)
+    if numerotation.retirer_absente(db, a, fdi):
+        journal.inscrire(db, "dent_absente_retiree", journal.SUCCES, request=request,
+                         utilisateur_id=utilisateur.id, cible=f"analyse:{a.id}",
+                         details={"reference": a.reference, "fdi": fdi}, commit=False)
     db.commit()
     db.refresh(a)
     return analyse_out(a)

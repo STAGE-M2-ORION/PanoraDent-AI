@@ -51,11 +51,16 @@ class DetectionOut(BaseModel):
     revu_le: datetime | None = None
     proposition: ValeursOut
     verdicts: list[VerdictOut] = []
+    # Sprint 7 : rang appris (dent), dent porteuse (anomalie), numéro à vérifier.
+    rang: int | None = None
+    dent_id: str | None = None
+    douteux: bool = False
 
 
-def detection_out(d) -> DetectionOut:
+def detection_out(d, douteuses: set[str] | None = None) -> DetectionOut:
     courant = d.verdict_courant
     return DetectionOut(
+        rang=d.rang, dent_id=d.dent_id, douteux=d.id in (douteuses or set()),
         id=d.id, confidence=d.confidence, source=d.source, model_version=d.model_version or "",
         etat=d.etat, reviewed=d.reviewed, commentaire=courant.commentaire if courant else "",
         revu_par_nom=_nom(d.revu_par), revu_le=d.revu_le,
@@ -65,6 +70,21 @@ def detection_out(d) -> DetectionOut:
                   for v in d.verdicts],
         **d.retenu(),
     )
+
+
+class IncoherenceOut(BaseModel):
+    """Signalée, jamais corrigée d'office (sprint 7)."""
+    type: str                   # doublon | ordre | quadrant_surcharge | absente_detectee
+    fdi: list[int] = []
+    message: str
+    quadrant: int | None = None
+    nombre: int | None = None
+
+
+class DentAbsenteOut(BaseModel):
+    fdi: int
+    auteur_nom: str | None = None
+    cree_le: datetime
 
 
 class AvancementOut(BaseModel):
@@ -105,6 +125,9 @@ class AnalysisOut(BaseModel):
     cloturee_le: datetime | None = None
     cloturee_par_nom: str | None = None
     avancement: AvancementOut = AvancementOut(revues=0, total=0)
+    # Numérotation (sprint 7).
+    incoherences: list[IncoherenceOut] = []
+    dents_absentes: list[DentAbsenteOut] = []
 
 
 class AnalysisSummary(BaseModel):
@@ -128,16 +151,21 @@ class AnalysisSummary(BaseModel):
 
 
 def analyse_out(a) -> AnalysisOut:
+    from .services.numerotation import incoherences
     from .services.revue import avancement
 
     masques = a.masques or {}
+    signales, douteuses = incoherences(a)
     return AnalysisOut.model_validate({
         **{c: getattr(a, c) for c in (
             "id", "created_at", "reference", "date_examen", "note", "image_key", "report_key",
             "model_version", "inference_mode", "version_demandee", "origine_id", "width", "height",
             "statut", "erreur", "tentatives", "lance_le", "termine_le", "duree_ms",
         )},
-        "detections": [detection_out(d) for d in a.detections],
+        "detections": [detection_out(d, douteuses) for d in a.detections],
+        "incoherences": signales,
+        "dents_absentes": [{"fdi": x.fdi, "auteur_nom": _nom(x.auteur), "cree_le": x.cree_le}
+                           for x in a.dents_absentes],
         "conclusion": a.conclusion or "",
         "cloturee": a.cloturee,
         "cloturee_le": a.cloturee_le,

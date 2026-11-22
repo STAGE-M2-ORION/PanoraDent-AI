@@ -268,6 +268,8 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 | `PUT` | `/api/v1/analyses/{id}/conclusion` | Brouillon de la conclusion — `detection:review` |
 | `POST` | `/api/v1/analyses/{id}/cloturer` | Clôture ; `409 detections_a_revoir` (avec le compte) tant qu'une anomalie reste sans verdict ; journalisée — `detection:review` |
 | `POST` | `/api/v1/analyses/{id}/rouvrir` | Réouverture, motif obligatoire, journalisée — `analysis:reopen` |
+| `POST` | `/api/v1/analyses/{id}/dents/{fdi}/absente` | Dent déclarée absente (auteur, date, journal) ; `409 dent_detectee` si une dent porte ce numéro — `detection:review` |
+| `DELETE` | `/api/v1/analyses/{id}/dents/{fdi}/absente` | Retire la déclaration — `detection:review` |
 | `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF (valeurs retenues, rejets exclus), renvoie une URL présignée ; analyse non terminée : `409` — `report:generate` |
 | `POST` | `/api/v1/analyses/{id}/rejouer` | Nouvelle analyse du même cliché avec le **modèle actif**, liée à l'originale (`origine_id`), avec sa propre copie de l'image ; l'originale n'est pas touchée (même clôturée). `409` : non terminée, aucun modèle actif, déjà faite avec le modèle actif — `analysis:create` |
 | `GET` | `/api/v1/analyses/{id}/comparaison` | Sur un rejeu : propositions des deux modèles par classe (`?seuil=0.25`) — communes (même classe, IoU ≥ 0,50), vues seulement par l'un ou l'autre — `analysis:read` |
@@ -508,6 +510,14 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   d'annulation `annule_le` / `annule_par_id`. L'écart entre le modèle et le
   praticien reste ainsi mesurable.
 - **`analyses`**, relecture : `conclusion`, `cloturee_le?`, `cloturee_par_id?`.
+- **Numérotation** (migration `0011_numerotation`, sprint 7) : `detections.rang` (rang
+  appris, 1 à 8), `detections.dent_id` (dent qui porte une anomalie — l'anomalie suit
+  le numéro **retenu** de sa dent, tant que le praticien ne lui en a pas fixé un autre) ;
+  table `dents_absentes` (`fdi`, auteur, date). Les **incohérences** (doublon, ordre,
+  quadrant surchargé, dent absente mais détectée) sont recalculées à chaque lecture
+  sur les valeurs retenues, renvoyées avec l'analyse et les dents marquées `douteux` :
+  signalées, jamais corrigées d'office. Corriger le numéro d'une dent passe par un
+  verdict, comme pour une anomalie : la proposition reste intacte.
 - **`model_versions`** (registre, migration `0010_registre_modeles`) — une
   version est une **paire** : `poids_dents` / `poids_anomalies` (chemins sous le
   dossier des poids), `sha256_dents` / `sha256_anomalies`,

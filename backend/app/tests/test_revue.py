@@ -237,6 +237,8 @@ CORPS = {
     ("POST", "/api/v1/analyses/{analysis_id}/detections"): {"label": "caries", "cadre": {"x": 0.1, "y": 0.1, "w": 0.05, "h": 0.05}},
     ("PUT", "/api/v1/analyses/{analysis_id}/conclusion"): {"conclusion": "modifiée"},
     ("POST", "/api/v1/analyses/{analysis_id}/cloturer"): {},
+    ("POST", "/api/v1/analyses/{analysis_id}/dents/{fdi}/absente"): None,     # sprint 7
+    ("DELETE", "/api/v1/analyses/{analysis_id}/dents/{fdi}/absente"): None,   # sprint 7
 }
 
 
@@ -258,7 +260,7 @@ def test_ecriture_refusee_sur_une_analyse_cloturee(connecte, analyse, methode, c
     praticien = connecte(PRATICIEN)
     _tout_statuer(praticien, analyse)
     assert praticien.post(_url(analyse, "/cloturer"), json={}).status_code == 200
-    url = chemin.replace("/api/v1", BASE).replace("{analysis_id}", analyse["id"]).replace("{detection_id}", analyse["carie"])
+    url = chemin.replace("/api/v1", BASE).replace("{analysis_id}", analyse["id"]).replace("{detection_id}", analyse["carie"]).replace("{fdi}", "18")
     corps = CORPS[(methode, chemin)]
     r = praticien.request(methode, url, json=corps) if corps is not None else praticien.request(methode, url)
     assert r.status_code == 409 and r.json()["code"] == "analyse_cloturee", r.text
