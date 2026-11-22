@@ -2,6 +2,7 @@ import { normalizeDetection, toFractionBox } from "@/entities/detection/@x/analy
 import { httpClient } from "@/shared/api";
 
 import { normalizeAnalysis, normalizeAnalysisSummary, normalizeProcessing, withNumbers } from "../model/analysis";
+import { normalizeComparison } from "../model/comparison";
 
 const toZone = (z) => ({ x: z.x, y: z.y, w: z.w, h: z.h });
 
@@ -22,6 +23,8 @@ export async function previewAnalysis(file, { masks = [], onProgress } = {}) {
     width: data.largeur,
     height: data.hauteur,
     autoZones: data.zones_auto.map(toZone),
+    // « modele_texte » (détecteur OpenCV) ou « heuristique » (secours).
+    detectionMethod: data.methode ?? "heuristique",
     manualZones: data.zones_manuelles.map(toZone),
     before: data.avant,
     after: data.apres,
@@ -70,6 +73,21 @@ export async function fetchAnalysisStatus(analysisId) {
 export async function launchAnalysis(analysisId) {
   const { data } = await httpClient.post(`/analyses/${analysisId}/lancer`);
   return normalizeProcessing(data);
+}
+
+/**
+ * `POST /analyses/{id}/rejouer` (201) — nouvelle analyse du même cliché avec le
+ * modèle actif, liée à l'originale, qui reste intacte (même clôturée).
+ */
+export async function replayAnalysis(analysisId) {
+  const { data } = await httpClient.post(`/analyses/${analysisId}/rejouer`);
+  return normalizeAnalysis(data);
+}
+
+/** `GET /analyses/{id}/comparaison` — propositions des deux modèles, classe par classe. */
+export async function fetchComparison(analysisId, threshold = 0.25) {
+  const { data } = await httpClient.get(`/analyses/${analysisId}/comparaison`, { params: { seuil: threshold } });
+  return normalizeComparison(data);
 }
 
 /* ---------- Relecture (sprint 5) ----------

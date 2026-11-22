@@ -10,6 +10,7 @@ const ACTIONS = [
   { codes: ["detection:review"], text: "relire et corriger les détections" },
   { codes: ["report:generate"], text: "générer les comptes rendus" },
   { codes: ["model:read"], text: "consulter la performance du modèle" },
+  { codes: ["model:manage"], text: "changer la version du modèle en service" },
   { codes: ["user:manage"], text: "créer et gérer les comptes" },
   { codes: ["role:manage"], text: "modifier les rôles et leurs permissions" },
 ];

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { fetchModelVersions } from "@/entities/model-version";
+import { activeVersion, fetchModelVersions } from "@/entities/model-version";
 import { Permission } from "@/entities/session";
 import { formatDate, useAsyncResource } from "@/shared/lib";
 import { Alert, Badge, KpiRing, VizEmpty } from "@/shared/ui";
@@ -63,7 +63,8 @@ function metricKpi(m, metrics) {
 export function PerformancePage() {
   const { data: versions } = useAsyncResource(fetchModelVersions);
   const [threshold, setThreshold] = useState(50);
-  const active = versions?.[0];
+  // La version en service, jamais « la plus récente » par supposition.
+  const active = activeVersion(versions);
   const x = 40 + (340 * threshold) / 100;
   const hasMetrics = active && GLOBAL_METRICS.some((m) => typeof active.metrics?.[m.key] === "number");
 

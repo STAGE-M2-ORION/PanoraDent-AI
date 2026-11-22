@@ -1,0 +1,6 @@
+# Colab (Python 3.13, torch CUDA préinstallé) : on n'y touche pas.
+# Vérifié le 2026-11-22 sous Python 3.13, torch 2.15, numpy 2.5 : toute la
+# suite de tests de l'entraînement passe, et les poids produits se chargent
+# dans le service d'inférence (torch 2.3.1, numpy 1.26).
+# ultralytics : MÊME version que le service d'inférence (inference/requirements-modele.txt).
+ultralytics==8.3.40

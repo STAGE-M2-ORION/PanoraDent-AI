@@ -92,7 +92,7 @@ def test_confirmation_stocke_la_seule_image_masquee(connecte, objets, db):
     a = r.json()
     assert re.fullmatch(r"PDX-\d{4}-0001", a["reference"])
     assert a["date_examen"] == "2026-11-18" and a["note"] == "Contrôle à 6 mois"
-    assert a["deposant_nom"] and a["zones_masquees"] == {"auto": 1, "manuelles": 1}
+    assert a["deposant_nom"] and a["zones_masquees"] == {"auto": 1, "manuelles": 1, "methode": "modele_texte"}
 
     (cle,) = objets  # une seule image : pas de version d'affichage sous 3 000 px
     # Clé tirée au hasard : rien du nom du fichier (qui porte le nom du patient).

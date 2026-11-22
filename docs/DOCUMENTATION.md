@@ -388,7 +388,7 @@ l'interface, exécuter l'inférence IA, et protéger les données de santé.
 |---|---|---|
 | Frontend (React) | Import, revue des détections superposées, consultation des rapports | ✅ Next.js 14 (React 18), export statique servi par nginx |
 | Backend API (FastAPI) | Orchestration : import, anonymisation, appel IA, stockage, PDF, authentification | ⚠️ tout sauf l'**authentification** (❌) |
-| Service d'inférence IA (PyTorch) | Exécute le modèle, isolé derrière une API interne, GPU possible | ⚠️ service isolé ✅, modèle ❌ (mode mock) |
+| Service d'inférence IA (PyTorch) | Exécute le modèle, isolé derrière une API interne, GPU possible | ✅ service isolé, registre de versions (paire dents + anomalies), première version entraînée `dentex-2026.11` |
 | Base de données (PostgreSQL) | Métadonnées, détections, corrections, versions de modèle. Aucune donnée identifiante | ✅ PostgreSQL 16, 3 tables |
 | Stockage objet | Images anonymisées et rapports PDF, chiffrés au repos | ⚠️ MinIO ✅, **chiffrement au repos non activé** |
 | Journalisation / audit | Trace horodatée des accès et actions | ❌ non implémenté |
@@ -769,6 +769,40 @@ plus un manque : [`fdi.py`](../inference/app/fdi.py) la déduit de la géométri
 
 ---
 
+
+### 10.6 Premier modèle entraîné : `dentex-2026.11` (sprint 6)
+
+Rapport complet, figures comprises : [docs/evaluation/dentex-2026.11/rapport.md](evaluation/dentex-2026.11/rapport.md).
+
+- **Données** : DENTEX (Hugging Face, révision figée), CC BY-NC-SA 4.0 — les
+  poids héritent de la restriction académique. Deux jeux, parce que DENTEX
+  encadre toutes les dents dans un ensemble et seulement les dents malades dans
+  l'autre : modèle **dents** et modèle **anomalies**. Un seul découpage
+  (graine 42, empreinte `f22d373ede0ff715`, identique sur deux machines), par
+  groupe de clichés identiques au pixel près ; le test officiel sert de test
+  externe.
+- **Entraînement** : YOLO11s préentraîné COCO, 1024 px, Colab (Tesla T4) ;
+  arrêt anticipé à 113 et 60 époques.
+- **Test interne, évalué une fois** :
+
+| Modèle | Classe | Instances | Précision | Rappel | mAP@0,50 |
+|---|---|---|---|---|---|
+| dents | dent | 2 445 | 0,977 | 0,989 | **0,987** |
+| anomalies | dent incluse | 94 | 0,846 | 0,932 | 0,927 |
+| anomalies | carie | 332 | 0,490 | 0,416 | 0,493 |
+| anomalies | carie profonde | 76 | 0,465 | 0,401 | 0,371 |
+| anomalies | lésion péri-apicale | 22 | 0,369 | 0,318 | 0,248 |
+| anomalies | **global** | | 0,542 | 0,517 | **0,510** |
+
+- **Test externe** (test officiel, autre protocole, 3 classes) : mAP@0,50
+  0,585 — carie 0,458, dent incluse 0,901, lésion péri-apicale 0,397.
+- **Lecture** : le test interne fait foi ; la validation de la meilleure époque
+  (0,587) est optimiste, puisqu'elle a servi à choisir l'époque. La détection
+  des dents et des inclusions est solide ; celle des caries et surtout des
+  lésions péri-apicales (22 exemples au test) ne l'est pas encore — c'est la
+  principale limite à présenter, et le premier axe d'amélioration (plus de
+  données annotées, taille d'image plus grande pour les petites lésions).
+
 ## 11. Sécurité, confidentialité et conformité réglementaire
 
 > **Le point réglementaire à ne pas ignorer.** Un « logiciel d'aide au
@@ -841,7 +875,7 @@ La configuration actuelle vise le **développement local**. Liste bloquante :
 |---|---|---|
 | Frontend | React | ✅ Next.js 14 / React 18, FSD, shadcn/ui, Tailwind v4 |
 | Backend / API | FastAPI (Python) | ✅ FastAPI 0.111 |
-| Modèle de détection | YOLOv11 sous PyTorch | ⚠️ contrat prêt, pipeline d'entraînement écrit ([`training/`](../training/)) ; `ultralytics` et `torch` restent **commentés** côté service |
+| Modèle de détection | YOLOv11 sous PyTorch | ✅ deux modèles YOLO11s (dents, anomalies) entraînés sur DENTEX, ultralytics 8.3.40 et torch 2.3.1 dans l'image du service — voir §10.6 |
 | Base de données | PostgreSQL | ✅ PostgreSQL 16 + SQLAlchemy 2 + Alembic |
 | Stockage objet | Stockage chiffré | ⚠️ MinIO (S3-compatible), chiffrement non activé |
 | Conteneurisation | Docker | ✅ Docker Compose, override GPU |
@@ -968,9 +1002,9 @@ cohérence des métriques) restent vérifiables sans torch ni GPU.
 - **Le FDI du mock ne vient pas de [`fdi.py`](../inference/app/fdi.py)** : le
   générateur produit ses propres numéros, incohérents avec l'arcade. Seul le
   mode réel emprunte la déduction géométrique.
-- **Structure DENTEX non vérifiée** — la correspondance des catégories
-  (`class_map.dentex.json`) est une hypothèse ; les catégories non reconnues
-  sont signalées, jamais perdues en silence.
+- **Structure DENTEX vérifiée** (sprint 6) — catégories lues par leur nom,
+  géométrie des quadrants contrôlée sur les quatre ensembles annotés
+  ([`training/dentex.py`](../training/dentex.py)).
 
 ### Infrastructure
 
@@ -1044,10 +1078,10 @@ Elles ne figurent pas au PRD mais engagent la suite :
 
 | Indicateur | Cible mémoire | État |
 |---|---|---|
-| **Performance de détection** — mAP@0.5 sur le test indépendant | Cible à fixer (décision §15.2-1), justifiée | ❌ non mesurée |
-| **Sensibilité clinique** — rappel sur caries et lésions périapicales | Élevé (faux négatifs coûteux) | ❌ non mesurée |
-| **Reproductibilité** — évaluation rejouable à l'identique | 100 % | 🔬 protocole à écrire |
-| **Couverture du périmètre** — numérotation + 4 classes fonctionnelles | Démontré de bout en bout | ⚠️ chaîne ✅, modèle ❌ |
+| **Performance de détection** — mAP@0.5 sur le test indépendant | Cible à fixer (décision §15.2-1), justifiée | ✅ mesurée (§10.6) : dents 0,987, anomalies 0,510 (test interne) ; cible encore à fixer |
+| **Sensibilité clinique** — rappel sur caries et lésions périapicales | Élevé (faux négatifs coûteux) | ⚠️ mesurée, insuffisante : rappel carie 0,42, lésion péri-apicale 0,32 (22 boîtes) |
+| **Reproductibilité** — évaluation rejouable à l'identique | 100 % | ✅ découpage par graine, empreinte identique sur deux machines ; test évalué une seule fois (registre) |
+| **Couverture du périmètre** — numérotation + 4 classes fonctionnelles | Démontré de bout en bout | ✅ de bout en bout avec le vrai modèle ; numérotation FDI géométrique à fiabiliser (sprint 7) |
 | **Chaîne complète** — import → inférence → revue → PDF | Opérationnelle en démo | ⚠️ **la revue manque** |
 | **Confidentialité** — anonymisation vérifiée sur tout le flux | Aucune fuite identifiante | ⚠️ vérifiée hors pixels incrustés |
 | **Qualité du mémoire** — méthodologie et analyse des échecs documentées | Complètes et honnêtes | 🔬 en cours |
@@ -1095,7 +1129,7 @@ Classées par rapport valeur/coût, en cohérence avec la règle d'arbitrage :
 | Livrable PRD §16 | État |
 |---|---|
 | Application web (frontend React + backend FastAPI) : import, inférence, revue, rapport PDF | ⚠️ **tout sauf la revue** |
-| Service d'inférence IA (YOLOv11 / PyTorch) et poids versionnés | ⚠️ service ✅, modèle ❌ |
+| Service d'inférence IA (YOLOv11 / PyTorch) et poids versionnés | ✅ registre de versions, poids vérifiés par empreinte, bascule sans redéploiement |
 | Pipeline de données documenté (préparation, découpage sans fuite, entraînement) | ⚠️ **écrit** ([`training/`](../training/) + [README](../training/README.md)), jamais exécuté |
 | Rapport d'évaluation chiffré (métriques par classe, matrice de confusion, analyse des échecs) | 🔬 à produire |
 | Documentation technique et guide d'utilisation | ✅ ce document, [README.md](../README.md), [architecture.md](architecture.md), [frontend/README.md](../frontend/README.md) |
@@ -1130,7 +1164,7 @@ Vue de synthèse. Chaque ligne renvoie à la section détaillée.
 | §7.3 | Version de dataset par analyse | ❌ | `model_versions` vide | 7.5 |
 | §7.3 | Corrections horodatées conservées | ❌ | — | 7.5 |
 | §8.1 | Stratégie de données DENTEX / UFBA / Tufts | 🔬 | — | 10.1 |
-| §8.2 | YOLOv11 sous PyTorch | ⚠️ | `ultralytics` / `torch` commentés | 10.2 |
+| §8.2 | YOLOv11 sous PyTorch | ✅ | YOLO11s, deux modèles (dents, anomalies) | 10.6 |
 | §8.3 | Découpage sans fuite, test gelé, métriques par classe | 🔬 | — | 10.3 |
 | §9.1 | Chiffrement en transit (HTTPS) | ❌ | HTTP local | 11.1 |
 | §9.1 | Contrôle d'accès (JWT) | ❌ | `python-jose` provisionné, inutilisé | 11.1 |

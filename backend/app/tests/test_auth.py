@@ -404,6 +404,7 @@ def test_routes_publiques_attendues():
         "/api/v1/auth/premiere-connexion",
         "/api/v1/auth/fake/autoriser", "/api/v1/auth/fake/valider",
         "/api/v1/test/courriels",  # montée seulement avec APP_ENV=test
+        "/api/v1/test/modeles",    # idem : publication factice pour Playwright
     }
 
 
@@ -509,7 +510,7 @@ def test_jeu_de_depart_sans_lien_une_fois_le_mot_de_passe_choisi(db):
 
 def test_roles_systeme_et_crud(admin):
     roles = {r["libelle"]: r for r in admin.get(f"{BASE}/roles").json()}
-    assert len(roles["Administrateur"]["permissions"]) == 9
+    assert len(roles["Administrateur"]["permissions"]) == 10
     assert set(roles["Lecteur"]["permissions"]) == {"analysis:read", "model:read"}
     assert set(roles["Praticien"]["permissions"]) == {
         "analysis:create", "analysis:read", "analysis:delete",

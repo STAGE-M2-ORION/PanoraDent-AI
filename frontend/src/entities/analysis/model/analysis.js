@@ -90,6 +90,9 @@ export function normalizeAnalysis(dto) {
     reportKey: dto.report_key ?? null,
     modelVersion: dto.model_version,
     inferenceMode: dto.inference_mode,
+    // Registre : version épinglée à la mise en file ; analyse d'origine d'un rejeu.
+    requestedVersion: dto.version_demandee ?? null,
+    originId: dto.origine_id ?? null,
     width: dto.width,
     height: dto.height,
     detections,

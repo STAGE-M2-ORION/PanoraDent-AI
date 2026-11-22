@@ -35,3 +35,18 @@ export function round(rect) {
 export function toStyle(rect) {
   return { left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.w * 100}%`, height: `${rect.h * 100}%` };
 }
+
+/**
+ * Comment les inscriptions ont été cherchées. En secours (modèle de texte
+ * indisponible), seuls les textes clairs sur fond noir des bandes haute et
+ * basse sont repérés : le praticien doit regarder l'image de plus près.
+ */
+export function detectionMethodNotice(method) {
+  if (method === "modele_texte") {
+    return { tone: "info", text: "Inscriptions cherchées par le détecteur de texte, sur le pourtour du cliché." };
+  }
+  return {
+    tone: "warning",
+    text: "Détecteur de texte indisponible : méthode de secours, qui ne repère que les textes clairs sur fond noir en haut et en bas. Vérifiez tout le pourtour et masquez à la main ce qui reste.",
+  };
+}

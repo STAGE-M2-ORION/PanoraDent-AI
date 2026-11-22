@@ -7,8 +7,10 @@ table `analyses` elle-même : le statut en base fait foi.
 - Prise d'une tâche : `SELECT … FOR UPDATE SKIP LOCKED` sur la plus ancienne
   analyse « en file » — deux workers ne prennent jamais la même.
 - Traitement : lecture de l'image anonymisée (pleine résolution), appel du
-  service d'inférence, enregistrement des détections au-dessus de 0,10 en
-  fractions de l'image, avec la version du modèle et la durée.
+  service d'inférence avec la version ÉPINGLÉE à la mise en file (et les
+  empreintes de ses poids), enregistrement des détections au-dessus de 0,10
+  en fractions de l'image, avec la version du modèle et la durée. Une réponse
+  produite par une autre version que celle demandée est refusée.
 - Échec (service d'inférence arrêté, image illisible…) : statut « échouée »
   et message affichable ; le praticien peut relancer.
 - Au démarrage : les analyses restées « en cours » (worker arrêté en plein
@@ -31,7 +33,7 @@ from . import auth_models  # noqa: F401  (enregistre les tables liées : utilisa
 from .config import settings
 from .database import SessionLocal
 from .models import Analysis, Detection, StatutAnalyse
-from .services import inference_client, storage
+from .services import inference_client, registre_modeles, storage
 
 logger = logging.getLogger("panoradent.worker")
 
@@ -107,6 +109,8 @@ def traiter(db: Session, analyse: Analysis) -> None:
     if analyse is None:
         return
     image_key = analyse.image_key
+    demandee = analyse.version_demandee
+    demande = registre_modeles.demande_d_inference(db, demandee)
     try:
         try:
             png = storage.get(image_key)
@@ -115,7 +119,9 @@ def traiter(db: Session, analyse: Analysis) -> None:
         with Image.open(io.BytesIO(png)) as image:
             largeur, hauteur = image.size
         try:
-            resultat = inference_client.infer_sync(png)
+            resultat = inference_client.infer_sync(png, **demande)
+        except inference_client.RefusInference as exc:
+            raise EchecAnalyse(f"{exc.message} Prévenez l'administrateur.") from exc
         except Exception as exc:  # noqa: BLE001
             raise EchecAnalyse(
                 "Le service d'analyse ne répond pas. Réessayez dans un instant ; si cela persiste, "
@@ -128,6 +134,11 @@ def traiter(db: Session, analyse: Analysis) -> None:
                 "Prévenez l'administrateur."
             )
         version = resultat.get("model_version", "unknown")
+        if demandee and version != demandee:
+            raise EchecAnalyse(
+                f"Le service d'analyse a répondu avec le modèle {version} au lieu de {demandee} : "
+                "résultat refusé. Prévenez l'administrateur."
+            )
 
         db.expire_all()
         analyse = db.get(Analysis, ident)

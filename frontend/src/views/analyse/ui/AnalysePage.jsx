@@ -24,6 +24,7 @@ import {
 import { makeReview, readResume, reviewSummary, verdictOfStatus, writeResume } from "../model/review-api";
 import { AssistantPane } from "./AssistantPane";
 import { ClosureModal } from "./ClosureModal";
+import { ModelReplay } from "./ModelReplay";
 import { DetectionsPane } from "./DetectionsPane";
 import { Odontogram } from "./Odontogram";
 import { ProcessingState } from "./ProcessingState";
@@ -452,6 +453,7 @@ export function AnalysePage() {
                   Rouvrir l&apos;analyse
                 </button>
               ) : null}
+              <ModelReplay vm={vm} canCreate={can(Permission.ANALYSIS_CREATE)} />
               {trace}
             </>
           ) : (
@@ -474,6 +476,7 @@ export function AnalysePage() {
               ) : (
                 <span style={{ color: "#4ADE80" }}>Tout est relu</span>
               )}
+              <ModelReplay vm={vm} canCreate={can(Permission.ANALYSIS_CREATE)} />
               {trace}
             </>
           )}

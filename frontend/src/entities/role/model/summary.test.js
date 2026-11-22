@@ -26,7 +26,7 @@ describe("résumé en clair d'un rôle", () => {
   });
 
   it("tout accordé : rien à refuser", () => {
-    const all = ["analysis:read", "analysis:create", "analysis:delete", "detection:review", "report:generate", "model:read", "user:manage", "role:manage"];
+    const all = ["analysis:read", "analysis:create", "analysis:delete", "detection:review", "report:generate", "model:read", "model:manage", "user:manage", "role:manage"];
     expect(summarizeRole(all).cannot).toBe("");
   });
 });

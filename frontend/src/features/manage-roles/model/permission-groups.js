@@ -6,7 +6,7 @@ export const PERMISSION_GROUPS = [
   { legend: "Analyses", codes: ["analysis:create", "analysis:read", "analysis:delete"] },
   { legend: "Revue des détections", codes: ["detection:review"] },
   { legend: "Comptes rendus", codes: ["report:generate"] },
-  { legend: "Modèle", codes: ["model:read"] },
+  { legend: "Modèle", codes: ["model:read", "model:manage"] },
   { legend: "Administration", codes: ["user:manage", "role:manage"] },
 ];
 
@@ -17,12 +17,13 @@ const MATRIX_LABELS = {
   "detection:review": "Revue des détections (valider, corriger, ajouter, supprimer)",
   "report:generate": "Génération du compte rendu",
   "model:read": "Consultation de la performance du modèle",
+  "model:manage": "Activation d’une version de modèle (bascule)",
   "user:manage": "Gestion des utilisateurs",
   "role:manage": "Gestion des rôles",
 };
 
 /** Réservées à l'administration : signalées « Sensible ». */
-export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage"]);
+export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage", "model:manage"]);
 
 /** Ordre d'affichage : celui des groupes, puis les codes inconnus. */
 export function orderedPermissions(catalog) {

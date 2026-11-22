@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Uuid, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -83,6 +83,14 @@ class Analysis(Base):
     duree_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_version: Mapped[str] = mapped_column(String, default="")
     inference_mode: Mapped[str] = mapped_column(String, default="")  # mock | real
+    # Version du registre ÉPINGLÉE à la mise en file : le worker demande
+    # celle-ci, même si une bascule a eu lieu entre-temps. Vide : aucune
+    # version active, le service d'inférence sert son mode historique.
+    version_demandee: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Rejeu d'une analyse avec le modèle courant : l'analyse d'origine.
+    origine_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("analyses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     width: Mapped[int] = mapped_column(Integer)
     height: Mapped[int] = mapped_column(Integer)
     # Relecture (sprint 5) : conclusion libre, clôture qui verrouille l'analyse.
@@ -192,7 +200,13 @@ class Verdict(Base):
 
 
 class ModelVersion(Base):
-    """Traçabilité des modèles et de leurs métriques d'évaluation (PRD §5.5)."""
+    """Registre des modèles (PRD §5.5, sprint 6).
+
+    Une version est une PAIRE (décision S6-1) : un modèle « dents » et un
+    modèle « anomalies », déposés sous `<dossier des poids>/<version>/`. Leurs
+    empreintes sha256 sont vérifiées par le service d'inférence au chargement.
+    Une seule version est active à la fois (index unique partiel).
+    """
     __tablename__ = "model_versions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
@@ -201,3 +215,38 @@ class ModelVersion(Base):
     dataset: Mapped[str] = mapped_column(String, default="")
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Chemins relatifs au dossier des poids, et empreintes des fichiers publiés.
+    poids_dents: Mapped[str | None] = mapped_column(String, nullable=True)
+    poids_anomalies: Mapped[str | None] = mapped_column(String, nullable=True)
+    sha256_dents: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sha256_anomalies: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Empreinte du découpage apprentissage / validation / test (split.json).
+    empreinte_decoupage: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actif: Mapped[bool] = mapped_column(Boolean, default=False)
+    active_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    @property
+    def servable(self) -> bool:
+        """Les deux fichiers de poids sont déclarés, avec leur empreinte."""
+        return all((self.poids_dents, self.poids_anomalies, self.sha256_dents, self.sha256_anomalies))
+
+
+# Une seule version active : tenu par la base, pas seulement par le code.
+Index("ux_model_versions_actif", ModelVersion.actif, unique=True,
+      sqlite_where=ModelVersion.actif == true(), postgresql_where=ModelVersion.actif == true())
+
+
+class BasculeModele(Base):
+    """Journal des bascules : qui a activé quelle version, quand et pourquoi."""
+    __tablename__ = "model_bascules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    horodatage: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    utilisateur_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+    version_precedente: Mapped[str | None] = mapped_column(String, nullable=True)
+    version: Mapped[str] = mapped_column(String)
+    motif: Mapped[str] = mapped_column(Text, default="")
+
+    auteur = relationship("Utilisateur", foreign_keys=[utilisateur_id])

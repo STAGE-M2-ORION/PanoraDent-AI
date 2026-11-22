@@ -30,6 +30,7 @@ export const Permission = {
   ANALYSIS_REOPEN: "analysis:reopen",
   REPORT_GENERATE: "report:generate",
   MODEL_READ: "model:read",
+  MODEL_MANAGE: "model:manage",
   USER_MANAGE: "user:manage",
   ROLE_MANAGE: "role:manage",
 };
