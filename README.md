@@ -1,4 +1,4 @@
-# PanoraDent AI — Infrastructure
+#  PanoraDent AI — Infrastructure
 
 Aide au diagnostic par analyse IA des radiographies panoramiques dentaires.
 
