@@ -10,6 +10,7 @@ import {
   shortHash,
 } from "@/entities/model-version";
 import { Permission, useCurrentUser } from "@/entities/session";
+import { toAppError } from "@/shared/api";
 import { formatDateTime, useAsyncResource } from "@/shared/lib";
 import { Alert, Badge, Button, ConfirmDialog, Icon, useToast } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
@@ -51,7 +52,12 @@ export function AdminModelesPage() {
   const active = activeVersion(list);
 
   const confirm = async (motif) => {
-    await activateModelVersion(target.version, motif);
+    try {
+      await activateModelVersion(target.version, motif);
+    } catch (cause) {
+      // Message du serveur (poids absents, altérés, service arrêté), affiché dans la fenêtre.
+      throw toAppError(cause);
+    }
     setTarget(null);
     toast(`Version ${target.version} active. Les analyses déjà en file gardent leur version.`);
     versions.reload();
