@@ -29,12 +29,13 @@ DIAGNOSTICS_COCO = {
 
 #: Code LabelMe du test officiel -> (libellé turc, classe PanoraDent ou None).
 #: None : le code existe mais n'est pas dans notre périmètre (dent saine, soin
-#: canalaire, extraction, fracture). « küretaj » (curetage) -> carie profonde
-#: est une hypothèse À CONFIRMER : voir le compte rendu de S6-1.
+#: canalaire, extraction, fracture). « küretaj » (curetage) est exclu
+#: (décision S6-1) : sa correspondance avec « carie profonde » est plausible
+#: mais non documentée, et une hypothèse ne doit pas fabriquer une mesure.
 CODES_LABELME = {
     "0": ("sağlam", None),
     "1": ("çürük", "caries"),
-    "2": ("küretaj", "deep_caries"),
+    "2": ("küretaj", None),
     "3": ("kanal", None),
     "5": ("çekim", None),
     "6": ("gömülü", "impacted_tooth"),

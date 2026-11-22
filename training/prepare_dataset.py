@@ -1,242 +1,295 @@
-"""COCO vers format YOLO, avec découpage **par patient** et jeu de test gelé.
+"""DENTEX -> jeux YOLO « dents » et « anomalies », plus le test externe.
 
-Deux exigences de la méthodologie de validation (§10.3) sont traitées ici, et
-nulle part ailleurs :
+Décisions du sprint 6 (S6-1), appliquées ici :
 
-1. **Aucune fuite entre partitions.** Le découpage porte sur les *patients*, pas
-   sur les images : deux clichés du même patient ne peuvent pas se retrouver
-   l'un en entraînement et l'autre en test, ce qui gonflerait artificiellement
-   les scores.
-2. **Test gelé et reproductible.** L'affectation est écrite dans `split.json`
-   avec la graine et les ratios. Rejouer la commande produit exactement le même
-   découpage ; relire le fichier permet de le prouver.
+- **Deux modèles, deux jeux.** DENTEX encadre *toutes* les dents dans
+  `quadrant_enumeration`, mais *seulement les dents malades* dans
+  `quadrant-enumeration-disease`. Mélanger les deux apprendrait au modèle que
+  les dents non encadrées ne sont pas des dents. Le jeu `dents` ne porte que la
+  classe `tooth` (énumération) ; le jeu `anomalies` les quatre diagnostics
+  (maladies + validation officielle, même protocole). Les deux gardent la liste
+  `CLASSES` entière, dans l'ordre du contrat : l'index appris est l'index
+  interprété par le service, sans renumérotation.
+- **Un seul découpage pour les deux jeux.** Les ensembles se recouvrent
+  (260 clichés communs entre énumération et maladies) : les clichés identiques
+  au pixel près, tous ensembles confondus, forment un groupe, et chaque groupe
+  va dans une seule partition. Un cliché de test de l'un des modèles n'entraîne
+  jamais l'autre.
+- **Le test officiel est externe.** Ses 250 clichés (polygones LabelMe) forment
+  le jeu `externe`, évalué une seule fois ; tout groupe qui en contient un est
+  retiré de l'apprentissage, de la validation et du test interne. Seules les
+  correspondances sûres y sont gardées : carie, inclusion, lésion péri-apicale
+  (« küretaj » exclu, hypothèse non documentée).
+- Les clichés `maladies` sans aucune boîte sont écartés : sains, ou non annotés ?
+  On ne peut pas le savoir.
 
-Exemple :
+Sortie (`--out`, défaut `data/yolo`) :
 
-    python training/prepare_dataset.py
-        --annotations data/dentex/annotations.json
-        --images      data/dentex/images
-        --out         data/yolo
-        --class-map   training/class_map.dentex.json
+    dents/      data.yaml, split.json, {train,val,test}/{images,labels,fdi}
+    anomalies/  idem
+    externe/    data.yaml, split.json, test/{images,labels,fdi}
+    rapport_preparation.md
 
-ATTENTION : la structure des annotations DENTEX est **hiérarchique**
-(quadrant, numérotation, diagnostic) et n'a pas pu être vérifiée — aucune donnée
-n'était disponible à l'écriture de ce script. `--category-field` désigne le champ
-portant la classe ; les catégories non mappées sont comptées et signalées,
-jamais ignorées en silence.
+`fdi/<cliché>.json` garde la vérité terrain numérotée (pour le sprint 7).
+
+    python training/prepare_dataset.py --dentex data/dentex --out data/yolo
 """
 import argparse
 import json
-import random
-import re
+import os
 import shutil
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 
-from config import CLASSES
+import dentex
+from config import CLASSES, git_commit
+from decoupage import PARTITIONS, decouper, effectifs, empreinte_decoupage, tableau
 
-SPLITS = ("train", "val", "test")
+TOOTH = CLASSES.index("tooth")
+CHEMINS = {
+    "enumeration": ("training_data/quadrant_enumeration/train_quadrant_enumeration.json",
+                    "training_data/quadrant_enumeration/xrays"),
+    "maladies": ("training_data/quadrant-enumeration-disease/train_quadrant_enumeration_disease.json",
+                 "training_data/quadrant-enumeration-disease/xrays"),
+    "validation_officielle": ("validation_triple.json",
+                              "validation_data/quadrant_enumeration_disease/xrays"),
+}
+TEST_OFFICIEL = ("test_data/disease/label", "test_data/disease/input")
 
 
-def _parse_args():
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--annotations", type=Path, required=True, help="JSON COCO source")
-    p.add_argument("--images", type=Path, required=True, help="dossier des images")
-    p.add_argument("--out", type=Path, required=True, help="dossier du dataset YOLO")
-    p.add_argument("--class-map", type=Path,
-                   help="JSON {nom_source: nom_panoradent}. Sans lui, les noms de "
-                        "catégories doivent déjà correspondre à CLASSES.")
-    p.add_argument("--category-field", default="category_id",
-                   help="champ de l'annotation portant la classe "
-                        "(DENTEX : category_id_3 pour le diagnostic)")
-    p.add_argument("--patient-regex", default=r"^(.*?)(?:_\d+)?$",
-                   help="expression sur le nom de fichier, groupe 1 = identifiant "
-                        "patient. Par défaut : le nom sans suffixe numérique.")
+def _parse_args(argv=None):
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--dentex", type=Path, default=Path("data/dentex"))
+    p.add_argument("--out", type=Path, default=Path("data/yolo"))
     p.add_argument("--ratios", type=float, nargs=3, default=(0.70, 0.15, 0.15),
                    metavar=("TRAIN", "VAL", "TEST"))
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--link", action="store_true",
-                   help="lier les images au lieu de les copier (économise le disque)")
-    return p.parse_args()
+    p.add_argument("--graine", type=int, default=42)
+    p.add_argument("--copier", action="store_true",
+                   help="copier les images au lieu de liens physiques (même disque requis)")
+    p.add_argument("--processus", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    return p.parse_args(argv)
 
 
-def load_class_map(path):
-    """Correspondance nom de catégorie source vers nom PanoraDent."""
-    if path is None:
-        return {c: c for c in CLASSES}
-    mapping = {k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items()
-               if not k.startswith("_")}
-    inconnues = sorted(set(mapping.values()) - set(CLASSES))
-    if inconnues:
-        raise SystemExit(
-            f"class-map : cibles absentes de CLASSES {CLASSES} -> {inconnues}")
-    return mapping
+# --- Lecture et empreintes ---------------------------------------------------
+
+def lire_tout(racine: Path) -> dict[str, list]:
+    ensembles = {nom: dentex.lire_coco(racine / j, racine / i, nom)
+                 for nom, (j, i) in CHEMINS.items()}
+    ensembles["externe"] = dentex.lire_labelme(racine / TEST_OFFICIEL[0],
+                                               racine / TEST_OFFICIEL[1], "externe")
+    return ensembles
 
 
-def patient_of(file_name: str, pattern) -> str:
-    stem = Path(file_name).stem
-    match = pattern.match(stem)
-    return match.group(1) if match and match.groups() and match.group(1) else stem
+def empreintes(cliches: list, cache: Path, processus: int) -> dict[str, str]:
+    """Empreinte des pixels de chaque image, mise en cache (taille + date)."""
+    memoire = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else {}
+    cle = {c.identifiant: f"{c.image.resolve()}|{c.image.stat().st_size}|{c.image.stat().st_mtime_ns}"
+           for c in cliches}
+    a_calculer = [c for c in cliches if cle[c.identifiant] not in memoire]
+    if a_calculer:
+        print(f"  empreintes : {len(a_calculer)} images à lire")
+        with ProcessPoolExecutor(processus) as ex:
+            for c, e in zip(a_calculer, ex.map(dentex.empreinte_pixels,
+                                               [c.image for c in a_calculer], chunksize=8)):
+                memoire[cle[c.identifiant]] = e
+        cache.write_text(json.dumps(memoire), encoding="utf-8")
+    return {c.identifiant: memoire[cle[c.identifiant]] for c in cliches}
 
 
-def assign_splits(patients, ratios, seed: int) -> dict:
-    """Affectation déterministe : tri, puis mélange à graine fixe.
+# --- Construction des jeux ---------------------------------------------------
 
-    Le tri préalable est indispensable — sans lui, l'ordre de lecture du JSON
-    ferait varier le découpage d'une exécution à l'autre malgré la graine.
-    """
-    if abs(sum(ratios) - 1.0) > 1e-6:
-        raise SystemExit(f"les ratios doivent sommer à 1, reçu {sum(ratios)}")
-    ordered = sorted(patients)
-    random.Random(seed).shuffle(ordered)
-    n = len(ordered)
-    n_train = int(n * ratios[0])
-    n_val = int(n * ratios[1])
-
-    # Sur un petit nombre de patients, la troncature peut vider une partition
-    # (6 patients x 0,15 -> 0). On garantit au moins un patient partout où le
-    # ratio est non nul : une validation vide fausse l'early stopping en
-    # silence, et un test vide rend la mesure finale impossible.
-    if ratios[1] > 0 and n_val == 0 and n - n_train > 1:
-        n_val = 1
-    if ratios[2] > 0 and n - n_train - n_val == 0 and n_train > 1:
-        n_train -= 1
-
-    groupes = {
-        "train": ordered[:n_train],
-        "val": ordered[n_train:n_train + n_val],
-        "test": ordered[n_train + n_val:],
-    }
-    return {patient: split for split, group in groupes.items() for patient in group}
+def dedoublonner(cliches: list, empreinte: dict) -> tuple[list, int]:
+    """Un seul exemplaire par contenu dans un même ensemble (le premier par nom)."""
+    vus, gardes = set(), []
+    for c in sorted(cliches, key=lambda c: c.nom):
+        e = empreinte[c.identifiant]
+        if e not in vus:
+            vus.add(e)
+            gardes.append(c)
+    return gardes, len(cliches) - len(gardes)
 
 
-def yolo_line(cls_index: int, bbox, img_w: int, img_h: int):
-    """Ligne YOLO normalisée, ou None si la boîte est inexploitable."""
-    x, y, w, h = bbox
-    x, y = max(0.0, x), max(0.0, y)
-    w, h = min(w, img_w - x), min(h, img_h - y)
-    if w <= 1 or h <= 1:
-        return None
-    cx, cy = (x + w / 2) / img_w, (y + h / 2) / img_h
-    return f"{cls_index} {cx:.6f} {cy:.6f} {w / img_w:.6f} {h / img_h:.6f}"
+def classes_du_cliche(c, jeu: str) -> list[int]:
+    if jeu == "dents":
+        return [TOOTH] * len(c.boites)
+    return [CLASSES.index(b.diagnostic) for b in c.boites if b.diagnostic]
 
 
-def main():
-    args = _parse_args()
-    coco = json.loads(args.annotations.read_text(encoding="utf-8"))
-    class_map = load_class_map(args.class_map)
-    index_of = {name: i for i, name in enumerate(CLASSES)}
-    pattern = re.compile(args.patient_regex)
+def construire(ensembles: dict, empreinte: dict, ratios, graine: int) -> dict:
+    """Jeux, groupes et affectation. Pure : aucune écriture sur le disque."""
+    journal = Counter()
+    dents, n = dedoublonner(ensembles["enumeration"], empreinte)
+    journal["doublons écartés (énumération)"] = n
 
-    categories = {c["id"]: c["name"] for c in coco.get("categories", [])}
-    images = {img["id"]: img for img in coco["images"]}
+    # Maladies, puis validation officielle : même protocole, même pool. Un
+    # cliché présent dans les deux n'est gardé qu'une fois.
+    pool, n = dedoublonner(ensembles["maladies"] + ensembles["validation_officielle"], empreinte)
+    journal["doublons écartés (maladies + validation officielle)"] = n
+    anomalies = [c for c in pool if any(b.diagnostic for b in c.boites)]
+    journal["clichés maladies sans aucune boîte, écartés"] = len(pool) - len(anomalies)
 
-    par_image = defaultdict(list)
-    non_mappees = Counter()
-    ecartees = 0
+    externe = ensembles["externe"]
+    groupes_externes = {empreinte[c.identifiant] for c in externe}
 
-    for ann in coco.get("annotations", []):
-        if ann.get("iscrowd"):
+    def internes(cliches, nom):
+        gardes = [c for c in cliches if empreinte[c.identifiant] not in groupes_externes]
+        journal[f"clichés {nom} retirés (présents dans le test officiel)"] = len(cliches) - len(gardes)
+        return gardes
+
+    jeux = {"dents": internes(dents, "dents"), "anomalies": internes(anomalies, "anomalies")}
+
+    # Groupe = contenu. Classes d'un groupe : celles de tous ses clichés, des
+    # deux jeux, pour que la stratification voie aussi les diagnostics rares.
+    classes_groupe = defaultdict(set)
+    for nom, cliches in jeux.items():
+        for c in cliches:
+            classes_groupe[empreinte[c.identifiant]].update(
+                CLASSES[i] for i in classes_du_cliche(c, nom))
+    affectation = decouper(dict(classes_groupe), ratios, graine)
+    return {"jeux": jeux, "externe": externe, "affectation": affectation, "journal": journal}
+
+
+# --- Écriture ----------------------------------------------------------------
+
+def ligne_yolo(classe: int, b) -> str:
+    return f"{classe} {b.x + b.w / 2:.6f} {b.y + b.h / 2:.6f} {b.w:.6f} {b.h:.6f}"
+
+
+def deposer_image(source: Path, cible: Path, copier: bool) -> None:
+    if cible.exists():
+        return
+    if not copier:
+        try:
+            os.link(source, cible)
+            return
+        except OSError:
+            pass
+    shutil.copy2(source, cible)
+
+
+def ecrire_cliche(c, jeu: str, dossier: Path, copier: bool) -> Counter:
+    """Image, étiquettes YOLO et vérité terrain FDI d'un cliché."""
+    nom = f"{c.source}__{Path(c.nom).stem}"
+    for sous in ("images", "labels", "fdi"):
+        (dossier / sous).mkdir(parents=True, exist_ok=True)
+    deposer_image(c.image, dossier / "images" / f"{nom}{c.image.suffix}", copier)
+
+    lignes, verite, compte = [], [], Counter()
+    for b in c.boites:
+        classe = TOOTH if jeu == "dents" else (CLASSES.index(b.diagnostic) if b.diagnostic else None)
+        if classe is None or b.w <= 0 or b.h <= 0:
             continue
-        source = categories.get(ann.get(args.category_field, ann.get("category_id")))
-        cible = class_map.get(source)
-        if cible is None:
-            non_mappees[source] += 1
-            continue
-        img = images[ann["image_id"]]
-        ligne = yolo_line(index_of[cible], ann["bbox"], img["width"], img["height"])
-        if ligne is None:
-            ecartees += 1
-            continue
-        par_image[ann["image_id"]].append(ligne)
+        lignes.append(ligne_yolo(classe, b))
+        verite.append({**asdict(b), "classe": CLASSES[classe]})
+        compte[CLASSES[classe]] += 1
+    (dossier / "labels" / f"{nom}.txt").write_text(
+        "\n".join(lignes) + ("\n" if lignes else ""), encoding="utf-8")
+    (dossier / "fdi" / f"{nom}.json").write_text(json.dumps(
+        {"source": c.identifiant, "largeur": c.largeur, "hauteur": c.hauteur, "boites": verite},
+        ensure_ascii=False), encoding="utf-8")
+    return compte
 
-    patients = {img_id: patient_of(img["file_name"], pattern)
-                for img_id, img in images.items()}
-    affectation = assign_splits(set(patients.values()), args.ratios, args.seed)
 
-    for split in SPLITS:
-        (args.out / split / "images").mkdir(parents=True, exist_ok=True)
-        (args.out / split / "labels").mkdir(parents=True, exist_ok=True)
-
-    distribution = {s: Counter() for s in SPLITS}
-    par_split = Counter()
-
-    for img_id, img in images.items():
-        split = affectation[patients[img_id]]
-        nom = Path(img["file_name"]).name
-        source = args.images / img["file_name"]
-        if not source.exists():
-            source = args.images / nom
-        if not source.exists():
-            raise SystemExit(f"image absente du disque : {img['file_name']}")
-
-        cible = args.out / split / "images" / nom
-        if not cible.exists():
-            if args.link:
-                cible.symlink_to(source.resolve())
-            else:
-                shutil.copy2(source, cible)
-
-        lignes = par_image.get(img_id, [])
-        (args.out / split / "labels" / f"{Path(nom).stem}.txt").write_text(
-            "\n".join(lignes) + ("\n" if lignes else ""), encoding="utf-8")
-        par_split[split] += 1
-        for ligne in lignes:
-            distribution[split][CLASSES[int(ligne.split()[0])]] += 1
-
-    (args.out / "data.yaml").write_text(
+def ecrire_data_yaml(dossier: Path, train="train/images", val="val/images", test="test/images",
+                     note="") -> Path:
+    chemin = dossier / "data.yaml"
+    chemin.write_text(
         "# Généré par training/prepare_dataset.py — ne pas éditer à la main.\n"
-        f"path: {args.out.resolve().as_posix()}\n"
-        "train: train/images\n"
-        "val: val/images\n"
-        "test: test/images\n"
-        f"nc: {len(CLASSES)}\n"
-        f"names: {json.dumps(CLASSES, ensure_ascii=False)}\n",
+        + (f"# {note}\n" if note else "")
+        + f"path: {dossier.resolve().as_posix()}\ntrain: {train}\nval: {val}\ntest: {test}\n"
+        f"nc: {len(CLASSES)}\nnames: {json.dumps(CLASSES, ensure_ascii=False)}\n",
         encoding="utf-8")
-
-    (args.out / "split.json").write_text(json.dumps({
-        "seed": args.seed,
-        "ratios": dict(zip(SPLITS, args.ratios)),
-        "patient_regex": args.patient_regex,
-        "n_patients": len(set(patients.values())),
-        "n_images": dict(par_split),
-        "affectation_patients": affectation,
-    }, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    report(distribution, par_split, ecartees, non_mappees, args.out)
+    return chemin
 
 
-def report(distribution, par_split, ecartees, non_mappees, out: Path):
-    """Distribution par classe et par partition.
+def ecrire(resultat: dict, empreinte: dict, args) -> dict:
+    """Écrit les trois jeux et renvoie leurs effectifs."""
+    affectation = resultat["affectation"]
+    signature = empreinte_decoupage(affectation, args.graine, args.ratios)
+    bilan = {}
 
-    Le déséquilibre des classes est une exigence de la validation : une carie
-    est bien plus fréquente qu'une dent incluse. Ce tableau est le premier
-    endroit où le problème devient visible.
-    """
-    largeur = max(len(c) for c in CLASSES)
-    entete = "classe".ljust(largeur) + " " + " ".join(s.rjust(8) for s in SPLITS)
-    print("\n" + entete)
-    print("-" * len(entete))
-    for classe in CLASSES:
-        compte = [distribution[s][classe] for s in SPLITS]
-        print(classe.ljust(largeur) + " " + " ".join(str(c).rjust(8) for c in compte))
-    print("-" * len(entete))
-    print("images".ljust(largeur) + " "
-          + " ".join(str(par_split[s]).rjust(8) for s in SPLITS))
+    for jeu, cliches in resultat["jeux"].items():
+        dossier = args.out / jeu
+        if dossier.exists():
+            shutil.rmtree(dossier)
+        par_groupe, liste = {}, {p: [] for p in PARTITIONS}
+        for c in cliches:
+            groupe = empreinte[c.identifiant]
+            partition = affectation[groupe]
+            compte = ecrire_cliche(c, jeu, dossier / partition, args.copier)
+            par_groupe[c.identifiant] = compte
+            liste[partition].append(c.identifiant)
+        affect_jeu = {c.identifiant: affectation[empreinte[c.identifiant]] for c in cliches}
+        bilan[jeu] = effectifs(par_groupe, affect_jeu)
+        ecrire_data_yaml(dossier)
+        (dossier / "split.json").write_text(json.dumps({
+            "empreinte": signature, "graine": args.graine,
+            "ratios": dict(zip(PARTITIONS, args.ratios)),
+            "jeu": jeu, "git_commit": git_commit(),
+            "effectifs": bilan[jeu],
+            "cliches": {p: sorted(v) for p, v in liste.items()},
+            "groupes": {"definition": "clichés identiques au pixel près, tous ensembles confondus",
+                        "affectation": affectation},
+        }, indent=1, ensure_ascii=False), encoding="utf-8")
 
-    vides = [s for s in SPLITS if par_split[s] == 0]
-    if vides:
-        print(f"\n[!] Partitions VIDES : {', '.join(vides)}. "
-              "Trop peu de patients pour ces ratios — la mesure sera invalide.")
-    if ecartees:
-        print(f"\n[!] {ecartees} boîtes dégénérées écartées.")
-    if non_mappees:
-        print("\n[!] Catégories source sans correspondance (annotations perdues) :")
-        for nom, n in non_mappees.most_common():
-            print(f"      {nom!r} : {n}")
-        print("    Compléter --class-map, ou vérifier --category-field.")
-    print(f"\n-> {out / 'data.yaml'}\n-> {out / 'split.json'}")
+    dossier = args.out / "externe"
+    if dossier.exists():
+        shutil.rmtree(dossier)
+    comptes = {}
+    for c in resultat["externe"]:
+        comptes[c.identifiant] = ecrire_cliche(c, "anomalies", dossier / "test", args.copier)
+    bilan["externe"] = {"boites": {"test": dict(sum(comptes.values(), Counter()))},
+                        "groupes": {"test": len(comptes)}}
+    ecrire_data_yaml(dossier, train="test/images", val="test/images",
+                     note="Test officiel DENTEX, évaluation externe UNIQUEMENT (train/val "
+                          "pointent sur test parce qu'ultralytics les exige).")
+    (dossier / "split.json").write_text(json.dumps({
+        "empreinte": dentex_empreinte_externe(resultat["externe"], empreinte),
+        "jeu": "externe", "graine": None, "effectifs": bilan["externe"],
+        "exclus": "küretaj (code 2) et codes hors périmètre (sain, canal, extraction, fracture)",
+        "cliches": {"test": sorted(comptes)},
+    }, indent=1, ensure_ascii=False), encoding="utf-8")
+    return {"bilan": bilan, "empreinte": signature}
+
+
+def dentex_empreinte_externe(cliches, empreinte) -> str:
+    return empreinte_decoupage({c.identifiant: "test" for c in cliches}, 0, (0, 0, 1))
+
+
+def rapport(resultat: dict, sortie: dict, args) -> str:
+    lignes = ["# Préparation des jeux DENTEX", "",
+              f"Graine {args.graine}, ratios {tuple(args.ratios)}, "
+              f"empreinte du découpage `{sortie['empreinte'][:16]}`.", "",
+              "## Écarts et retraits", ""]
+    lignes += [f"- {k} : {v}" for k, v in resultat["journal"].items()]
+    for jeu in ("dents", "anomalies"):
+        lignes += ["", f"## Jeu `{jeu}`", "", "```", tableau(sortie["bilan"][jeu], CLASSES), "```"]
+    ext = sortie["bilan"]["externe"]
+    lignes += ["", "## Jeu `externe` (test officiel, évalué une seule fois)", "",
+               f"{ext['groupes']['test']} clichés ; boîtes : {ext['boites']['test']}.",
+               "Polygones ramenés à leur cadre ; küretaj et codes hors périmètre exclus.", ""]
+    return "\n".join(lignes)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    print(f"Lecture de {args.dentex}")
+    ensembles = lire_tout(args.dentex)
+    tous = [c for cliches in ensembles.values() for c in cliches]
+    absentes = [c.identifiant for c in tous if not c.image.exists()]
+    if absentes:
+        raise SystemExit(f"{len(absentes)} images absentes, ex. {absentes[:3]}")
+    empreinte = empreintes(tous, args.dentex / "empreintes_pixels.json", args.processus)
+    resultat = construire(ensembles, empreinte, args.ratios, args.graine)
+    args.out.mkdir(parents=True, exist_ok=True)
+    sortie = ecrire(resultat, empreinte, args)
+    texte = rapport(resultat, sortie, args)
+    (args.out / "rapport_preparation.md").write_text(texte, encoding="utf-8")
+    print(texte)
+    print(f"-> {args.out}")
 
 
 if __name__ == "__main__":
