@@ -71,9 +71,10 @@ async def infer(
             with _predire:
                 return model.predict_paire(paire, image, width, height)
 
-        detections = await run_in_threadpool(predire)
+        detections, signales = await run_in_threadpool(predire)
         return {"mode": "real", "model_version": paire.version, "poids_sha256": paire.sha256,
-                "image_size": {"width": width, "height": height}, "detections": detections}
+                "image_size": {"width": width, "height": height}, "detections": detections,
+                "incoherences": signales}
 
     def predire_historique():
         with _predire:

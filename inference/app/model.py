@@ -80,29 +80,56 @@ def _boites(modele, image, garder, imgsz: int | None = None) -> list[dict]:
     l'inférence ; ultralytics remet les boîtes à l'échelle de l'image
     d'origine. `garder(label)` filtre les classes.
     """
+    noms = noms_des_classes(modele)
     dets = []
     for r in modele.predict(image, imgsz=imgsz or config.MODEL_IMAGE_SIZE,
                             conf=config.MODEL_CONF_THRESHOLD, verbose=False):
         for box in r.boxes:
             cls_id = int(box.cls[0])
-            label = config.CLASSES[cls_id] if cls_id < len(config.CLASSES) else str(cls_id)
+            nom = noms[cls_id] if cls_id < len(noms) else str(cls_id)
+            label, rang = classe_et_rang(nom)
             if not garder(label):
                 continue
             x1, y1, x2, y2 = box.xyxy[0].tolist()
-            dets.append({
+            det = {
                 "label": label,
-                "fdi": None,  # renseigné ensuite par déduction géométrique
+                "fdi": None,  # renseigné ensuite par la numérotation (fdi.py)
                 "confidence": round(float(box.conf[0]), 2),
                 "bbox": [round(x1), round(y1), round(x2 - x1), round(y2 - y1)],
-            })
+            }
+            if rang is not None:
+                det["rang"] = rang
+            dets.append(det)
     return dets
 
 
-def _numeroter(dets, width: int, height: int):
-    return fdi.assign_fdi(dets, width, height) if config.ASSIGN_FDI else dets
+def noms_des_classes(modele) -> list[str]:
+    """Classes du modèle, lues dans ses poids (ultralytics les y enregistre) :
+    contrat (`CLASSES`) ou rangs (`CLASSES_RANGS`, sprint 7). Repli sur le
+    contrat pour un modèle qui ne les porte pas."""
+    noms = getattr(modele, "names", None)
+    if isinstance(noms, dict) and noms:
+        return [noms[i] for i in sorted(noms)]
+    if isinstance(noms, (list, tuple)) and noms:
+        return list(noms)
+    return list(config.CLASSES)
 
 
-def predict_paire(paire, image, width: int, height: int):
+def classe_et_rang(nom: str) -> tuple[str, int | None]:
+    """`dent_6` -> (`tooth`, 6) ; une classe du contrat -> (classe, None)."""
+    if nom in config.CLASSES_RANGS:
+        return config.CLASSES[0], config.CLASSES_RANGS.index(nom) + 1
+    return nom, None
+
+
+def _numeroter(dets, width: int, height: int) -> tuple[list[dict], list[dict]]:
+    """Détections numérotées et incohérences signalées (fdi.py)."""
+    if not config.ASSIGN_FDI:
+        return dets, []
+    return dets, fdi.numeroter(dets, width, height)
+
+
+def predict_paire(paire, image, width: int, height: int) -> tuple[list[dict], list[dict]]:
     """Une version = deux modèles. Chacun ne garde que ses propres classes :
     le modèle « dents » n'a appris que `tooth`, le modèle « anomalies » que les
     diagnostics ; une sortie hors de son rôle serait du bruit. Les dents
@@ -117,5 +144,5 @@ def predict_paire(paire, image, width: int, height: int):
 def predict(image, width: int, height: int):
     """Mode historique (un seul fichier `MODEL_WEIGHTS_PATH`) ou mock."""
     if _mode == "real" and _model is not None:
-        return _numeroter(_boites(_model, image, lambda label: True), width, height)
+        return _numeroter(_boites(_model, image, lambda label: True), width, height)[0]
     return _mock_detections(width, height)
