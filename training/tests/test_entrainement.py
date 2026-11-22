@@ -110,3 +110,18 @@ def test_run_existant_jamais_ecrase(jeu_synthetique, tmp_path):
     (tmp_path / "runs" / "essai").mkdir(parents=True)
     with pytest.raises(SystemExit, match="existe déjà"):
         train.entrainer(args_cpu(jeu_synthetique, tmp_path / "runs"))
+
+
+def test_pont_numpy_2_pour_le_calcul_de_l_ap(monkeypatch):
+    """Sous numpy 2 (Colab), np.trapz n'existe plus : le pont le rétablit."""
+    import numpy as np
+
+    import config
+
+    if hasattr(np, "trapezoid"):
+        monkeypatch.delattr(np, "trapz", raising=False)
+    else:  # numpy 1.x : simuler numpy 2
+        monkeypatch.setattr(np, "trapezoid", np.trapz, raising=False)
+        monkeypatch.delattr(np, "trapz")
+    config.assurer_compat_numpy()
+    assert np.trapz(np.array([0.0, 1.0]), np.array([0.0, 1.0])) == 0.5

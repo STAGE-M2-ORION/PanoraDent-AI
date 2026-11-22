@@ -9,6 +9,25 @@ import importlib.util
 import subprocess
 from pathlib import Path
 
+import numpy as np
+
+
+def assurer_compat_numpy() -> None:
+    """Pont numpy 2 pour ultralytics 8.3.40.
+
+    `np.trapz` a été retiré en numpy 2.0 (renommé `np.trapezoid`, même
+    calcul). ultralytics 8.3.40 l'appelle encore pour l'AP (seul appel
+    concerné, vérifié dans tout son code) : sans ce pont, la validation casse
+    en fin d'époque sur Colab (numpy 2.x). Sans effet sous numpy 1.x, où
+    `np.trapz` existe. Appelé à l'import de ce module, que tous les scripts
+    importent avant ultralytics.
+    """
+    if not hasattr(np, "trapz"):
+        np.trapz = np.trapezoid
+
+
+assurer_compat_numpy()
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INFERENCE_CONFIG = REPO_ROOT / "inference" / "app" / "config.py"
 
