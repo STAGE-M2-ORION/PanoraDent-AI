@@ -6,7 +6,7 @@ from starlette.formparsers import MultiPartParser
 from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
 from .auth_deps import publique
 from .config import settings
-from .routers import analyses, auth, boite_courriels, fake_idp, health, model, moi, photos, revue, roles, stockage, users
+from .routers import analyses, auth, boite_courriels, essais_modeles, fake_idp, health, model, moi, photos, revue, roles, stockage, users
 from .services.anonymize import TAILLE_MAX
 
 API_V1 = "/api/v1"
@@ -65,6 +65,10 @@ if settings.courriel_mode.lower() == "memoire":
     # Même garde-fou : `config.py` refuse ce mode hors APP_ENV=test.
     assert settings.app_env.lower() == "test"
     app.include_router(boite_courriels.router, prefix=API_V1)
+
+if settings.app_env.lower() == "test":
+    # Publication de versions factices pour le parcours Playwright du registre.
+    app.include_router(essais_modeles.router, prefix=API_V1)
 
 
 @app.get("/", dependencies=[Depends(publique)])

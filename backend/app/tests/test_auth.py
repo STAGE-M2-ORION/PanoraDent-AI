@@ -404,6 +404,7 @@ def test_routes_publiques_attendues():
         "/api/v1/auth/premiere-connexion",
         "/api/v1/auth/fake/autoriser", "/api/v1/auth/fake/valider",
         "/api/v1/test/courriels",  # montée seulement avec APP_ENV=test
+        "/api/v1/test/modeles",    # idem : publication factice pour Playwright
     }
 
 

@@ -40,3 +40,11 @@ ASSIGN_FDI = _flag("ASSIGN_FDI", "1")
 # n'interrompt rien et qu'une file ne mélange jamais deux versions.
 MODEL_WEIGHTS_DIR = os.getenv("MODEL_WEIGHTS_DIR", "/weights")
 MODEL_CACHE_MAX = max(1, int(os.getenv("MODEL_CACHE_MAX", "3")))
+
+# --- Tests de bout en bout seulement ------------------------------------------
+# MODELES_FACTICES=1 : une version du registre est servie par le générateur
+# mock au lieu de YOLO (les empreintes des fichiers restent vérifiées). Le
+# parcours Playwright peut ainsi publier, activer et comparer des versions sans
+# poids réels. Refusé au démarrage si APP_ENV n'est pas « test ».
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+MODELES_FACTICES = _flag("MODELES_FACTICES")

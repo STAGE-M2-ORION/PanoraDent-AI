@@ -81,8 +81,41 @@ def _charger_yolo(chemin: Path):
     return YOLO(str(chemin))
 
 
+class _BoiteFactice:
+    def __init__(self, cls_id, xyxy, conf):
+        self.cls, self.conf = [cls_id], [conf]
+        self.xyxy = [_Liste(xyxy)]
+
+
+class _Liste(list):
+    def tolist(self):
+        return list(self)
+
+
+class ModeleFactice:
+    """Tests de bout en bout : même interface que YOLO, sortie du générateur mock."""
+
+    def __init__(self, chemin: Path):
+        self.chemin = chemin
+        self.overrides = {}
+
+    def predict(self, image, imgsz, conf, verbose):
+        from .model import _mock_detections
+
+        largeur, hauteur = image.size
+        boites = []
+        for d in _mock_detections(largeur, hauteur):
+            x, y, w, h = d["bbox"]
+            boites.append(_BoiteFactice(config.CLASSES.index(d["label"]), [x, y, x + w, y + h], d["confidence"]))
+        return [type("Resultat", (), {"boxes": boites})()]
+
+
+def _charger_par_defaut(chemin: Path):
+    return ModeleFactice(chemin) if config.MODELES_FACTICES else _charger_yolo(chemin)
+
+
 class Registre:
-    def __init__(self, dossier=None, maximum=None, charger=_charger_yolo):
+    def __init__(self, dossier=None, maximum=None, charger=_charger_par_defaut):
         self.dossier = Path(dossier or config.MODEL_WEIGHTS_DIR)
         self.maximum = maximum or config.MODEL_CACHE_MAX
         self._charger = charger

@@ -175,3 +175,25 @@ def test_chaque_modele_infere_a_sa_taille_d_entrainement(tmp_path):
     model.predict_paire(paire, None, 1000, 1000)
     assert paire.dents.tailles == [1024]
     assert paire.anomalies.tailles == [config.MODEL_IMAGE_SIZE]   # poids muets : repli
+
+
+def test_modeles_factices_pour_les_tests_de_bout_en_bout(tmp_path):
+    from app.registre import ModeleFactice
+
+    poser(tmp_path)
+    paire = Registre(dossier=tmp_path, charger=ModeleFactice).obtenir("v1")
+    image = Image.new("L", (2000, 1000), 40)
+    dets = model.predict_paire(paire, image, 2000, 1000)
+    attendu = model._mock_detections(2000, 1000)
+    assert sorted(d["label"] for d in dets) == sorted(d["label"] for d in attendu)
+
+
+def test_modeles_factices_refuses_hors_tests(monkeypatch):
+    import importlib
+
+    monkeypatch.setattr(config, "MODELES_FACTICES", True)
+    monkeypatch.setattr(config, "APP_ENV", "production")
+    with pytest.raises(RuntimeError, match="réservé aux tests"):
+        importlib.reload(main)
+    monkeypatch.setattr(config, "MODELES_FACTICES", False)
+    importlib.reload(main)

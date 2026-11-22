@@ -200,3 +200,14 @@ def test_sans_version_active_mode_historique(connecte, db, objets, modele, sessi
     assert a["version_demandee"] is None
     worker.traiter_une(session_factory)
     assert modele["demandes"] == [{}]
+
+
+def test_publication_factice_reservee_aux_tests(client, db):
+    """Route du parcours Playwright : APP_ENV=test seulement (les tests tournent ainsi)."""
+    corps = {"version": "e2e-v1", "sha_dents": "a" * 64, "sha_anomalies": "b" * 64, "map50": 0.5}
+    assert client.post(f"{BASE}/test/modeles", json=corps).status_code == 201
+    assert client.post(f"{BASE}/test/modeles", json=corps).status_code == 409
+    mv = db.scalar(select(ModelVersion).where(ModelVersion.version == "e2e-v1"))
+    assert mv.servable and not mv.actif
+    from app import main
+    assert any(getattr(r, "path", "") == "/api/v1/test/modeles" for r in main.app.routes)

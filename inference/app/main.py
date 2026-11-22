@@ -23,6 +23,9 @@ from starlette.concurrency import run_in_threadpool
 from . import config, model
 from .registre import ErreurModele, Registre
 
+if config.MODELES_FACTICES and config.APP_ENV != "test":
+    raise RuntimeError("MODELES_FACTICES=1 est réservé aux tests (APP_ENV=test) : refus de démarrer.")
+
 app = FastAPI(title="PanoraDent Inference", version=config.MODEL_VERSION)
 registre = Registre()
 # Une prédiction à la fois : les prédicteurs ultralytics ne sont pas prévus pour
