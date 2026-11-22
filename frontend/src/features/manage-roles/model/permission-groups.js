@@ -4,7 +4,7 @@
  */
 export const PERMISSION_GROUPS = [
   { legend: "Analyses", codes: ["analysis:create", "analysis:read", "analysis:delete"] },
-  { legend: "Revue des détections", codes: ["detection:review"] },
+  { legend: "Revue des détections", codes: ["detection:review", "analysis:reopen"] },
   { legend: "Comptes rendus", codes: ["report:generate"] },
   { legend: "Modèle", codes: ["model:read", "model:manage"] },
   { legend: "Administration", codes: ["user:manage", "role:manage"] },
@@ -15,6 +15,7 @@ const MATRIX_LABELS = {
   "analysis:read": "Analyses — consulter",
   "analysis:delete": "Analyses — supprimer",
   "detection:review": "Revue des détections (valider, corriger, ajouter, supprimer)",
+  "analysis:reopen": "Réouverture d’une analyse clôturée (motif obligatoire)",
   "report:generate": "Génération du compte rendu",
   "model:read": "Consultation de la performance du modèle",
   "model:manage": "Activation d’une version de modèle (bascule)",
@@ -23,7 +24,8 @@ const MATRIX_LABELS = {
 };
 
 /** Réservées à l'administration : signalées « Sensible ». */
-export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage", "model:manage"]);
+// La réouverture lève le verrou d'une analyse clôturée : réservée, elle aussi.
+export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage", "model:manage", "analysis:reopen"]);
 
 /** Ordre d'affichage : celui des groupes, puis les codes inconnus. */
 export function orderedPermissions(catalog) {
