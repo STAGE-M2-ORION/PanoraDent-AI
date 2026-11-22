@@ -224,6 +224,36 @@ def ecrire_data_yaml(dossier: Path, train="train/images", val="val/images", test
     return chemin
 
 
+#: Registres « mesuré une seule fois » rangés dans un dossier de jeu.
+REGISTRES = ("evaluations_test.jsonl", "mesures_numerotation_test.jsonl")
+
+
+def vider_jeu(dossier: Path, signature: str) -> dict[str, str]:
+    """Efface un dossier de jeu en GARDANT ses registres du test, si le
+    découpage est le même : la même empreinte désigne les mêmes clichés de
+    test, déjà regardés. Découpage différent : nouveaux clichés, registres
+    caducs."""
+    gardes = {}
+    if not dossier.exists():
+        return gardes
+    split = dossier / "split.json"
+    ancienne = json.loads(split.read_text(encoding="utf-8")).get("empreinte") if split.exists() else None
+    for nom in REGISTRES:
+        chemin = dossier / nom
+        if chemin.exists():
+            if ancienne == signature:
+                gardes[nom] = chemin.read_text(encoding="utf-8")
+            else:
+                print(f"  {dossier.name}/{nom} : découpage changé, registre du test abandonné")
+    shutil.rmtree(dossier)
+    return gardes
+
+
+def restaurer(dossier: Path, gardes: dict[str, str]) -> None:
+    for nom, contenu in gardes.items():
+        (dossier / nom).write_text(contenu, encoding="utf-8")
+
+
 def ecrire(resultat: dict, empreinte: dict, args) -> dict:
     """Écrit les trois jeux et renvoie leurs effectifs."""
     affectation = resultat["affectation"]
@@ -232,8 +262,7 @@ def ecrire(resultat: dict, empreinte: dict, args) -> dict:
 
     for jeu, cliches in resultat["jeux"].items():
         dossier = args.out / jeu
-        if dossier.exists():
-            shutil.rmtree(dossier)
+        gardes = vider_jeu(dossier, signature)
         par_groupe, liste = {}, {p: [] for p in PARTITIONS}
         for c in cliches:
             groupe = empreinte[c.identifiant]
@@ -244,6 +273,7 @@ def ecrire(resultat: dict, empreinte: dict, args) -> dict:
         affect_jeu = {c.identifiant: affectation[empreinte[c.identifiant]] for c in cliches}
         bilan[jeu] = effectifs(par_groupe, affect_jeu)
         ecrire_data_yaml(dossier, noms=classes_du_jeu(jeu))
+        restaurer(dossier, gardes)
         (dossier / "split.json").write_text(json.dumps({
             "empreinte": signature, "graine": args.graine,
             "ratios": dict(zip(PARTITIONS, args.ratios)),
@@ -255,8 +285,8 @@ def ecrire(resultat: dict, empreinte: dict, args) -> dict:
         }, indent=1, ensure_ascii=False), encoding="utf-8")
 
     dossier = args.out / "externe"
-    if dossier.exists():
-        shutil.rmtree(dossier)
+    signature_externe = dentex_empreinte_externe(resultat["externe"], empreinte)
+    gardes = vider_jeu(dossier, signature_externe)
     comptes = {}
     for c in resultat["externe"]:
         comptes[c.identifiant] = ecrire_cliche(c, "anomalies", dossier / "test", args.copier)
@@ -265,8 +295,9 @@ def ecrire(resultat: dict, empreinte: dict, args) -> dict:
     ecrire_data_yaml(dossier, train="test/images", val="test/images",
                      note="Test officiel DENTEX, évaluation externe UNIQUEMENT (train/val "
                           "pointent sur test parce qu'ultralytics les exige).")
+    restaurer(dossier, gardes)
     (dossier / "split.json").write_text(json.dumps({
-        "empreinte": dentex_empreinte_externe(resultat["externe"], empreinte),
+        "empreinte": signature_externe,
         "jeu": "externe", "graine": None, "effectifs": bilan["externe"],
         "exclus": "küretaj (code 2) et codes hors périmètre (sain, canal, extraction, fracture)",
         "cliches": {"test": sorted(comptes)},

@@ -167,3 +167,18 @@ def test_jeu_rangs_memes_cliches_que_dents_classe_egale_au_rang(faux_dentex, tmp
     [verite] = list(out.glob("rangs/*/fdi/enumeration__train_0.json"))
     assert [b["classe"] for b in json.loads(verite.read_text(encoding="utf-8"))["boites"]] == \
         ["dent_1", "dent_6", "dent_8"]
+
+
+
+def test_registres_du_test_gardes_si_le_decoupage_ne_change_pas(faux_dentex, tmp_path):
+    """Relancer la préparation (pour créer le jeu « rangs ») ne doit pas effacer la
+    trace des tests déjà évalués : sinon on pourrait les réévaluer sans le savoir."""
+    out = tmp_path / "yolo"
+    preparer(faux_dentex, out)
+    for jeu in ("dents", "anomalies", "externe"):
+        (out / jeu / "evaluations_test.jsonl").write_text('{"poids": "best.pt"}\n')
+    preparer(faux_dentex, out)                                    # même graine, même découpage
+    for jeu in ("dents", "anomalies", "externe"):
+        assert (out / jeu / "evaluations_test.jsonl").read_text() == '{"poids": "best.pt"}\n'
+    preparer(faux_dentex, out, graine=7)                          # autre découpage : caducs
+    assert not (out / "dents" / "evaluations_test.jsonl").exists()
