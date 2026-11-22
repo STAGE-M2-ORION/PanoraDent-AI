@@ -59,6 +59,9 @@ export function AnalysePage() {
     sort: "tooth",
     onlyPending: false,
     tooth: null,
+    // Filtres de la liste (sprint 7) : quadrant FDI et type d'anomalie.
+    quadrant: null,
+    type: null,
     show: ALL_LAYERS,
     mode: null,
     draft: null,
@@ -132,6 +135,8 @@ export function AnalysePage() {
     setSort: (sort) => patch({ sort }),
     setOnlyPending: (onlyPending) => patch({ onlyPending }),
     setTooth: (tooth) => patch({ tooth }),
+    // Un filtre par quadrant ou par type remplace celui de la dent.
+    setFilters: ({ type = null, quadrant = null }) => patch({ type, quadrant, tooth: null }),
     setAutoNext: (autoNext) => patch({ autoNext }),
     validate: (comment) => decide(current, Verdict.VALIDATE, { comment }),
     reject: (comment) => decide(current, Verdict.REJECT, { comment }),
@@ -285,7 +290,7 @@ export function AnalysePage() {
   const pickTooth = (fdi) => {
     const tooth = ui.tooth === fdi ? null : fdi;
     const first = sortDetections(dets.filter((d) => d.fdi === fdi), ui.sort)[0];
-    patch({ tooth, sel: first ? first.id : null, mode: null, tab: "det" });
+    patch({ tooth, quadrant: null, sel: first ? first.id : null, mode: null, tab: "det" });
     const t = vm.teeth.find((x) => x.fdi === fdi);
     if (t) viewerRef.current?.centerOn(t.box);
   };

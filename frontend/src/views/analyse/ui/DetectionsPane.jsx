@@ -5,6 +5,9 @@ import { Icon } from "@/shared/ui";
 
 import { STATUS_LABEL, isDashed, pct, sortDetections } from "@/widgets/analysis-workspace";
 
+import { QUADRANTS, anomalySummary, filtersText, matchesFilters } from "../model/summary";
+import { AnomalySummary } from "./AnomalySummary";
+
 const ACTION_LABEL = { valider: "Validée", corriger: "Corrigée", rejeter: "Rejetée", ajouter: "Ajoutée" };
 
 /** Date et heure courtes (« 21/11/2026 10:42 »), depuis une date ISO UTC du serveur. */
@@ -104,7 +107,10 @@ function NewDetection({ near, teeth, onCancel, onSave, busy }) {
  * détail de la détection sélectionnée et actions de revue.
  */
 export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) {
-  const { dets, sel, hover, threshold, sort, onlyPending, tooth, show, mode, closed, autoNext, draft, busy } = state;
+  const { dets, sel, hover, threshold, sort, onlyPending, tooth, quadrant, type, show, mode, closed, autoNext, draft, busy } = state;
+  const filters = { tooth, quadrant, type };
+  const summary = anomalySummary(dets, { threshold });
+  const activeFilters = filtersText(filters, (l) => detectionType(l).label);
   const current = dets.find((d) => d.id === sel);
   const locked = closed || !canReview;
   const [note, setNote] = useState(current?.note ?? "");
@@ -117,7 +123,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, current?.id]);
 
-  const pool = dets.filter((d) => (!onlyPending || d.status === "pending") && (!tooth || d.fdi === tooth));
+  const pool = dets.filter((d) => (!onlyPending || d.status === "pending") && matchesFilters(d, filters));
   const above = sortDetections(pool.filter((d) => d.confidence == null || d.confidence >= threshold), sort);
   const below = sortDetections(pool.filter((d) => d.confidence != null && d.confidence < threshold), sort);
   const shown = dets.filter((d) => d.confidence == null || d.confidence >= threshold).length;
@@ -326,6 +332,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           {shown} affichée{shown > 1 ? "s" : ""} · {dets.length - shown} sous le seuil. Un seuil bas montre plus de propositions, et plus de fausses alertes.
         </small>
       </div>
+      {summary.total ? <AnomalySummary summary={summary} filters={filters} onFilter={actions.setFilters} /> : null}
       <div className="list-tools">
         <label htmlFor="sort">Trier</label>
         <select id="sort" value={sort} onChange={(e) => actions.setSort(e.target.value)}>
@@ -333,15 +340,37 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <option value="conf">par confiance</option>
           <option value="status">par statut</option>
         </select>
+        <label htmlFor="quadrant">Quadrant</label>
+        <select id="quadrant" value={quadrant ?? ""} onChange={(e) => actions.setFilters({ type, quadrant: e.target.value ? Number(e.target.value) : null })}>
+          <option value="">tous</option>
+          {QUADRANTS.map(({ q, label }) => (
+            <option key={q} value={q}>
+              {q} · {label}
+            </option>
+          ))}
+        </select>
         <label>
           <input type="checkbox" checked={onlyPending} onChange={(e) => actions.setOnlyPending(e.target.checked)} /> À revoir seulement
         </label>
-        {tooth ? (
-          <button type="button" className="vbtn" style={{ minHeight: 28, fontSize: "var(--text-xs)" }} aria-label={`Retirer le filtre de la dent ${tooth}`} onClick={() => actions.setTooth(null)}>
-            Dent {tooth} <Icon name="x" />
-          </button>
-        ) : null}
       </div>
+      {tooth || quadrant || type ? (
+        <div className="filter-chips" role="group" aria-label="Filtres actifs">
+          {type ? (
+            <button type="button" className="vbtn fchip" aria-label={`Retirer le filtre du type ${detectionType(type).label}`} onClick={() => actions.setFilters({ type: null, quadrant })}>
+              {detectionType(type).label} <Icon name="x" />
+            </button>
+          ) : null}
+          {tooth ? (
+            <button type="button" className="vbtn fchip" aria-label={`Retirer le filtre de la dent ${tooth}`} onClick={() => actions.setTooth(null)}>
+              Dent {tooth} <Icon name="x" />
+            </button>
+          ) : quadrant ? (
+            <button type="button" className="vbtn fchip" aria-label={`Retirer le filtre du quadrant ${quadrant}`} onClick={() => actions.setFilters({ type, quadrant: null })}>
+              Quadrant {quadrant} <Icon name="x" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="list" role="list" onMouseLeave={() => actions.hover(null)}>
         {above.length ? (
           rows
@@ -349,7 +378,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <p className="empty-sel" style={{ padding: "var(--space-4)" }}>
             <Icon name="info" />
             <span>
-              {tooth ? `Aucune anomalie proposée sur la dent ${tooth} ` : "Aucune détection "}au-dessus du seuil{onlyPending ? " parmi celles à revoir" : ""}.
+              {activeFilters ? `Aucune anomalie proposée (${activeFilters}) ` : "Aucune détection "}au-dessus du seuil{onlyPending ? " parmi celles à revoir" : ""}.
             </span>
           </p>
         )}
