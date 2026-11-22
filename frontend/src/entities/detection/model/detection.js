@@ -23,6 +23,61 @@ export const DETECTION_TYPES = {
   [DetectionLabel.IMPACTED_TOOTH]: { label: "Dent incluse", short: "Dent incluse", abbr: "DI", cls: "det-impacted", color: "#009E73" },
 };
 
+/**
+ * Degré d'urgence INDICATIF d'un type d'anomalie (sprint 7) : ordre de
+ * priorité de la relecture, jamais un diagnostic. L'urgence réelle dépend de
+ * l'examen clinique et des symptômes du patient.
+ */
+export const Urgency = { HIGH: "high", MEDIUM: "medium", LOW: "low" };
+
+export const URGENCY = {
+  [Urgency.HIGH]: { label: "Prioritaire", rank: 0, hint: "à examiner en premier" },
+  [Urgency.MEDIUM]: { label: "À programmer", rank: 1, hint: "prise en charge à planifier" },
+  [Urgency.LOW]: { label: "À surveiller", rank: 2, hint: "suivi selon les symptômes" },
+};
+
+/**
+ * Typologie des anomalies (sprint 7) : définition courte, urgence indicative
+ * et forme de la marque. La forme double la couleur : deux types restent
+ * distincts en niveaux de gris (carie profonde et dent incluse ont presque la
+ * même luminance) et pour les daltoniens.
+ */
+export const ANOMALY_TYPOLOGY = {
+  [DetectionLabel.CARIES]: {
+    definition: "Perte de minéral de l'émail ou de la dentine : zone sombre (radio-claire) de la couronne, à distance de la pulpe.",
+    urgency: Urgency.MEDIUM,
+    shape: "circle",
+  },
+  [DetectionLabel.DEEP_CARIES]: {
+    definition: "Carie qui atteint la dentine profonde, au contact ou tout près de la pulpe : risque d'atteinte pulpaire.",
+    urgency: Urgency.HIGH,
+    shape: "square",
+  },
+  [DetectionLabel.PERIAPICAL_LESION]: {
+    definition: "Zone sombre autour de l'extrémité d'une racine (apex), le plus souvent liée à une infection d'origine pulpaire.",
+    urgency: Urgency.HIGH,
+    shape: "diamond",
+  },
+  [DetectionLabel.IMPACTED_TOOTH]: {
+    definition: "Dent restée dans l'os ou la gencive, qui n'a pas fait son éruption (souvent une dent de sagesse).",
+    urgency: Urgency.LOW,
+    shape: "triangle",
+  },
+};
+
+/** Typologie d'un type d'anomalie, ou null (dent, classe inconnue). */
+export function anomalyTypology(label) {
+  const t = ANOMALY_TYPOLOGY[label];
+  return t ? { ...t, urgencyText: URGENCY[t.urgency].label } : null;
+}
+
+/** Infobulle d'un type : nom, définition, urgence indicative. */
+export function typeTooltip(label) {
+  const t = anomalyTypology(label);
+  const name = detectionType(label).label;
+  return t ? `${name} — ${t.definition} Urgence indicative : ${t.urgencyText.toLowerCase()}.` : name;
+}
+
 /** Les quatre anomalies, dans l'ordre d'affichage de la maquette. */
 export const ANOMALY_LABELS = [
   DetectionLabel.CARIES,
@@ -115,6 +170,10 @@ export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}
     height: dto.h * imageHeight,
     modelVersion: dto.model_version ?? "",
     source: fromUser ? "user" : "ai",
+    // Numérotation (sprint 7) : rang appris (dent), dent porteuse (anomalie), numéro à vérifier.
+    rank: dto.rang ?? null,
+    toothId: dto.dent_id ?? null,
+    doubtful: Boolean(dto.douteux),
     status: dto.etat ? reviewStatus(dto.etat, fromUser) : fromUser ? ReviewStatus.ADDED : dto.reviewed ? ReviewStatus.VALIDATED : ReviewStatus.PENDING,
     // Relecture : commentaire du verdict courant, auteur, proposition d'origine, historique.
     comment: dto.commentaire ?? "",

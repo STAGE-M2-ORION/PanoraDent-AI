@@ -79,8 +79,10 @@ def prendre_une_tache(db: Session) -> Analysis | None:
 
 
 def _detections(resultat: dict, largeur: int, hauteur: int, version: str) -> list[Detection]:
-    sortie = []
-    for d in resultat.get("detections", []):
+    """Détections enregistrées ; `rang` (dents) et lien anomalie -> dent
+    (`dent`, index dans la réponse) sont conservés (sprint 7)."""
+    sortie, par_index = [], {}
+    for index, d in enumerate(resultat.get("detections", [])):
         if float(d.get("confidence", 0)) < SEUIL_ENREGISTREMENT:
             continue
         x, y, w, h = (float(v) for v in d["bbox"])
@@ -90,10 +92,18 @@ def _detections(resultat: dict, largeur: int, hauteur: int, version: str) -> lis
         if x1 <= x0 or y1 <= y0:
             continue
         r = lambda v: round(v, 6)  # noqa: E731 — fractions lisibles, sans bruit flottant
-        sortie.append(Detection(
+        det = Detection(
             label=d["label"], fdi=d.get("fdi"), confidence=float(d["confidence"]),
             x=r(x0), y=r(y0), w=r(x1 - x0), h=r(y1 - y0), source="model", model_version=version,
-        ))
+            rang=d.get("rang"),
+        )
+        sortie.append(det)
+        par_index[index] = det
+    # Le lien ne vaut que si la dent hôte a elle-même été gardée (seuil de 0,10).
+    for index, d in enumerate(resultat.get("detections", [])):
+        hote = d.get("dent")
+        if index in par_index and isinstance(hote, int) and hote in par_index:
+            par_index[index].dent = par_index[hote]
     return sortie
 
 

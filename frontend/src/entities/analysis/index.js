@@ -2,6 +2,7 @@ export {
   addDetection,
   closeAnalysis,
   createAnalysis,
+  declareToothAbsent,
   deleteAnalysis,
   fetchAnalyses,
   fetchAnalysis,
@@ -15,6 +16,7 @@ export {
   reopenAnalysis,
   saveConclusion,
   undoVerdict,
+  withdrawToothAbsent,
 } from "./api/analysis-api";
 export {
   ANALYSIS_STATUS,

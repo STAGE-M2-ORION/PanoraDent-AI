@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 
-import { DETECTION_TYPES, SimulatedPanoImage, detectionType } from "@/entities/detection";
+import { DETECTION_TYPES, SimulatedPanoImage, detectionType, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
 import { boxFromPoints, isDashed, moveBox, pct, renderAnnotatedPng, resizeBox, screenToImage, zoomAround } from "@/widgets/analysis-workspace";
@@ -14,7 +14,7 @@ const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted
  * de large, puis mises à l'échelle de l'image réelle.
  */
 export const Viewer = forwardRef(function Viewer(
-  { vm, dets, visible, show, onToggleLayer, onToggleAll, onExport, exporting, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
+  { vm, dets, visible, show, onToggleLayer, onToggleAll, onExport, exporting, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, onPickTooth, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
   ref,
 ) {
   const stageRef = useRef(null);
@@ -230,7 +230,7 @@ export const Viewer = forwardRef(function Viewer(
             const n = k === "tooth" ? vm?.teeth.length ?? 0 : dets.filter((d) => d.label === k).length;
             const label = k === "tooth" ? "Dents" : DETECTION_TYPES[k].short;
             return (
-              <button key={k} type="button" className="chip" aria-pressed={show[k]} title={`${show[k] ? "Masquer" : "Afficher"} : ${label}`} onClick={() => onToggleLayer(k)}>
+              <button key={k} type="button" className="chip" aria-pressed={show[k]} title={`${show[k] ? "Masquer" : "Afficher"} : ${typeTooltip(k)}`} onClick={() => onToggleLayer(k)}>
                 <span className={`det-swatch ${DETECTION_TYPES[k].cls}`} />
                 {label} <span className="n">{n}</span>
               </button>
@@ -296,9 +296,11 @@ export const Viewer = forwardRef(function Viewer(
                 <g>
                   {vm.teeth.map((t) => {
                     const on = focusTooth === t.fdi;
+                    // Numéro à vérifier (sprint 7) : contour orange, comme dans le schéma.
+                    const couleur = t.doubtful ? "#F59E0B" : "#56B4E9";
                     const ly = t.upper ? t.box.y - 6 * unit : t.box.y + t.box.h + fs + 2 * unit;
                     return (
-                      <g key={t.fdi}>
+                      <g key={t.id ?? t.fdi} data-dent={t.fdi}>
                         <rect
                           x={t.box.x}
                           y={t.box.y}
@@ -306,12 +308,24 @@ export const Viewer = forwardRef(function Viewer(
                           height={t.box.h}
                           rx={6 * unit}
                           fill="none"
-                          stroke="#56B4E9"
+                          stroke={couleur}
                           strokeWidth={(on ? (2.2 / view.zoom) * 1.4 : (1 / view.zoom) * 1.2) * unit}
                           opacity={on ? 1 : 0.45}
                         />
-                        <text x={t.cx} y={ly} textAnchor="middle" fill="#56B4E9" fontSize={fs * 0.95} fontFamily="JetBrains Mono, monospace" fontWeight={on ? 700 : 500} opacity={on ? 1 : 0.8}>
+                        <text
+                          x={t.cx}
+                          y={ly}
+                          textAnchor="middle"
+                          fill={couleur}
+                          fontSize={fs * 0.95}
+                          fontFamily="JetBrains Mono, monospace"
+                          fontWeight={on ? 700 : 500}
+                          opacity={on ? 1 : 0.8}
+                          style={onPickTooth ? { cursor: "pointer" } : undefined}
+                          onClick={onPickTooth ? (e) => (e.stopPropagation(), onPickTooth(t.fdi)) : undefined}
+                        >
                           {t.fdi}
+                          {t.doubtful ? "?" : ""}
                         </text>
                       </g>
                     );

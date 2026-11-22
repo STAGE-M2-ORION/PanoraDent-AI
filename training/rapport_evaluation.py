@@ -23,7 +23,8 @@ from pathlib import Path
 from config import CLASSES, REPO_ROOT
 
 LIBELLES = {"tooth": "Dent", "caries": "Carie", "deep_caries": "Carie profonde",
-            "periapical_lesion": "Lésion péri-apicale", "impacted_tooth": "Dent incluse"}
+            "periapical_lesion": "Lésion péri-apicale", "impacted_tooth": "Dent incluse",
+            **{f"dent_{k}": f"Dent de rang {k}" for k in range(1, 9)}}
 
 
 def _parse_args(argv=None):
@@ -94,7 +95,7 @@ def tableau_classes(metrics: dict) -> list[str]:
     image = metrics.get("niveau_image", {}).get("par_classe", {})
     lignes = ["| Classe | Instances | Précision | Rappel | mAP@0,50 | mAP@0,50:0,95 | Sensibilité (cliché) | Spécificité (cliché) |",
               "|---|---|---|---|---|---|---|---|"]
-    for nom in CLASSES:
+    for nom in metrics.get("classes") or CLASSES:
         d = detection.get("par_classe", {}).get(nom)
         if d is None:
             continue
@@ -193,7 +194,7 @@ def section_lecture(nom: str, run_dir: Path) -> list[str]:
     ecart = (sum((v - moyenne) ** 2 for v in queue) / len(queue)) ** 0.5
     v_best = meilleure["mesures"].get("metrics/mAP50(B)")
     t = test["detection"]["global"]["mAP50"]
-    rares = [(CLASSES[i], d["instances"]) for i, n in enumerate(CLASSES)
+    rares = [(n, d["instances"]) for n in (test.get("classes") or CLASSES)
              if (d := test["detection"].get("par_classe", {}).get(n)) and d.get("instances", 999) < 50]
     lignes = [f"### Comment lire ces chiffres — modèle « {nom} »", "",
               f"- **Le chiffre de référence est celui du test interne : mAP@0,50 = {nombre(t)}.** "

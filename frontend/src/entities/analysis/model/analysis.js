@@ -106,6 +106,9 @@ export function normalizeAnalysis(dto) {
     closedAt: dto.cloturee_le ?? null,
     closedBy: dto.cloturee_par_nom ?? null,
     progress: { reviewed: dto.avancement?.revues ?? 0, total: dto.avancement?.total ?? 0 },
+    // Numérotation (sprint 7) : signalements du serveur, dents déclarées absentes.
+    incoherences: (dto.incoherences ?? []).map((i) => ({ type: i.type, fdi: i.fdi ?? [], message: i.message })),
+    absentTeeth: (dto.dents_absentes ?? []).map((x) => ({ fdi: x.fdi, author: x.auteur_nom ?? null, at: x.cree_le })),
     status: displayStatus(dto.statut ?? Processing.DONE, Boolean(dto.cloturee), dto.avancement?.revues ?? 0),
   };
 }

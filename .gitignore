@@ -22,6 +22,8 @@ dist/
 
 # Modèles & données (NE JAMAIS committer poids ni données patient)
 inference/weights/*.pt
+# Versions publiées du registre : <version>/dents.pt, anomalies.pt
+inference/weights/*/
 # Poids de départ téléchargés par ultralytics dans le dossier courant
 training/*.pt
 /*.pt

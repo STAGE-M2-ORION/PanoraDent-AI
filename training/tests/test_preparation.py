@@ -149,3 +149,36 @@ def test_verite_fdi_conservee(faux_dentex, tmp_path):
     [fichier] = list(out.glob("anomalies/*/fdi/validation_officielle__val_1.json"))
     verite = json.loads(fichier.read_text(encoding="utf-8"))
     assert verite["boites"][0]["fdi"] == 34 and verite["boites"][0]["classe"] == "deep_caries"
+
+
+def test_jeu_rangs_memes_cliches_que_dents_classe_egale_au_rang(faux_dentex, tmp_path):
+    """Sprint 7 : le découpage ne change pas, chaque dent porte son rang (1 à 8)."""
+    from config import CLASSES_RANGS
+
+    out = tmp_path / "yolo"
+    split = preparer(faux_dentex, out)
+    rangs = json.loads((out / "rangs" / "split.json").read_text(encoding="utf-8"))
+    assert rangs["cliches"] == split["dents"]["cliches"]
+    assert rangs["empreinte"] == split["dents"]["empreinte"]
+    noms = json.loads((out / "rangs" / "data.yaml").read_text().split("names:")[1].strip())
+    assert noms == CLASSES_RANGS == [f"dent_{k}" for k in range(1, 9)]
+    # Dents du faux DENTEX : rangs 1, 6 et 8 (identifiants de catégorie 0, 5, 7).
+    assert classes_ecrites(out / "rangs") == {0, 5, 7}
+    [verite] = list(out.glob("rangs/*/fdi/enumeration__train_0.json"))
+    assert [b["classe"] for b in json.loads(verite.read_text(encoding="utf-8"))["boites"]] == \
+        ["dent_1", "dent_6", "dent_8"]
+
+
+
+def test_registres_du_test_gardes_si_le_decoupage_ne_change_pas(faux_dentex, tmp_path):
+    """Relancer la préparation (pour créer le jeu « rangs ») ne doit pas effacer la
+    trace des tests déjà évalués : sinon on pourrait les réévaluer sans le savoir."""
+    out = tmp_path / "yolo"
+    preparer(faux_dentex, out)
+    for jeu in ("dents", "anomalies", "externe"):
+        (out / jeu / "evaluations_test.jsonl").write_text('{"poids": "best.pt"}\n')
+    preparer(faux_dentex, out)                                    # même graine, même découpage
+    for jeu in ("dents", "anomalies", "externe"):
+        assert (out / jeu / "evaluations_test.jsonl").read_text() == '{"poids": "best.pt"}\n'
+    preparer(faux_dentex, out, graine=7)                          # autre découpage : caducs
+    assert not (out / "dents" / "evaluations_test.jsonl").exists()

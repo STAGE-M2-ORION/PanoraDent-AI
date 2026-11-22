@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Processing } from "@/entities/analysis";
+import { Processing, declareToothAbsent, postVerdict, withdrawToothAbsent } from "@/entities/analysis";
 import { Verdict, detectionType } from "@/entities/detection";
 import { Permission, displayName, useCurrentUser } from "@/entities/session";
 import { toAppError } from "@/shared/api";
@@ -21,9 +21,11 @@ import {
   stepDetection,
   useAnalysisViewModel,
 } from "@/widgets/analysis-workspace";
+import { POSITIONS, odontogramFileName, toSvgString, toothStates } from "../model/odontogram";
 import { makeReview, readResume, reviewSummary, verdictOfStatus, writeResume } from "../model/review-api";
 import { AssistantPane } from "./AssistantPane";
 import { ClosureModal } from "./ClosureModal";
+import { ToothCard } from "./ToothCard";
 import { ModelReplay } from "./ModelReplay";
 import { DetectionsPane } from "./DetectionsPane";
 import { Odontogram } from "./Odontogram";
@@ -57,6 +59,9 @@ export function AnalysePage() {
     sort: "tooth",
     onlyPending: false,
     tooth: null,
+    // Filtres de la liste (sprint 7) : quadrant FDI et type d'anomalie.
+    quadrant: null,
+    type: null,
     show: ALL_LAYERS,
     mode: null,
     draft: null,
@@ -73,6 +78,8 @@ export function AnalysePage() {
   const [question, setQuestion] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [closure, setClosure] = useState({ closedAt: null, closedBy: null, conclusion: "" });
+  // Sprint 7 : dent dont on choisit le nouveau numéro dans le schéma.
+  const [choosing, setChoosing] = useState(null); // { toothId, fdi }
   const review = useMemo(() => makeReview(vm, reviewerName), [vm, reviewerName]);
   const pending = Boolean(vm && !vm.demo && vm.processing !== Processing.DONE);
   const backup = useRef(null);
@@ -128,6 +135,8 @@ export function AnalysePage() {
     setSort: (sort) => patch({ sort }),
     setOnlyPending: (onlyPending) => patch({ onlyPending }),
     setTooth: (tooth) => patch({ tooth }),
+    // Un filtre par quadrant ou par type remplace celui de la dent.
+    setFilters: ({ type = null, quadrant = null }) => patch({ type, quadrant, tooth: null }),
     setAutoNext: (autoNext) => patch({ autoNext }),
     validate: (comment) => decide(current, Verdict.VALIDATE, { comment }),
     reject: (comment) => decide(current, Verdict.REJECT, { comment }),
@@ -220,10 +229,68 @@ export function AnalysePage() {
     else patch({ draft: null });
   };
 
+  // --- Numérotation (sprint 7) ------------------------------------------------
+  const states = useMemo(
+    () => (vm ? toothStates({ teeth: vm.teeth, dets, absentTeeth: vm.absentTeeth, incoherences: vm.incoherences }) : {}),
+    [vm, dets],
+  );
+
+  /** Action sur les dents : le serveur recalcule numéros et incohérences, on relit l'analyse. */
+  const runToothAction = async (call, success, after) => {
+    if (ui.busy || !vm?.api) return;
+    patch({ busy: true });
+    try {
+      await call();
+      reload();
+      if (after) after();
+      showToast(success);
+    } catch (cause) {
+      showToast(toAppError(cause).message);
+    } finally {
+      patch({ busy: false });
+    }
+  };
+  const toothActions = {
+    renumber: (t) => setChoosing({ toothId: t.id, fdi: t.fdi }),
+    choose: (fdi) => {
+      const c = choosing;
+      setChoosing(null);
+      if (!c || fdi === c.fdi) return;
+      runToothAction(() => postVerdict(vm.api, c.toothId, Verdict.CORRECT, { fdi }), `Dent ${c.fdi} renumérotée ${fdi} ; ses anomalies suivent.`, () => patch({ tooth: fdi }));
+    },
+    rejectTooth: (t) => runToothAction(() => postVerdict(vm.api, t.id, Verdict.REJECT), `Détection de la dent ${t.fdi} rejetée.`),
+    declareAbsent: (fdi) => runToothAction(() => declareToothAbsent(vm.id, fdi), `Dent ${fdi} déclarée absente.`),
+    withdrawAbsent: (fdi) => runToothAction(() => withdrawToothAbsent(vm.id, fdi), `Déclaration d'absence de la dent ${fdi} retirée.`),
+  };
+
+  const exportOdontogram = async () => {
+    if (!vm) return;
+    try {
+      const svg = toSvgString(states, { title: `Schéma dentaire (FDI) · ${vm.ref || "démonstration"}` });
+      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      const img = new Image();
+      await new Promise((ok, ko) => {
+        img.onload = ok;
+        img.onerror = ko;
+        img.src = url;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      const blob = await new Promise((ok) => canvas.toBlob(ok, "image/png"));
+      downloadBlob(blob, odontogramFileName(vm.ref));
+      showToast("Schéma dentaire exporté (PNG).");
+    } catch {
+      showToast("Export du schéma impossible.");
+    }
+  };
+
   const pickTooth = (fdi) => {
     const tooth = ui.tooth === fdi ? null : fdi;
     const first = sortDetections(dets.filter((d) => d.fdi === fdi), ui.sort)[0];
-    patch({ tooth, sel: first ? first.id : null, mode: null, tab: "det" });
+    patch({ tooth, quadrant: null, sel: first ? first.id : null, mode: null, tab: "det" });
     const t = vm.teeth.find((x) => x.fdi === fdi);
     if (t) viewerRef.current?.centerOn(t.box);
   };
@@ -508,6 +575,7 @@ export function AnalysePage() {
             onDrawEnd={onDrawEnd}
             onBoxChange={(detId, box) => updateDet(detId, { box })}
             focusTooth={ui.tooth ?? current?.fdi}
+            onPickTooth={pickTooth}
             hint={ui.hint}
             panelClosed={ui.panelClosed}
             onTogglePanel={() => patch({ panelClosed: true })}
@@ -515,7 +583,18 @@ export function AnalysePage() {
             error={error}
             onRetry={reload}
           >
-            {vm ? <Odontogram present={new Set(vm.teeth.map((t) => t.fdi))} dets={dets} selectedTooth={ui.tooth ?? current?.fdi} onPick={pickTooth} /> : null}
+            {vm ? (
+              <Odontogram
+                states={states}
+                positions={POSITIONS}
+                selectedTooth={ui.tooth ?? current?.fdi}
+                onPick={pickTooth}
+                choosing={choosing}
+                onChoose={toothActions.choose}
+                onCancelChoose={() => setChoosing(null)}
+                onExport={exportOdontogram}
+              />
+            ) : null}
           </Viewer>
 
           <aside className="panel" aria-label="Détections et assistant">
@@ -530,6 +609,19 @@ export function AnalysePage() {
               </button>
             </div>
             <div className="tabpane" id="paneDet" role="tabpanel" data-active={ui.tab === "det" ? "true" : "false"}>
+              {vm && ui.tooth != null && states[ui.tooth] ? (
+                <ToothCard
+                  s={states[ui.tooth]}
+                  absentInfo={vm.absentTeeth.find((x) => x.fdi === ui.tooth)}
+                  canEdit={canReview && !ui.closed && !ui.busy && !vm.demo}
+                  onRenumber={toothActions.renumber}
+                  onRejectTooth={toothActions.rejectTooth}
+                  onDeclareAbsent={toothActions.declareAbsent}
+                  onWithdrawAbsent={toothActions.withdrawAbsent}
+                  onSelectAnomaly={(detId) => select(detId, true)}
+                  onClose={() => patch({ tooth: null })}
+                />
+              ) : null}
               {vm ? <DetectionsPane vm={vm} state={{ ...ui, dets }} actions={actions} canReview={canReview} reviewerName={reviewerName} /> : null}
             </div>
             <div className="tabpane" id="paneChat" role="tabpanel" data-active={ui.tab === "chat" ? "true" : "false"}>

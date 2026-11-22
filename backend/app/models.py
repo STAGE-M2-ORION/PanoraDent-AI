@@ -1,6 +1,8 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Uuid, true
+from sqlalchemy import (
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -103,6 +105,11 @@ class Analysis(Base):
     detections: Mapped[list["Detection"]] = relationship(
         back_populates="analysis", cascade="all, delete-orphan", order_by="Detection.cree_le"
     )
+    # Sprint 7 : dents que le praticien déclare absentes (aucune détection ne
+    # les porte, et il l'a vérifié sur le cliché).
+    dents_absentes: Mapped[list["DentAbsente"]] = relationship(
+        back_populates="analysis", cascade="all, delete-orphan", order_by="DentAbsente.fdi"
+    )
     deposant = relationship("Utilisateur", lazy="joined", foreign_keys=[utilisateur_id])
     cloturee_par = relationship("Utilisateur", foreign_keys=[cloturee_par_id])
 
@@ -138,6 +145,14 @@ class Detection(Base):
     model_version: Mapped[str] = mapped_column(String, default="")
     # Origine : proposée par le modèle (« model ») ou ajoutée par le praticien (« human »).
     source: Mapped[str] = mapped_column(String, default="model")
+    # Sprint 7 — dent : rang appris par le modèle « rangs » (1 à 8), sinon vide ;
+    # anomalie : la dent qui la porte (rattachement fait par le service
+    # d'inférence). Une anomalie suit le numéro de sa dent tant que le
+    # praticien ne lui en a pas donné un autre.
+    rang: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dent_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("detections.id", ondelete="SET NULL"), nullable=True
+    )
     # Verdict courant (dénormalisé depuis `verdicts` pour les comptes et les filtres).
     etat: Mapped[str] = mapped_column(String(10), default=EtatDetection.A_REVOIR, index=True)
     revu_par_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -147,6 +162,7 @@ class Detection(Base):
 
     analysis: Mapped["Analysis"] = relationship(back_populates="detections")
     revu_par = relationship("Utilisateur", foreign_keys=[revu_par_id])
+    dent: Mapped["Detection | None"] = relationship(remote_side="Detection.id", foreign_keys=[dent_id])
     verdicts: Mapped[list["Verdict"]] = relationship(
         back_populates="detection", cascade="all, delete-orphan", order_by="Verdict.numero"
     )
@@ -161,10 +177,38 @@ class Detection(Base):
         return actifs[-1] if actifs else None
 
     def retenu(self) -> dict:
-        """Valeurs retenues : celles du dernier verdict actif, sinon la proposition."""
+        """Valeurs retenues : celles du dernier verdict actif, sinon la proposition.
+
+        Numéro d'une anomalie rattachée à une dent : celui que la dent porte
+        AUJOURD'HUI, tant que le praticien n'a pas fixé lui-même un autre numéro
+        à l'anomalie. Corriger le numéro d'une dent renumérote ainsi ses
+        anomalies, partout (liste, image, schéma, compte rendu).
+        """
         v = self.verdict_courant
         source = v if v is not None else self
-        return {k: getattr(source, k) for k in ("label", "fdi", "x", "y", "w", "h")}
+        valeurs = {k: getattr(source, k) for k in ("label", "fdi", "x", "y", "w", "h")}
+        fixe_par_le_praticien = v is not None and v.fdi != self.fdi
+        if (self.label != LABEL_DENT and self.dent is not None and not fixe_par_le_praticien
+                and self.dent.etat != EtatDetection.REJETEE):
+            valeurs["fdi"] = self.dent.retenu()["fdi"]
+        return valeurs
+
+
+class DentAbsente(Base):
+    """Dent déclarée absente par le praticien (sprint 7) : auteur et date."""
+    __tablename__ = "dents_absentes"
+    __table_args__ = (UniqueConstraint("analysis_id", "fdi", name="uq_dents_absentes_analyse_fdi"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id", ondelete="CASCADE"), index=True)
+    fdi: Mapped[int] = mapped_column(Integer)
+    auteur_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    analysis: Mapped["Analysis"] = relationship(back_populates="dents_absentes")
+    auteur = relationship("Utilisateur", foreign_keys=[auteur_id])
 
 
 class Verdict(Base):

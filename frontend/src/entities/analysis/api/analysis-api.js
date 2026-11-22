@@ -131,6 +131,22 @@ export async function addDetection(analysis, { label, fdi, box, comment }) {
   return normalizeDetection(data, dimsOf(analysis));
 }
 
+/**
+ * `POST /analyses/{id}/dents/{fdi}/absente` — le praticien déclare une dent
+ * absente ; `409 dent_detectee` si une dent porte ce numéro. Renvoie
+ * l'analyse entière : les incohérences ont pu changer.
+ */
+export async function declareToothAbsent(analysisId, fdi) {
+  const { data } = await httpClient.post(`/analyses/${analysisId}/dents/${fdi}/absente`);
+  return normalizeAnalysis(data);
+}
+
+/** `DELETE /analyses/{id}/dents/{fdi}/absente` — retire la déclaration. */
+export async function withdrawToothAbsent(analysisId, fdi) {
+  const { data } = await httpClient.delete(`/analyses/${analysisId}/dents/${fdi}/absente`);
+  return normalizeAnalysis(data);
+}
+
 /** `PUT /analyses/{id}/conclusion` — brouillon de la conclusion. */
 export async function saveConclusion(analysisId, conclusion) {
   const { data } = await httpClient.put(`/analyses/${analysisId}/conclusion`, { conclusion });

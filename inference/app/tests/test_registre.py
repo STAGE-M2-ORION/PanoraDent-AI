@@ -109,7 +109,7 @@ def test_nom_de_version_qui_sortirait_du_dossier_refuse(registre, version):
 def test_paire_chaque_modele_garde_ses_classes_puis_numerotation(registre, tmp_path):
     poser(tmp_path)
     paire = registre.obtenir("v1")
-    dets = model.predict_paire(paire, None, 1000, 1000)
+    dets, _ = model.predict_paire(paire, None, 1000, 1000)
     assert sorted(d["label"] for d in dets) == ["caries", "tooth"]
     dent = next(d for d in dets if d["label"] == "tooth")
     carie = next(d for d in dets if d["label"] == "caries")
@@ -183,7 +183,7 @@ def test_modeles_factices_pour_les_tests_de_bout_en_bout(tmp_path):
     poser(tmp_path)
     paire = Registre(dossier=tmp_path, charger=ModeleFactice).obtenir("v1")
     image = Image.new("L", (2000, 1000), 40)
-    dets = model.predict_paire(paire, image, 2000, 1000)
+    dets, _ = model.predict_paire(paire, image, 2000, 1000)
     attendu = model._mock_detections(2000, 1000)
     assert sorted(d["label"] for d in dets) == sorted(d["label"] for d in attendu)
 

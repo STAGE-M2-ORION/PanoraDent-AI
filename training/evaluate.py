@@ -33,8 +33,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import CLASSES, git_commit
-from train import check_class_order
+from config import CLASSES, git_commit  # CLASSES : remplacée par celle du jeu évalué
+from train import check_class_order, read_class_names
 
 SEUIL_IOU = 0.50
 REGISTRE_TEST = "evaluations_test.jsonl"
@@ -405,6 +405,10 @@ def evaluer(args) -> Path:
         raise SystemExit("--data manquant, et aucun run.json à côté des poids.")
     args.imgsz = args.imgsz or run.get("hyperparametres", {}).get("imgsz") or 640
     check_class_order(args.data)
+    # Les classes du JEU évalué (contrat ou rangs) : toutes les fonctions de ce
+    # module les lisent ici, au moment de l'appel.
+    global CLASSES
+    CLASSES = read_class_names(args.data)
 
     dossier_jeu = args.data.parent
     poids_sha = sha256_de(args.weights)

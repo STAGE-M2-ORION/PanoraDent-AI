@@ -15,7 +15,9 @@ import pytest
 from config import CLASSES
 
 
-def ecrire_jeu(racine: Path, n_par_partition=(8, 4, 4), taille=(256, 128), graine=0) -> Path:
+def ecrire_jeu(racine: Path, n_par_partition=(8, 4, 4), taille=(256, 128), graine=0,
+               noms=CLASSES) -> Path:
+    """`noms` : liste de classes du data.yaml (contrat, ou rangs du sprint 7)."""
     rng = random.Random(graine)
     w, h = taille
     for partition, n in zip(("train", "val", "test"), n_par_partition):
@@ -41,7 +43,7 @@ def ecrire_jeu(racine: Path, n_par_partition=(8, 4, 4), taille=(256, 128), grain
     data = racine / "data.yaml"
     data.write_text(
         f"path: {racine.resolve().as_posix()}\ntrain: train/images\nval: val/images\n"
-        f"test: test/images\nnc: {len(CLASSES)}\nnames: {json.dumps(CLASSES)}\n",
+        f"test: test/images\nnc: {len(noms)}\nnames: {json.dumps(noms)}\n",
         encoding="utf-8")
     (racine / "split.json").write_text(json.dumps({"empreinte": "0" * 64, "graine": graine}))
     return data
