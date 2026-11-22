@@ -18,7 +18,9 @@ CLASSES = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted_toot
 # `imgsz` reproduit le redimensionnement letterbox appliqué pendant
 # l'entraînement. Une valeur divergente dégrade silencieusement les détections.
 MODEL_IMAGE_SIZE = int(os.getenv("MODEL_IMAGE_SIZE", "640"))
-MODEL_CONF_THRESHOLD = float(os.getenv("MODEL_CONF_THRESHOLD", "0.25"))
+# 0,10 (décision du sprint 4) : tout ce qui dépasse 0,10 est enregistré, et le
+# curseur de seuil de la visionneuse filtre côté écran, sans aller-retour.
+MODEL_CONF_THRESHOLD = float(os.getenv("MODEL_CONF_THRESHOLD", "0.10"))
 
 # Refuse de démarrer en mock si un vrai modèle était attendu. À activer partout
 # où l'on mesure quoi que ce soit : une bascule silencieuse ferait passer des

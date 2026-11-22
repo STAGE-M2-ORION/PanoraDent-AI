@@ -73,14 +73,15 @@ def _mock_detections(width: int, height: int):
     return dets
 
 
-def _boites(modele, image, garder) -> list[dict]:
+def _boites(modele, image, garder, imgsz: int | None = None) -> list[dict]:
     """Détections d'un modèle YOLO, en pixels de l'image source.
 
-    `imgsz` redimensionne en letterbox pour l'inférence ; ultralytics remet les
-    boîtes à l'échelle de l'image d'origine. `garder(label)` filtre les classes.
+    `imgsz` (taille d'entraînement du modèle) redimensionne en letterbox pour
+    l'inférence ; ultralytics remet les boîtes à l'échelle de l'image
+    d'origine. `garder(label)` filtre les classes.
     """
     dets = []
-    for r in modele.predict(image, imgsz=config.MODEL_IMAGE_SIZE,
+    for r in modele.predict(image, imgsz=imgsz or config.MODEL_IMAGE_SIZE,
                             conf=config.MODEL_CONF_THRESHOLD, verbose=False):
         for box in r.boxes:
             cls_id = int(box.cls[0])
@@ -107,8 +108,9 @@ def predict_paire(paire, image, width: int, height: int):
     diagnostics ; une sortie hors de son rôle serait du bruit. Les dents
     servent ensuite à numéroter, et les anomalies héritent du numéro de la
     dent qu'elles recouvrent."""
-    dents = _boites(paire.dents, image, lambda label: label == config.CLASSES[0])
-    anomalies = _boites(paire.anomalies, image, lambda label: label != config.CLASSES[0])
+    dents = _boites(paire.dents, image, lambda label: label == config.CLASSES[0], paire.imgsz["dents"])
+    anomalies = _boites(paire.anomalies, image, lambda label: label != config.CLASSES[0],
+                        paire.imgsz["anomalies"])
     return _numeroter(dents + anomalies, width, height)
 
 

@@ -89,7 +89,7 @@ services:
       MODEL_VERSION: ${MODEL_VERSION:-mock-0.0.0}
       MODEL_STRICT: ${MODEL_STRICT:-0}
       MODEL_IMAGE_SIZE: ${MODEL_IMAGE_SIZE:-640}
-      MODEL_CONF_THRESHOLD: ${MODEL_CONF_THRESHOLD:-0.25}
+      MODEL_CONF_THRESHOLD: ${MODEL_CONF_THRESHOLD:-0.10}
     volumes:
       - ./inference/weights:/weights:ro
     ports:

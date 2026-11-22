@@ -51,6 +51,21 @@ class Paire:
     dents: object
     anomalies: object
     sha256: dict
+    imgsz: dict  # taille d'entraînement de chaque modèle, lue dans ses poids
+
+
+def taille_d_entrainement(modele) -> int:
+    """`imgsz` de l'entraînement, enregistré par ultralytics dans les poids.
+
+    Une inférence à une autre taille que celle de l'entraînement dégrade les
+    détections sans aucune erreur : on ne se fie donc pas à un réglage global,
+    qui deviendrait faux à la première bascule vers un modèle entraîné
+    autrement. Repli sur MODEL_IMAGE_SIZE si les poids ne la portent pas.
+    """
+    taille = (getattr(modele, "overrides", None) or {}).get("imgsz")
+    if isinstance(taille, (list, tuple)):
+        taille = max(taille)
+    return int(taille) if taille else config.MODEL_IMAGE_SIZE
 
 
 def sha256_de(chemin: Path) -> str:
@@ -116,7 +131,8 @@ class Registre:
             except Exception as exc:  # noqa: BLE001
                 raise ModeleIllisible(
                     f"Le modèle « {role} » de la version {version} est illisible : {exc}") from exc
-        return Paire(version, modeles["dents"], modeles["anomalies"], empreintes)
+        return Paire(version, modeles["dents"], modeles["anomalies"], empreintes,
+                     {role: taille_d_entrainement(m) for role, m in modeles.items()})
 
     def chargees(self) -> list[str]:
         with self._verrou:

@@ -25,13 +25,17 @@ class _Liste(list):
 
 
 class FauxYolo:
-    """Renvoie toujours les mêmes boîtes : (classe, x1, y1, x2, y2, confiance)."""
+    """Renvoie toujours les mêmes boîtes : (classe, x1, y1, x2, y2, confiance).
+    `overrides` imite ce qu'ultralytics relit dans les poids (taille d'entraînement)."""
 
-    def __init__(self, chemin, boites):
+    def __init__(self, chemin, boites, imgsz=None):
         self.chemin = chemin
         self._boites = [Boite(c, [x1, y1, x2, y2], s) for c, x1, y1, x2, y2, s in boites]
+        self.overrides = {"imgsz": imgsz} if imgsz else {}
+        self.tailles = []
 
     def predict(self, image, imgsz, conf, verbose):
+        self.tailles.append(imgsz)
         return [type("R", (), {"boxes": self._boites})()]
 
 
@@ -158,3 +162,16 @@ def test_charger_avant_bascule(client, tmp_path):
     assert client.get("/health").json()["versions_chargees"] == ["v1"]
     r = client.post("/charger", json={"version": "v1", "sha_dents": "0" * 64})
     assert r.status_code == 409 and r.json()["code"] == "poids_differents"
+
+
+def test_chaque_modele_infere_a_sa_taille_d_entrainement(tmp_path):
+    """La taille vient des poids, pas d'un réglage global qui deviendrait faux
+    à la première bascule vers un modèle entraîné autrement."""
+    poser(tmp_path)
+    tailles = {"dents": 1024, "anomalies": None}
+    registre = Registre(dossier=tmp_path, charger=lambda c: FauxYolo(c, SORTIES[c.stem], tailles[c.stem]))
+    paire = registre.obtenir("v1")
+    assert paire.imgsz == {"dents": 1024, "anomalies": config.MODEL_IMAGE_SIZE}
+    model.predict_paire(paire, None, 1000, 1000)
+    assert paire.dents.tailles == [1024]
+    assert paire.anomalies.tailles == [config.MODEL_IMAGE_SIZE]   # poids muets : repli
