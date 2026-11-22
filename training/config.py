@@ -11,7 +11,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INFERENCE_CONFIG = REPO_ROOT / "inference" / "app" / "config.py"
-WEIGHTS_TARGET = REPO_ROOT / "inference" / "weights" / "model.pt"
 
 
 def _inference_config():

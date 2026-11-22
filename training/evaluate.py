@@ -384,6 +384,14 @@ def rapport_markdown(metrics: dict) -> str:
 
 # --- Programme ---------------------------------------------------------------
 
+def dossier_evaluation(data: Path, data_du_run: Path | None, split: str) -> str:
+    """`evaluation_<partition>` sur le jeu d'entraînement ; `evaluation_<jeu>_<partition>`
+    sur un autre (le test externe ne doit pas écraser le test interne)."""
+    if data_du_run is None or data.resolve() == data_du_run.resolve():
+        return f"evaluation_{split}"
+    return f"evaluation_{data.resolve().parent.name}_{split}"
+
+
 def lire_run(poids: Path) -> dict:
     chemin = poids.parent.parent / "run.json"
     return json.loads(chemin.read_text(encoding="utf-8")) if chemin.exists() else {}
@@ -391,7 +399,8 @@ def lire_run(poids: Path) -> dict:
 
 def evaluer(args) -> Path:
     run = lire_run(args.weights)
-    args.data = args.data or (Path(run["data_yaml"]) if run.get("data_yaml") else None)
+    data_du_run = Path(run["data_yaml"]) if run.get("data_yaml") else None
+    args.data = args.data or data_du_run
     if args.data is None:
         raise SystemExit("--data manquant, et aucun run.json à côté des poids.")
     args.imgsz = args.imgsz or run.get("hyperparametres", {}).get("imgsz") or 640
@@ -405,7 +414,7 @@ def evaluer(args) -> Path:
     from ultralytics import YOLO
     modele = YOLO(str(args.weights))
 
-    sortie = args.out or args.weights.parent.parent / f"evaluation_{args.split}"
+    sortie = args.out or args.weights.parent.parent / dossier_evaluation(args.data, data_du_run, args.split)
     sortie.mkdir(parents=True, exist_ok=True)
 
     decoupage = None

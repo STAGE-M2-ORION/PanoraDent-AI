@@ -122,3 +122,11 @@ def test_second_passage_sur_le_test_refuse(modele_entraine):
     metrics = json.loads((sortie / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["motif_reevaluation"] == "essai du registre"
     assert len((data.parent / evaluate.REGISTRE_TEST).read_text().splitlines()) == 2
+
+
+def test_dossier_du_test_externe_distinct_du_test_interne(tmp_path):
+    interne = tmp_path / "anomalies" / "data.yaml"
+    externe = tmp_path / "externe" / "data.yaml"
+    assert evaluate.dossier_evaluation(interne, interne, "test") == "evaluation_test"
+    assert evaluate.dossier_evaluation(externe, interne, "test") == "evaluation_externe_test"
+    assert evaluate.dossier_evaluation(interne, None, "val") == "evaluation_val"
