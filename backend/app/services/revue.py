@@ -41,13 +41,39 @@ def verifier_modifiable(a: Analysis) -> None:
         raise ApiError(409, "analyse_non_terminee", "L'analyse n'est pas terminée : rien à relire pour l'instant.")
 
 
+def proposee(a: Analysis, d: Detection) -> bool:
+    """L'anomalie est-elle PROPOSÉE au praticien (et attend-elle son verdict) ?
+
+    Oui si l'analyse n'a pas de seuils (version antérieure au sprint 7), si
+    elle a été tracée par le praticien (sans confiance), ou si sa confiance
+    atteint le seuil d'exploitation de sa classe. Sous le seuil, elle reste
+    visible et peut recevoir un verdict, sans l'exiger.
+    """
+    seuils = a.seuils
+    if not seuils or d.confidence is None:
+        return True
+    seuil = seuils.get(d.label)
+    return seuil is None or d.confidence >= seuil - 1e-9
+
+
 def a_revoir(a: Analysis) -> list[Detection]:
-    return [d for d in a.detections if d.label != LABEL_DENT and d.etat == EtatDetection.A_REVOIR]
+    return [d for d in a.detections
+            if d.label != LABEL_DENT and d.etat == EtatDetection.A_REVOIR and proposee(a, d)]
 
 
 def avancement(a: Analysis) -> dict:
-    anomalies = [d for d in a.detections if d.label != LABEL_DENT]
+    """Anomalies proposées, et parmi elles celles qui ont un verdict ; plus les
+    anomalies sous le seuil qui en ont reçu un (elles comptent alors)."""
+    anomalies = [d for d in a.detections if d.label != LABEL_DENT
+                 and (proposee(a, d) or d.etat != EtatDetection.A_REVOIR)]
     return {"revues": sum(d.etat != EtatDetection.A_REVOIR for d in anomalies), "total": len(anomalies)}
+
+
+def au_compte_rendu(a: Analysis, d: Detection) -> bool:
+    """Retenue pour le compte rendu : ni rejetée, ni restée sous le seuil sans verdict."""
+    if d.etat == EtatDetection.REJETEE:
+        return False
+    return d.label == LABEL_DENT or d.etat != EtatDetection.A_REVOIR or proposee(a, d)
 
 
 # --- Contrôle des valeurs -------------------------------------------------------------------------

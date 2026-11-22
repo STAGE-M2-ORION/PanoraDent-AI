@@ -158,6 +158,8 @@ def traiter(db: Session, analyse: Analysis) -> None:
         analyse.detections = _detections(resultat, largeur, hauteur, version)
         analyse.model_version = version
         analyse.inference_mode = mode
+        # Seuils de la version qui a RÉELLEMENT répondu (vérifiée ci-dessus).
+        analyse.seuils = registre_modeles.seuils_de(db, demandee)
         analyse.statut = StatutAnalyse.TERMINEE
     except EchecAnalyse as exc:
         db.rollback()

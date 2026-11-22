@@ -128,6 +128,9 @@ class AnalysisOut(BaseModel):
     # Numérotation (sprint 7).
     incoherences: list[IncoherenceOut] = []
     dents_absentes: list[DentAbsenteOut] = []
+    # Seuils d'exploitation par classe (copiés de la version au traitement) ;
+    # None : toute anomalie enregistrée attend un verdict.
+    seuils: dict[str, float] | None = None
 
 
 class AnalysisSummary(BaseModel):
@@ -160,7 +163,7 @@ def analyse_out(a) -> AnalysisOut:
         **{c: getattr(a, c) for c in (
             "id", "created_at", "reference", "date_examen", "note", "image_key", "report_key",
             "model_version", "inference_mode", "version_demandee", "origine_id", "width", "height",
-            "statut", "erreur", "tentatives", "lance_le", "termine_le", "duree_ms",
+            "statut", "erreur", "tentatives", "lance_le", "termine_le", "duree_ms", "seuils",
         )},
         "detections": [detection_out(d, douteuses) for d in a.detections],
         "incoherences": signales,

@@ -89,6 +89,8 @@ class Analysis(Base):
     # celle-ci, même si une bascule a eu lieu entre-temps. Vide : aucune
     # version active, le service d'inférence sert son mode historique.
     version_demandee: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Seuils de la version, copiés au traitement : l'analyse garde ses règles.
+    seuils: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Rejeu d'une analyse avec le modèle courant : l'analyse d'origine.
     origine_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("analyses.id", ondelete="SET NULL"), nullable=True, index=True
@@ -268,6 +270,9 @@ class ModelVersion(Base):
     empreinte_decoupage: Mapped[str | None] = mapped_column(String(64), nullable=True)
     actif: Mapped[bool] = mapped_column(Boolean, default=False)
     active_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Seuils d'exploitation par classe d'anomalie, choisis sur la validation
+    # (sprint 7) ; None : version antérieure, toute anomalie attend un verdict.
+    seuils: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     @property
     def servable(self) -> bool:

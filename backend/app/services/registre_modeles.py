@@ -41,6 +41,14 @@ def demande_d_inference(db: Session, version: str | None) -> dict:
     return {"version": version, "sha_dents": mv.sha256_dents, "sha_anomalies": mv.sha256_anomalies}
 
 
+def seuils_de(db: Session, version: str | None) -> dict | None:
+    """Seuils d'exploitation de la version (None : version sans seuils, ou aucune)."""
+    if not version:
+        return None
+    mv = db.scalar(select(ModelVersion).where(ModelVersion.version == version))
+    return dict(mv.seuils) if mv is not None and mv.seuils else None
+
+
 def basculer(db: Session, version: str, motif: str, utilisateur_id) -> BasculeModele:
     """Active `version` ; lève ApiError si elle ne peut pas servir. Ne valide pas
     la transaction (l'appelant journalise puis valide)."""
