@@ -1,0 +1,4 @@
+# Dépendances du vrai modèle, installées par le Dockerfile APRÈS torch.
+# Même version que training/requirements.txt : des poids produits par une
+# autre version peuvent ne pas se charger.
+ultralytics==8.3.40
