@@ -97,7 +97,7 @@ chiffrée — est ce qui fait la solidité du projet.
 |---|---|
 | **Chaîne applicative** | ✅ Fonctionnelle de bout en bout : import → anonymisation → stockage → inférence → persistance → rapport PDF |
 | **Modèle de détection** | ❌ Aucun modèle entraîné. Le service tourne en **mode mock** et renvoie des détections **factices**. En revanche le pipeline d'entraînement existe ([`training/`](../training/)) et attend les données |
-| **Numérotation FDI** | ✅ Déduite de la géométrie des boîtes ([`fdi.py`](../inference/app/fdi.py)), 9 tests. Ne dépend d'aucun modèle entraîné |
+| **Numérotation FDI** | ✅ Hybride depuis le sprint 7 : le modèle apprend le rang (1 à 8), la géométrie donne le quadrant ([`fdi.py`](../inference/app/fdi.py)) ; incohérences signalées, jamais corrigées d'office ; schéma dentaire cliquable (§10.7) |
 | **Validation scientifique** | 🔬 Non démarrée — **aucun dataset obtenu**. Le protocole est outillé (découpage par patient, test gelé, métriques par classe), il n'a jamais été exécuté |
 | **Revue praticien** | ❌ Schéma de base prêt (`reviewed`, `source`), ni route ni interface |
 
@@ -293,11 +293,11 @@ reste entièrement à écrire.
 
 | Exigence PRD | État | Implémentation |
 |---|---|---|
-| **Numérotation FDI** (quadrant + position) | ✅ | Déduite de la géométrie des boîtes par [`fdi.py`](../inference/app/fdi.py) : médiane verticale pour le côté (image vue face au patient), plan d'occlusion obtenu par 2-moyennes sur les ordonnées, position croissante depuis la médiane. 9 tests |
+| **Numérotation FDI** (quadrant + position) | ✅ | **Hybride** (sprint 7, §10.7) : rang appris par le modèle (`dent_1` … `dent_8`), quadrant donné par la géométrie ([`fdi.py`](../inference/app/fdi.py)) — médiane au centre des incisives, plan d'occlusion par 2-moyennes. Repli sur la position depuis la médiane pour un modèle sans rangs |
 | Détection des 4 anomalies | ⚠️ | Classes déclarées et transportées ; nécessite un modèle entraîné |
 | **Score de confiance affiché** | ✅ | Affiché en pourcentage dans le canvas, en décimal dans le PDF |
 | **Seuil de décision paramétrable** | ⚠️ | `MODEL_CONF_THRESHOLD` (défaut 0,25) filtre en mode réel, côté service. **Aucun réglage côté UI**, et le mock ignore ce seuil |
-| Rattachement dent ↔ anomalie (« carie sur la 36 ») | ✅ | En mode réel, l'anomalie hérite du FDI de la dent qu'elle recouvre à plus de 50 % de son aire ([`fdi.py`](../inference/app/fdi.py)) ; sans recouvrement, `fdi` reste `null` plutôt qu'inventé. En mock, elle réutilise directement la boîte de la dent tirée |
+| Rattachement dent ↔ anomalie (« carie sur la 36 ») | ✅ | L'anomalie est reliée à la dent qui couvre au moins 20 % de son aire (boîte prolongée de 25 % vers l'apex pour une lésion péri-apicale) ; le lien est stocké (`dent_id`) et l'anomalie suit le numéro corrigé de sa dent. Sans recouvrement, `fdi` reste `null` plutôt qu'inventé |
 
 ### 5.3 Revue et correction — ❌ non implémenté
 
@@ -803,6 +803,68 @@ Rapport complet, figures comprises : [docs/evaluation/dentex-2026.11/rapport.md]
   principale limite à présenter, et le premier axe d'amélioration (plus de
   données annotées, taille d'image plus grande pour les petites lésions).
 
+### 10.7 Numérotation hybride et schéma dentaire (sprint 7)
+
+**Pourquoi changer.** La règle purement géométrique du sprint 6 numérote
+correctement 74,8 % des dents sur la validation (boîtes vraies) ; de bout en
+bout, avec `dentex-2026.11`, 74,7 % des dents et seulement **55 % des
+anomalies** reçoivent le bon numéro. L'erreur vient du rang (une dent absente
+décale toutes ses voisines), pas du quadrant.
+
+**Méthode retenue : hybride.** Le modèle des dents apprend le **rang** (huit
+classes `dent_1` … `dent_8`, jeu `rangs`, même découpage `f22d373ede0ff715`) ;
+la géométrie donne le **quadrant** : médiane au centre des incisives (rangs 1
+et 2), plan d'occlusion par 2-moyennes. Plafond mesuré sur la validation avec
+des rangs parfaits : **99,2 %** des dents (98,0 % si la médiane est le milieu
+de l'image). Tous les réglages se font sur la validation ; le test interne
+n'est mesuré qu'**une fois**, à la fin (registre
+`mesures_numerotation_test.jsonl`).
+
+**Incohérences signalées, jamais corrigées d'office.** Recalculées par le
+serveur à partir des numéros *retenus* ([`numerotation.py`](../backend/app/services/numerotation.py)) :
+corriger un numéro fait disparaître le signalement.
+
+| Type | Quand |
+|---|---|
+| `doublon` | deux dents portent le même numéro |
+| `ordre` | dans un quadrant, une dent plus éloignée de la médiane a un rang plus petit |
+| `quadrant_surcharge` | plus de huit dents dans un quadrant |
+| `absente_detectee` | une dent déclarée absente porte une détection |
+
+**Rattachement anomalie → dent.** Part de l'anomalie couverte par la dent
+≥ 0,20 (98,4 % de rattachements justes avec les boîtes vraies, contre 97,1 % à
+0,5) ; pour une lésion péri-apicale, la boîte de la dent est prolongée de
+25 % vers l'apex. Le lien est stocké : une dent renumérotée emporte ses
+anomalies, sauf si le praticien a fixé lui-même le numéro de l'anomalie.
+
+**Schéma dentaire (odontogramme).** SVG des 32 dents, cliquable et navigable
+au clavier (flèches, Entrée, Échap). États : présente, porteuse d'anomalie,
+déclarée absente, non détectée ; numéro à vérifier en orange **et** suivi d'un
+« ? » (lisible en niveaux de gris). La fiche d'une dent permet de changer son
+numéro en le désignant dans le schéma, de rejeter la détection, de déclarer la
+dent absente ou de retirer la déclaration — chaque geste est journalisé.
+Export PNG au nom anonyme (`odontogramme-<référence>.png`).
+
+**Typologie des anomalies.** Urgence **indicative** : un ordre de relecture,
+jamais un diagnostic. La forme double la couleur : carie profonde et dent
+incluse ont presque la même luminance (test automatique).
+
+| Type | Abrév. | Marque | Urgence indicative | Définition affichée |
+|---|---|---|---|---|
+| Carie profonde | CP | carré | prioritaire | atteint la dentine profonde, près de la pulpe |
+| Lésion péri-apicale | LPA | losange | prioritaire | zone sombre autour de l'apex, d'origine pulpaire le plus souvent |
+| Carie | C | rond | à programmer | zone radio-claire de la couronne, à distance de la pulpe |
+| Dent incluse | DI | triangle | à surveiller | dent restée dans l'os, sans éruption |
+
+**Résumé et filtres.** Tableau type × quadrant des anomalies retenues (au-dessus
+du seuil, hors rejetées), types rangés par urgence ; chaque case filtre la
+liste. Filtres par quadrant, par type et par dent (depuis le schéma).
+
+**État.** Code, tests et parcours de bout en bout en place. Le modèle
+`rangs-v1` reste à entraîner (Colab, cellules 5 ter et 6 bis) ; sa mesure de
+numérotation et la version `dentex-2026.11b` (rangs-v1 + anomalies-v1)
+compléteront cette section.
+
 ## 11. Sécurité, confidentialité et conformité réglementaire
 
 > **Le point réglementaire à ne pas ignorer.** Un « logiciel d'aide au
@@ -953,8 +1015,11 @@ l'on n'en a qu'un.
 ([`test_fdi.py`](../inference/app/tests/test_fdi.py)) : denture complète couvrant
 les quatre quadrants, convention droite patient / gauche image, héritage du
 numéro par les anomalies, plan d'occlusion déduit malgré un cadrage décentré,
-arcade unique, écrêtage à la huitième position. Ils n'exigent ni image ni modèle :
-la numérotation est purement géométrique.
+arcade unique, écrêtage à la huitième position. Depuis le sprint 7,
+[`test_numerotation.py`](../inference/app/tests/test_numerotation.py) couvre la
+numérotation hybride (rang appris, médiane des incisives, incohérences,
+rattachement à 0,20 et prolongement vers l'apex). Ils n'exigent ni image ni
+modèle entraîné.
 
 **Ni l'API, ni le stockage, ni le pipeline d'entraînement ne sont testés.** Le
 mock étant déterministe, un test bout-en-bout serait peu coûteux à écrire
@@ -1066,7 +1131,7 @@ Elles ne figurent pas au PRD mais engagent la suite :
 | **Contrat d'inférence `bbox = [x, y, w, h]` en pixels** | Tout modèle branché doit convertir depuis `xyxy` ou des coordonnées normalisées |
 | **Ordre des cinq classes figé** | L'indice YOLO est mappé positionnellement : l'entraînement **doit** respecter cet ordre |
 | **Image redimensionnée à `MODEL_IMAGE_SIZE`** (640) en mode réel, native en mock | Le `--imgsz` d'entraînement doit valoir la même chose ; rien ne le vérifie (§5.1) |
-| **Numérotation FDI déduite, jamais apprise** | Un modèle qui prédirait des numéros de dents verrait sa sortie ignorée : `fdi.py` recalcule tout à partir des boîtes |
+| **Numérotation FDI hybride** (sprint 7) | Le modèle apprend le rang, jamais le quadrant : `fdi.py` place la médiane et le plan d'occlusion. Les classes d'un modèle sont lues dans ses poids ; un modèle à cinq classes reste numéroté par la géométrie seule |
 | **Une analyse = une inférence, synchrone** | Pas de file d'attente ; une inférence longue tient la requête HTTP ouverte |
 | **Échec d'inférence = `500`, rien n'est persisté** | Contredit l'exigence de fiabilité « aucune analyse perdue » (§12) |
 
@@ -1145,7 +1210,7 @@ Vue de synthèse. Chaque ligne renvoie à la section détaillée.
 |---|---|---|---|---|
 | §3 | Import DICOM / JPG / PNG | ✅ | `services/anonymize.py` | 5.1 |
 | §3 / §9.1 | Anonymisation avant tout stockage | ✅ | 13 tags + ré-encodage PNG, testé | 5.1 |
-| §3 / §5.2 | Numérotation FDI | ✅ | `inference/app/fdi.py`, 9 tests | 5.2 |
+| §3 / §5.2 | Numérotation FDI | ✅ | `inference/app/fdi.py`, `backend/app/services/numerotation.py`, schéma `views/analyse` ; parcours `e2e/parcours-numerotation.spec.js` | 5.2, 10.7 |
 | §3 / §5.2 | 4 classes d'anomalies | ⚠️ | `inference/app/config.py` | 1.3 |
 | §3 / §5.2 | Seuil de décision paramétrable | ⚠️ | `MODEL_CONF_THRESHOLD`, service seulement | 5.2 |
 | §3 | Affichage superposé des détections | ✅ | `widgets/detection-viewer` | 4 |

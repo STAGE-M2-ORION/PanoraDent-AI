@@ -587,20 +587,24 @@ toute implémentation qui le respecte est substituable sans toucher au backend.
 `deep_caries`, `periapical_lesion`, `impacted_tooth` — l'index renvoyé par YOLO
 est mappé sur cette liste, dans cet ordre.
 
-**Numérotation FDI** ([fdi.py](inference/app/fdi.py)) — le détecteur renvoie
-des boîtes et une classe, **jamais un numéro de dent**. Le FDI est donc déduit
-après l'inférence : `width / 2` sépare les côtés (l'image est vue *face au
-patient*, sa droite est à gauche des pixels), un 2-moyennes sur les ordonnées
-des boîtes situe le plan d'occlusion — qui n'est **pas** à mi-hauteur de l'image
-—, puis chaque dent reçoit sa position en s'éloignant de la médiane. Les
-anomalies **héritent** du numéro de la dent qu'elles recouvrent à plus de 50 % ;
-sans recouvrement, `fdi` reste `null` plutôt qu'inventé. Désactivable par
-`ASSIGN_FDI=0`.
+**Numérotation FDI hybride** ([fdi.py](inference/app/fdi.py), sprint 7) — le
+modèle des dents apprend le **rang** (classes `dent_1` … `dent_8`, lues dans ses
+poids) ; la géométrie donne le **quadrant** : la médiane passe au centre des
+incisives (l'image est vue *face au patient*, sa droite est à gauche des
+pixels), un 2-moyennes sur les ordonnées situe le plan d'occlusion — qui n'est
+**pas** à mi-hauteur de l'image. Un modèle sans rangs est numéroté par la
+position depuis la médiane. Les incohérences (`doublon`, `ordre`,
+`quadrant_surcharge`, `absente_detectee`) sont **signalées, jamais corrigées
+d'office**. Chaque anomalie est reliée à la dent qui couvre au moins 20 % de son
+aire (boîte prolongée de 25 % vers l'apex pour une lésion péri-apicale) ; sans
+recouvrement, `fdi` reste `null` plutôt qu'inventé. Désactivable par
+`ASSIGN_FDI=0`. Mesures et typologie : [DOCUMENTATION §10.7](docs/DOCUMENTATION.md).
 
 **Mode mock** ([model.py](inference/app/model.py)) : 6 à 12 boîtes `tooth`
 réparties sur l'arcade (confiance 0,80–0,99), plus jusqu'à 3 anomalies tirées au
 sort (0,55–0,90) qui **réutilisent la boîte exacte d'une dent** — la
-superposition est attendue. Le générateur est initialisé sur `width`/`height` :
+superposition est attendue — et en portent l'index (`dent`), comme la
+numérotation ; chaque dent porte son rang. Le générateur est initialisé sur `width`/`height` :
 les détections sont **déterministes pour une taille d'image donnée**, ce qui rend
 les tests reproductibles.
 
@@ -725,9 +729,13 @@ exemptée explicitement** (écriture refusée, route par route). Seul
 applicatif nommé comme un test (`test_*.py`, `*_test.py`) serait sinon importé
 avant `conftest.py`, avec la mauvaise configuration.
 
-**Inférence** — neuf tests sur la numérotation FDI
-([test_fdi.py](inference/app/tests/test_fdi.py)), sans image ni modèle : la
-numérotation est purement géométrique.
+**Inférence** — numérotation FDI géométrique
+([test_fdi.py](inference/app/tests/test_fdi.py)) et hybride
+([test_numerotation.py](inference/app/tests/test_numerotation.py) : rang appris,
+médiane des incisives, incohérences, rattachement à 0,20, prolongement vers
+l'apex, générateur factice), registre des modèles
+([test_registre.py](inference/app/tests/test_registre.py)) ; sans image réelle ni
+modèle entraîné.
 
 **Web** — vitest ([vitest.config.mjs](frontend/vitest.config.mjs)) : client HTTP
 (un seul rafraîchissement partagé, requête rejouée une fois, jamais sur un refus
@@ -742,7 +750,10 @@ un champ de saisie, contenu et nom de l'export PNG ; pour la relecture
 historique, cadres édités **toujours dans l'image** (déplacement,
 redimensionnement par chaque coin, tracé), envoi en fractions bornées à
 [0, 1], seules les valeurs corrigées envoyées au serveur, annulation d'un
-ajout, décompte de l'écran de clôture.
+ajout, décompte de l'écran de clôture ; pour la numérotation (sprint 7) : états
+des 32 dents du schéma, navigation au clavier, export SVG autonome, typologie
+(définition, urgence, une forme par type — test de luminance en niveaux de
+gris), résumé type × quadrant et filtres cumulés.
 
 **Parcours dans un navigateur** — Playwright
 ([parcours-connexion.spec.js](frontend/e2e/parcours-connexion.spec.js)), contre une
@@ -777,7 +788,15 @@ refusée tant qu'une détection reste à revoir, corrige le type et le cadre
 annule ce verdict, trace une détection oubliée, recharge la page et retrouve
 son avancement et sa sélection, puis clôture avec une conclusion : l'analyse
 passe en lecture seule, que le praticien ne peut pas rouvrir ; l'administrateur
-la rouvre avec un motif. Sur un poste qui fait
+la rouvre avec un motif
+([parcours-numerotation.spec.js](frontend/e2e/parcours-numerotation.spec.js),
+sprint 7) : le schéma montre les 32 dents et se parcourt au clavier ; la
+typologie s'affiche (définition, urgence, marques) ; une case du résumé filtre
+la liste, le sélecteur de quadrant aussi ; une dent non détectée est déclarée
+absente, le reste après rechargement, puis est rétablie ; une dent renumérotée
+dans le schéma emporte son anomalie ; deux dents au même numéro sont signalées
+en orange avec le message du serveur ; le schéma s'exporte en PNG sous la seule
+référence anonyme. Sur un poste qui fait
 déjà tourner la stack de développement, la stack de test est un projet séparé
 (sa propre base) sur le port 3100 :
 
