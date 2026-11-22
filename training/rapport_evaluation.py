@@ -175,6 +175,42 @@ def section_donnees(dents_dir: Path) -> list[str]:
     return lignes
 
 
+def section_lecture(nom: str, run_dir: Path) -> list[str]:
+    """Comment lire les chiffres d'un modèle : validation contre test, bruit du plateau.
+
+    Tout est calculé à partir du journal et des mesures du run, rien n'est écrit
+    à la main : le texte reste juste pour n'importe quelle version.
+    """
+    journal = lire_journal(run_dir)
+    meilleure = meilleure_epoque(journal)
+    test = lire_json(run_dir / "evaluation_test" / "metrics.json")
+    if not journal or meilleure is None or test is None:
+        return []
+    val = [l["mesures"].get("metrics/mAP50(B)") for l in journal]
+    val = [v for v in val if v is not None]
+    queue = val[len(val) // 2:]                       # seconde moitié : le plateau
+    moyenne = sum(queue) / len(queue)
+    ecart = (sum((v - moyenne) ** 2 for v in queue) / len(queue)) ** 0.5
+    v_best = meilleure["mesures"].get("metrics/mAP50(B)")
+    t = test["detection"]["global"]["mAP50"]
+    rares = [(CLASSES[i], d["instances"]) for i, n in enumerate(CLASSES)
+             if (d := test["detection"].get("par_classe", {}).get(n)) and d.get("instances", 999) < 50]
+    lignes = [f"### Comment lire ces chiffres — modèle « {nom} »", "",
+              f"- **Le chiffre de référence est celui du test interne : mAP@0,50 = {nombre(t)}.** "
+              "Ces clichés n'ont servi à rien d'autre, et le test n'a été évalué qu'une fois.",
+              f"- La mAP de validation de la meilleure époque ({nombre(v_best)}) est **optimiste** : c'est "
+              "sur elle qu'ont été choisis l'époque retenue et l'arrêt anticipé.",
+              f"- Sur la seconde moitié de l'entraînement, la mAP de validation forme un plateau de "
+              f"{nombre(moyenne)} en moyenne, avec des oscillations de ±{nombre(ecart, 2)} d'une époque à "
+              "l'autre : la meilleure époque est en partie un pic de ce bruit, ce qui explique l'écart avec "
+              "le test."]
+    if rares:
+        lignes.append("- **Classes rares** : " + ", ".join(f"{LIBELLES[n]} ({k} boîtes au test)" for n, k in rares)
+                      + " — quelques détections de plus ou de moins font varier leur mesure de plusieurs points ; "
+                      "elle indique une tendance, pas une valeur précise.")
+    return lignes + [""]
+
+
 LIMITES = """## Limites
 
 - **Prototype de recherche, non certifié dispositif médical.** Les détections sont des propositions ; la décision relève du praticien.
@@ -195,6 +231,7 @@ def construire(args) -> Path:
     lignes += section_donnees(args.dents)
     lignes += section_modele("dents", args.dents, sortie)
     lignes += section_modele("anomalies", args.anomalies, sortie)
+    lignes += section_lecture("anomalies", args.anomalies)
     lignes += section_externe(args.anomalies)
     lignes += [LIMITES]
     (sortie / "rapport.md").write_text("\n".join(lignes), encoding="utf-8")
