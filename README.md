@@ -201,6 +201,8 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `S3_BUCKET` | `panoradent` | Bucket, créé à la volée |
 | `MODEL_VERSION` | `mock-0.0.0` | Version tracée dans chaque analyse |
 | `MODEL_STRICT` | `0` | `1` = le service d'inférence **refuse de démarrer** au lieu de retomber en mock. À activer dès qu'un modèle est branché |
+| `MODEL_WEIGHTS_DIR` | `/weights` | Service d'inférence : dossier des versions publiées (`<version>/dents.pt`, `anomalies.pt`) |
+| `MODEL_CACHE_MAX` | `3` | Service d'inférence : nombre de versions gardées en mémoire |
 | `MODEL_IMAGE_SIZE` | `640` | Taille d'entrée du modèle — **doit être identique** au `--imgsz` de l'entraînement |
 | `MODEL_CONF_THRESHOLD` | `0.25` | Seuil de confiance en mode réel |
 | `ASSIGN_FDI` | `1` | Numérotation FDI déduite de la géométrie des boîtes |
@@ -266,11 +268,15 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 | `POST` | `/api/v1/analyses/{id}/cloturer` | Clôture ; `409 detections_a_revoir` (avec le compte) tant qu'une anomalie reste sans verdict ; journalisée — `detection:review` |
 | `POST` | `/api/v1/analyses/{id}/rouvrir` | Réouverture, motif obligatoire, journalisée — `analysis:reopen` |
 | `POST` | `/api/v1/analyses/{id}/report` | Génère le PDF (valeurs retenues, rejets exclus), renvoie une URL présignée ; analyse non terminée : `409` — `report:generate` |
+| `POST` | `/api/v1/analyses/{id}/rejouer` | Nouvelle analyse du même cliché avec le **modèle actif**, liée à l'originale (`origine_id`), avec sa propre copie de l'image ; l'originale n'est pas touchée (même clôturée). `409` : non terminée, aucun modèle actif, déjà faite avec le modèle actif — `analysis:create` |
+| `GET` | `/api/v1/analyses/{id}/comparaison` | Sur un rejeu : propositions des deux modèles par classe (`?seuil=0.25`) — communes (même classe, IoU ≥ 0,50), vues seulement par l'un ou l'autre — `analysis:read` |
+| `GET` | `/api/v1/stockage` | Volume occupé dans le stockage objet, alerte au-delà de `STOCKAGE_ALERTE_GO` — `user:manage` |
+| `GET` | `/api/v1/model/versions` | Registre : versions publiées par [`training/publish_model.py`](training/publish_model.py), la plus récente d'abord — `actif`, `servable`, mesures, empreintes des poids et du découpage — `model:read` |
+| `POST` | `/api/v1/model/versions/{version}/activer` | **Bascule**, motif obligatoire : le service d'inférence charge et vérifie la version **avant** qu'elle ne devienne active ; refus (`409`, `503`) : rien ne change. Journalisée — `model:manage` |
+| `GET` | `/api/v1/model/bascules` | Journal des bascules (date, auteur, de, vers, motif) — `model:read` |
 
 Toute écriture de relecture sur une analyse **clôturée** répond `409
 analyse_cloturee`.
-| `GET` | `/api/v1/stockage` | Volume occupé dans le stockage objet, alerte au-delà de `STOCKAGE_ALERTE_GO` — `user:manage` |
-| `GET` | `/api/v1/model/versions` | Versions de modèle + métriques. Alimentée par [`training/publish_model.py`](training/publish_model.py) ; `[]` tant qu'aucun modèle n'a été publié |
 
 Les routes image et rapport renvoient `{"url": "…"}` — une URL présignée valable
 **3600 s**, pas une redirection ni le binaire.
@@ -406,14 +412,15 @@ second fige la liste des routes publiques.
 | `detection:review` | verdicts, annulation, ajout, conclusion, clôture (toute analyse du cabinet) |
 | `analysis:reopen` | `POST /api/v1/analyses/{id}/rouvrir` (administrateur seul) |
 | `report:generate` | `POST /api/v1/analyses/{id}/report` |
-| `model:read` | `GET /api/v1/model/versions` |
+| `model:read` | `GET /api/v1/model/versions`, `/model/bascules` |
+| `model:manage` | `POST /api/v1/model/versions/{version}/activer` (administrateur seul) |
 | `user:manage` | `/api/v1/utilisateurs` (liste, création, modification), `/{id}/sessions` (liste, fermeture), `/{id}/renvoyer-lien`, `/{id}/reinitialiser-mot-de-passe` |
 | `role:manage` | `/api/v1/roles` en écriture (création, modification, `/{id}/dupliquer`, suppression) — `GET /api/v1/roles` et `GET /api/v1/permissions` sont aussi ouverts à `user:manage` |
 | *session ouverte* | `/api/v1/moi`, `/moi/*`, `/photos/{id}`, `/auth/deconnexion` |
 
 | Rôle système | Permissions |
 |---|---|
-| Administrateur | les neuf (dont `analysis:reopen`) |
+| Administrateur | les dix (dont `analysis:reopen` et `model:manage`) |
 | Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
 | Lecteur | `analysis:read`, `model:read` |
 
@@ -500,7 +507,16 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   d'annulation `annule_le` / `annule_par_id`. L'écart entre le modèle et le
   praticien reste ainsi mesurable.
 - **`analyses`**, relecture : `conclusion`, `cloturee_le?`, `cloturee_par_id?`.
-- **`model_versions`** — `version` (unique), `dataset`, `metrics_json`, `notes`.
+- **`model_versions`** (registre, migration `0010_registre_modeles`) — une
+  version est une **paire** : `poids_dents` / `poids_anomalies` (chemins sous le
+  dossier des poids), `sha256_dents` / `sha256_anomalies`,
+  `empreinte_decoupage`, `dataset`, `metrics_json`, `notes`, `actif` (**une
+  seule** version active, tenu par un index unique partiel) et `active_le`.
+  **`model_bascules`** : `horodatage`, `utilisateur_id`, `version_precedente`,
+  `version`, `motif`.
+- **`analyses`**, registre : `version_demandee` (version active **épinglée à la
+  mise en file** : le worker la demande, une bascule ne la change pas) et
+  `origine_id` (analyse d'origine d'un rejeu).
 - **Authentification** (migrations `0003_auth_google`, `0004_photo_profil`,
   `0005_mot_de_passe_profil`) : `utilisateur` (UUID, `email` citext unique,
   `nom`, `prenom`, `mot_de_passe` = empreinte bcrypt nullable, `google_sub` unique
@@ -530,8 +546,21 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
 ## Service d'inférence
 
 Service FastAPI autonome ([`inference/`](inference/)), sans accès base ni
-stockage. `GET /health` → `{status, mode, version}` ; `POST /infer` → détections.
-Le modèle est chargé une seule fois au `startup`.
+stockage. `GET /health` → `{status, mode, version, versions_chargees}` ;
+`POST /infer` → détections ; `POST /charger` → précharge une version.
+
+**Registre de versions** ([registre.py](inference/app/registre.py)). Une version
+est une **paire** de modèles rangée sous `<MODEL_WEIGHTS_DIR>/<version>/` :
+`dents.pt` (classe `tooth`) et `anomalies.pt` (les quatre diagnostics). Le
+worker envoie à `/infer` la version épinglée sur l'analyse et les empreintes
+sha256 publiées ; la paire est chargée une fois puis gardée en mémoire
+(`MODEL_CACHE_MAX` versions, la moins récemment servie est évincée). Poids
+absents : `404 modele_introuvable` ; empreinte différente de la publication :
+`409 poids_differents` ; **jamais de repli silencieux sur le mock** quand une
+version est demandée. Chaque modèle ne garde que ses classes, puis la
+numérotation FDI porte sur l'ensemble. Sans version demandée (aucune version
+active), le mode historique ci-dessous s'applique : fichier unique
+`MODEL_WEIGHTS_PATH`, chargé au `startup`, ou mock.
 
 ```json
 { "mode": "mock", "model_version": "mock-0.0.0",
@@ -566,17 +595,21 @@ les tests reproductibles.
 
 ### Brancher le vrai modèle
 
-1. **Entraîner** — tout est dans [training/README.md](training/README.md). Le
-   pipeline vit dans [`training/`](training/) et tourne **hors de la stack**
-   (Colab ou machine GPU). `train.py` refuse de démarrer si l'ordre des classes
-   du dataset diverge de [config.py](inference/app/config.py).
-2. **Publier** — `python training/publish_model.py … --install` dépose les poids
-   dans [`inference/weights/model.pt`](inference/weights/) (monté en lecture
-   seule, `*.pt` exclus du dépôt) et écrit les métriques dans `model_versions`.
-3. Décommenter `ultralytics` dans [requirements.txt](inference/requirements.txt)
-   et le bloc `torch` du [Dockerfile](inference/Dockerfile).
-4. Renseigner `MODEL_VERSION`, `MODEL_STRICT=1` et `MODEL_IMAGE_SIZE` dans `.env`.
-5. `docker compose up --build` — le rebuild est obligatoire.
+1. **Entraîner** les deux modèles (dents, anomalies) et les évaluer — tout est
+   dans [training/README.md](training/README.md). Le pipeline tourne **hors de
+   la stack**.
+2. **Publier la paire** — `python training/publish_model.py --version <nom>
+   --dents runs/<dents> --anomalies runs/<anomalies>` copie les poids sous
+   [`inference/weights/<nom>/`](inference/weights/) (monté en lecture seule,
+   `*.pt` exclus du dépôt) et inscrit la version au registre, **non active**.
+3. **Une fois** : décommenter `ultralytics` dans
+   [requirements.txt](inference/requirements.txt) et le bloc `torch` du
+   [Dockerfile](inference/Dockerfile), renseigner `MODEL_IMAGE_SIZE` dans
+   `.env`, puis `docker compose up --build inference`. Sans eux, une bascule est
+   refusée proprement (« modèle illisible »).
+4. **Activer** — Administration › Modèles › Activer, avec un motif. Les
+   versions suivantes se publient et s'activent **sans redéploiement** ; les
+   analyses déjà en file gardent leur version.
 
 **`MODEL_STRICT=1` est le réglage qui compte.** Par défaut, des poids illisibles
 font retomber le service en mock **sans lever d'erreur** (message `échec du
