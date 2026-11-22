@@ -23,6 +23,8 @@ export async function previewAnalysis(file, { masks = [], onProgress } = {}) {
     width: data.largeur,
     height: data.hauteur,
     autoZones: data.zones_auto.map(toZone),
+    // « modele_texte » (détecteur OpenCV) ou « heuristique » (secours).
+    detectionMethod: data.methode ?? "heuristique",
     manualZones: data.zones_manuelles.map(toZone),
     before: data.avant,
     after: data.apres,

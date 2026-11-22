@@ -94,3 +94,8 @@
   @keyframes pd-indet { 0% { left: -35%; } 100% { left: 100%; } }
   @media (prefers-reduced-motion: reduce) { .progress.indeterminate > span { animation: none; width: 100%; opacity: .5; } }
 }
+
+/* Méthode de détection des inscriptions (sprint 6) : le secours est signalé. */
+.v-nouvelle-analyse {
+  .mask-method { font-size: var(--text-xs); color: var(--color-muted); }
+}

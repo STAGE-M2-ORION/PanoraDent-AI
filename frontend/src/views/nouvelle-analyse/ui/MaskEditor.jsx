@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 
-import { Button, Icon } from "@/shared/ui";
+import { Alert, Button, Icon } from "@/shared/ui";
 
-import { MAX_MASKS, isUsable, rectFromPoints, round, toFraction, toStyle } from "../model/masks";
+import { MAX_MASKS, detectionMethodNotice, isUsable, rectFromPoints, round, toFraction, toStyle } from "../model/masks";
 
 /**
  * Aperçu avant / après anonymisation, avec les zones masquées superposées.
@@ -91,6 +91,15 @@ export function MaskEditor({ preview, masks, onChange, disabled }) {
             ? `${preview.autoZones.length} inscription${preview.autoZones.length > 1 ? "s" : ""} masquée${preview.autoZones.length > 1 ? "s" : ""} automatiquement`
             : "Aucune inscription détectée automatiquement : vérifiez l’image."}
         </span>
+        {detectionMethodNotice(preview.detectionMethod).tone === "warning" ? (
+          <Alert tone="warning" role="note" data-methode={preview.detectionMethod}>
+            {detectionMethodNotice(preview.detectionMethod).text}
+          </Alert>
+        ) : (
+          <span className="mask-method" data-methode={preview.detectionMethod}>
+            {detectionMethodNotice(preview.detectionMethod).text}
+          </span>
+        )}
         {masks.length ? (
           <ul className="mask-list" aria-label="Masques ajoutés à la main">
             {masks.map((m, i) => (
