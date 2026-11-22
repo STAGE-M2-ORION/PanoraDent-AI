@@ -162,3 +162,17 @@ def test_paire_avec_modele_rangs_ou_ancien_modele_dents(ancien):
         assert sorted(d["fdi"] for d in dets) == [11, 12, 21, 22]        # rang par ordre
     else:
         assert sorted(d["fdi"] for d in dets) == [11, 16, 21, 25]        # rang appris
+
+
+def test_mock_relie_les_anomalies_a_leur_dent_et_donne_les_rangs():
+    """Le générateur factice (tests de bout en bout) imite la numérotation :
+    rang appris pour chaque dent, index de la dent hôte pour chaque anomalie."""
+    from app import model
+
+    dets = model._mock_detections(1600, 800)
+    dents = [d for d in dets if d["label"] == "tooth"]
+    anomalies = [d for d in dets if d["label"] != "tooth"]
+    assert anomalies and all(d["rang"] == d["fdi"] % 10 for d in dents)
+    for a in anomalies:
+        hote = dets[a["dent"]]
+        assert hote["label"] == "tooth" and hote["fdi"] == a["fdi"] and hote["bbox"] == a["bbox"]

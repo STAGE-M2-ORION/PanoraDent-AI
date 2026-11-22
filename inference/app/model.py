@@ -57,16 +57,20 @@ def _mock_detections(width: int, height: int):
         dets.append({
             "label": "tooth",
             "fdi": quadrant * 10 + position,
+            "rang": position,
             "confidence": round(rng.uniform(0.80, 0.99), 2),
             "bbox": [round(x), round(y), round(w), round(h)],
         })
-    # Quelques anomalies factices sur certaines dents.
-    for det in rng.sample(dets, k=min(3, len(dets))):
+    # Quelques anomalies factices sur certaines dents, reliées à leur dent
+    # hôte (`dent` : index dans la réponse), comme le fait la numérotation.
+    for index in rng.sample(range(len(dets)), k=min(3, len(dets))):
+        det = dets[index]
         anomaly = rng.choice(config.CLASSES[1:])
         x, y, w, h = det["bbox"]
         dets.append({
             "label": anomaly,
             "fdi": det["fdi"],
+            "dent": index,
             "confidence": round(rng.uniform(0.55, 0.90), 2),
             "bbox": [x, y, w, h],
         })
