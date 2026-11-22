@@ -2,3 +2,8 @@
 # Même version que training/requirements.txt : des poids produits par une
 # autre version peuvent ne pas se charger.
 ultralytics==8.3.40
+# Épinglés aux versions de l'environnement d'entraînement : sans cela, pip
+# tire la dernière version d'opencv, qui exige numpy 2, alors que torch 2.3.1
+# est compilé pour numpy 1.x.
+numpy==1.26.4
+opencv-python==4.11.0.86
