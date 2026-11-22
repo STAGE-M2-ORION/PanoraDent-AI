@@ -16,13 +16,13 @@ import cv2
 import numpy as np
 
 import augmentations
-from config import CLASSES
+from train import read_class_names
 
 #: Couleur BGR par classe, lisible sur fond gris.
 COULEURS = [(80, 200, 80), (40, 40, 230), (0, 140, 255), (230, 80, 200), (230, 200, 40)]
 
 
-def dessiner(element: dict) -> np.ndarray:
+def dessiner(element: dict, noms: list[str]) -> np.ndarray:
     """Image augmentée (tenseur CHW RVB) avec ses boîtes, en BGR pour OpenCV."""
     img = element["img"].numpy().transpose(1, 2, 0)[:, :, ::-1].copy()
     h, w = img.shape[:2]
@@ -31,7 +31,7 @@ def dessiner(element: dict) -> np.ndarray:
         x2, y2 = int((cx + bw / 2) * w), int((cy + bh / 2) * h)
         couleur = COULEURS[int(c) % len(COULEURS)]
         cv2.rectangle(img, (x1, y1), (x2, y2), couleur, max(1, w // 400))
-        cv2.putText(img, CLASSES[int(c)], (x1, max(10, y1 - 3)), cv2.FONT_HERSHEY_SIMPLEX,
+        cv2.putText(img, noms[int(c)], (x1, max(10, y1 - 3)), cv2.FONT_HERSHEY_SIMPLEX,
                     max(0.3, w / 2000), couleur, 1, cv2.LINE_AA)
     return img
 
@@ -51,7 +51,8 @@ def planche(data_yaml: Path, sortie: Path, n: int = 16, imgsz: int = 640,
     random.seed(graine)
     np.random.seed(graine)
     indices = [random.randrange(len(dataset)) for _ in range(n)]
-    vignettes = [dessiner(dataset[i]) for i in indices]
+    noms = read_class_names(data_yaml)          # contrat ou rangs (sprint 7)
+    vignettes = [dessiner(dataset[i], noms) for i in indices]
 
     taille = max(max(v.shape[:2]) for v in vignettes)
     lignes = -(-n // colonnes)

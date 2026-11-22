@@ -52,3 +52,13 @@ def test_entrainement_et_evaluation_d_un_modele_rangs(tmp_path):
     assert metrics["classes"] == CLASSES_RANGS
     assert set(metrics["detection"]["par_classe"]) == set(CLASSES_RANGS)
     assert metrics["detection"]["confusion"]["etiquettes"] == CLASSES_RANGS + ["fond"]
+
+
+def test_planche_d_un_jeu_rangs(tmp_path):
+    """Les rangs vont jusqu'à 8 : la planche lit les noms dans le data.yaml du jeu."""
+    import cv2
+    from planche_augmentations import planche
+
+    data = ecrire_jeu(tmp_path / "jeu", noms=CLASSES_RANGS)
+    sortie = planche(data, tmp_path / "planche.jpg", n=4, imgsz=128)
+    assert cv2.imread(str(sortie)) is not None
