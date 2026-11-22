@@ -27,3 +27,14 @@ MODEL_STRICT = _flag("MODEL_STRICT")
 
 # Numérotation FDI dérivée de la géométrie des boîtes (app/fdi.py).
 ASSIGN_FDI = _flag("ASSIGN_FDI", "1")
+
+# --- Registre de modèles (sprint 6, lot B) -----------------------------------
+# Une VERSION est une paire de modèles : `dents.pt` (classe tooth) et
+# `anomalies.pt` (les quatre diagnostics), rangés sous
+# <MODEL_WEIGHTS_DIR>/<version>/. Le backend désigne la version à chaque
+# requête ; le service n'a ni base ni état partagé : tout vient de la requête
+# et du disque. Plusieurs versions restent en mémoire (la plus anciennement
+# utilisée est évincée au-delà de MODEL_CACHE_MAX), si bien qu'une bascule
+# n'interrompt rien et qu'une file ne mélange jamais deux versions.
+MODEL_WEIGHTS_DIR = os.getenv("MODEL_WEIGHTS_DIR", "/weights")
+MODEL_CACHE_MAX = max(1, int(os.getenv("MODEL_CACHE_MAX", "3")))

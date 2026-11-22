@@ -73,29 +73,47 @@ def _mock_detections(width: int, height: int):
     return dets
 
 
+def _boites(modele, image, garder) -> list[dict]:
+    """Détections d'un modèle YOLO, en pixels de l'image source.
+
+    `imgsz` redimensionne en letterbox pour l'inférence ; ultralytics remet les
+    boîtes à l'échelle de l'image d'origine. `garder(label)` filtre les classes.
+    """
+    dets = []
+    for r in modele.predict(image, imgsz=config.MODEL_IMAGE_SIZE,
+                            conf=config.MODEL_CONF_THRESHOLD, verbose=False):
+        for box in r.boxes:
+            cls_id = int(box.cls[0])
+            label = config.CLASSES[cls_id] if cls_id < len(config.CLASSES) else str(cls_id)
+            if not garder(label):
+                continue
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            dets.append({
+                "label": label,
+                "fdi": None,  # renseigné ensuite par déduction géométrique
+                "confidence": round(float(box.conf[0]), 2),
+                "bbox": [round(x1), round(y1), round(x2 - x1), round(y2 - y1)],
+            })
+    return dets
+
+
+def _numeroter(dets, width: int, height: int):
+    return fdi.assign_fdi(dets, width, height) if config.ASSIGN_FDI else dets
+
+
+def predict_paire(paire, image, width: int, height: int):
+    """Une version = deux modèles. Chacun ne garde que ses propres classes :
+    le modèle « dents » n'a appris que `tooth`, le modèle « anomalies » que les
+    diagnostics ; une sortie hors de son rôle serait du bruit. Les dents
+    servent ensuite à numéroter, et les anomalies héritent du numéro de la
+    dent qu'elles recouvrent."""
+    dents = _boites(paire.dents, image, lambda label: label == config.CLASSES[0])
+    anomalies = _boites(paire.anomalies, image, lambda label: label != config.CLASSES[0])
+    return _numeroter(dents + anomalies, width, height)
+
+
 def predict(image, width: int, height: int):
-    """Retourne une liste de détections normalisées."""
+    """Mode historique (un seul fichier `MODEL_WEIGHTS_PATH`) ou mock."""
     if _mode == "real" and _model is not None:
-        # `imgsz` redimensionne en letterbox pour l'inférence ; ultralytics
-        # remet les boîtes à l'échelle de l'image d'origine, les coordonnées
-        # renvoyées sont donc bien en pixels source.
-        results = _model.predict(
-            image,
-            imgsz=config.MODEL_IMAGE_SIZE,
-            conf=config.MODEL_CONF_THRESHOLD,
-            verbose=False,
-        )
-        dets = []
-        for r in results:
-            for box in r.boxes:
-                cls_id = int(box.cls[0])
-                xyxy = box.xyxy[0].tolist()
-                x1, y1, x2, y2 = xyxy
-                dets.append({
-                    "label": config.CLASSES[cls_id] if cls_id < len(config.CLASSES) else str(cls_id),
-                    "fdi": None,  # renseigné ci-dessous par déduction géométrique
-                    "confidence": round(float(box.conf[0]), 2),
-                    "bbox": [round(x1), round(y1), round(x2 - x1), round(y2 - y1)],
-                })
-        return fdi.assign_fdi(dets, width, height) if config.ASSIGN_FDI else dets
+        return _numeroter(_boites(_model, image, lambda label: True), width, height)
     return _mock_detections(width, height)

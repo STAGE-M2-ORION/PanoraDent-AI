@@ -5,4 +5,6 @@ pillow==10.3.0
 numpy==1.26.4
 pytest==8.2.0
 # Décommenter quand un vrai modèle est branché :
-# ultralytics==8.2.0
+# Même version que training/requirements.txt : des poids produits par une
+# autre version peuvent ne pas se charger.
+# ultralytics==8.3.40
