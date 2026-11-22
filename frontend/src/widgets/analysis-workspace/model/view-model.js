@@ -40,8 +40,10 @@ export function demoViewModel() {
     closedBy: null,
     conclusion: "",
     api: null, // démonstration : relecture locale, rien n'est envoyé
-    teeth: Object.values(PANO_TEETH).map((t) => ({ fdi: t.fdi, box: t.box, cx: t.cx, upper: t.upper })),
+    teeth: Object.values(PANO_TEETH).map((t) => ({ id: `demo-${t.fdi}`, fdi: t.fdi, box: t.box, cx: t.cx, upper: t.upper, status: "pending", doubtful: false, rank: null, proposalFdi: t.fdi })),
     dets,
+    incoherences: [],
+    absentTeeth: [],
   };
 }
 
@@ -72,9 +74,21 @@ export function toViewDetection(d) {
 /** Analyse réelle (entité `analysis`) → modèle de la vue. */
 export function realViewModel(analysis, { imageUrl, number }) {
   const toBox = (d) => ({ x: d.x, y: d.y, w: d.width, h: d.height });
+  // Une dent rejetée (fausse détection) ne compte plus ; `proposalFdi` : le
+  // numéro proposé, quand le praticien l'a corrigé.
   const teeth = analysis.detections
-    .filter((d) => d.label === DetectionLabel.TOOTH && d.fdi != null)
-    .map((d) => ({ fdi: d.fdi, box: toBox(d), cx: d.x + d.width / 2, upper: d.fdi < 30 }));
+    .filter((d) => d.label === DetectionLabel.TOOTH && d.fdi != null && d.status !== "rejected")
+    .map((d) => ({
+      id: d.id,
+      fdi: d.fdi,
+      box: toBox(d),
+      cx: d.x + d.width / 2,
+      upper: d.fdi < 30,
+      status: d.status,
+      doubtful: Boolean(d.doubtful),
+      rank: d.rank ?? null,
+      proposalFdi: d.proposal?.fdi ?? d.fdi,
+    }));
   const dets = analysis.detections
     .filter((d) => d.label !== DetectionLabel.TOOTH)
     .map(toViewDetection);
@@ -104,6 +118,8 @@ export function realViewModel(analysis, { imageUrl, number }) {
     api: { id: analysis.id, width: analysis.width, height: analysis.height },
     teeth,
     dets,
+    incoherences: analysis.incoherences ?? [],
+    absentTeeth: analysis.absentTeeth ?? [],
   };
 }
 
