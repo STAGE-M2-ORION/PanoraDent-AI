@@ -325,6 +325,7 @@ export const Viewer = forwardRef(function Viewer(
                           onClick={onPickTooth ? (e) => (e.stopPropagation(), onPickTooth(t.fdi)) : undefined}
                         >
                           {t.fdi}
+                          {t.doubtful ? "?" : ""}
                         </text>
                       </g>
                     );

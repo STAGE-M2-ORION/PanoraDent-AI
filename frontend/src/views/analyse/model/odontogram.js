@@ -156,7 +156,7 @@ export function toSvgString(states, { title = "Schéma dentaire (FDI)" } = {}) {
         .join("");
       return (
         `<g><rect x="${p.cx - 14}" y="${top}" width="28" height="38" rx="5" fill="none" stroke="${trait}" stroke-width="${s.doubtful ? 2.5 : 1.5}"${pointille}/>` +
-        `<text x="${p.cx}" y="${top + 24}" text-anchor="middle" font-family="monospace" font-size="11" fill="${couleur}">${s.fdi}</text>` +
+        `<text x="${p.cx}" y="${top + 24}" text-anchor="middle" font-family="monospace" font-size="11" fill="${couleur}">${s.fdi}${s.doubtful ? "?" : ""}</text>` +
         `${s.state === ToothState.ABSENT ? `<line x1="${p.cx - 10}" y1="${top + 4}" x2="${p.cx + 10}" y2="${top + 34}" stroke="${EXPORT.attenue}"/>` : ""}${marques}</g>`
       );
     })

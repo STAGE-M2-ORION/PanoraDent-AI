@@ -44,6 +44,12 @@ function Tooth({ s, selected, focusable, choosing, onActivate, onKey, setRef }) 
       <text className="num" x={s.cx} y={yNum} textAnchor="middle">
         {s.fdi}
       </text>
+      {/* Repère sans couleur du numéro à vérifier (lisible en niveaux de gris). */}
+      {s.doubtful ? (
+        <text className="flag" x={s.cx + 13} y={yNum} textAnchor="start" aria-hidden="true">
+          ?
+        </text>
+      ) : null}
       {s.anomalies.slice(0, 3).map((d, i) => (
         <path key={d.id} className="mark" d={markPath(d.label, s.cx - 9 + i * 9, upper ? 80 : 98, 4)} fill={detectionType(d.label).color} />
       ))}
@@ -130,30 +136,32 @@ export function Odontogram({ states, positions, selectedTooth, onPick, choosing,
           />
         ))}
       </svg>
-      <ul className="odonto-legend" aria-label="Légende du schéma">
-        <li>
-          <span className="lg lg-present" aria-hidden="true" /> présente
-        </li>
-        <li>
-          <span className="lg lg-anomaly" aria-hidden="true" /> porteuse d&apos;anomalie
-        </li>
-        <li>
-          <span className="lg lg-absent" aria-hidden="true" /> déclarée absente
-        </li>
-        <li>
-          <span className="lg lg-undetected" aria-hidden="true" /> non détectée
-        </li>
-        <li>
-          <span className="lg lg-doubtful" aria-hidden="true" /> numéro à vérifier
-        </li>
-      </ul>
-      <ul className="odonto-legend odonto-types" aria-label="Marques des anomalies">
-        {ANOMALY_LABELS.map((label) => (
-          <li key={label} title={typeTooltip(label)}>
-            <TypeMark label={label} /> {detectionType(label).label}
+      <div className="odonto-legends">
+        <ul className="odonto-legend" aria-label="Légende du schéma">
+          <li>
+            <span className="lg lg-present" aria-hidden="true" /> présente
           </li>
-        ))}
-      </ul>
+          <li>
+            <span className="lg lg-anomaly" aria-hidden="true" /> porteuse d&apos;anomalie
+          </li>
+          <li>
+            <span className="lg lg-absent" aria-hidden="true" /> déclarée absente
+          </li>
+          <li>
+            <span className="lg lg-undetected" aria-hidden="true" /> non détectée
+          </li>
+          <li>
+            <span className="lg lg-doubtful" aria-hidden="true" /> numéro à vérifier (?)
+          </li>
+        </ul>
+        <ul className="odonto-legend odonto-types" aria-label="Marques des anomalies">
+          {ANOMALY_LABELS.map((label) => (
+            <li key={label} title={typeTooltip(label)}>
+              <TypeMark label={label} /> {detectionType(label).label}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
