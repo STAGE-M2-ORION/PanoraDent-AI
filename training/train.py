@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import augmentations
+import reequilibrage
 from config import CLASSES, LISTES_ADMISES, git_commit
 
 JOURNAL = "journal.jsonl"
@@ -60,6 +61,10 @@ def _parse_args(argv=None):
                    help="précision mixte. 'auto' : coupée sur les cartes connues pour produire "
                         "des pertes NaN (GTX 16xx), activée ailleurs")
     p.add_argument("--contraste", type=float, default=augmentations.CONTRASTE)
+    p.add_argument("--reequilibrage", type=float, default=0.0, metavar="SEUIL",
+                   help="répète les clichés des classes rares (méthode LVIS) : une classe "
+                        "présente sur moins de cette part des clichés est vue plus souvent ; "
+                        "0 = désactivé (reequilibrage.py)")
     p.add_argument("--plots", action=argparse.BooleanOptionalAction, default=True,
                    help="courbes et matrices d'ultralytics (télécharge une police au premier usage)")
     p.add_argument("--project", type=Path, default=Path("runs"))
@@ -188,6 +193,14 @@ def ajouter_journal(modele) -> None:
     modele.add_callback("on_fit_epoch_end", ecrire)
 
 
+def _regler_reequilibrage(seuil: float, graine: int, run_dir: Path) -> None:
+    """Réglage lu par `DatasetPanoradent` à la construction du jeu d'entraînement."""
+    if seuil < 0 or seuil > 1:
+        raise SystemExit("--reequilibrage : une part des clichés, entre 0 et 1")
+    reequilibrage.SEUIL, reequilibrage.GRAINE = seuil, graine
+    reequilibrage.FICHIER_BILAN = run_dir / "reequilibrage.json" if seuil > 0 else None
+
+
 def entrainer(args, rappels: dict | None = None) -> Path:
     """Lance ou reprend l'entraînement ; renvoie le dossier du run.
 
@@ -207,6 +220,8 @@ def entrainer(args, rappels: dict | None = None) -> Path:
         run_dir = args.reprendre.parent.parent
         meta = json.loads((run_dir / RUN).read_text(encoding="utf-8"))
         augmentations.CONTRASTE = meta["hyperparametres"].get("contraste", augmentations.CONTRASTE)
+        _regler_reequilibrage(meta["hyperparametres"].get("reequilibrage", 0.0),
+                              meta["hyperparametres"].get("seed", 42), run_dir)
         meta.setdefault("reprises", []).append(
             datetime.now(timezone.utc).isoformat(timespec="seconds"))
         (run_dir / RUN).write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -232,8 +247,10 @@ def entrainer(args, rappels: dict | None = None) -> Path:
     hyp = {"epochs": args.epochs, "imgsz": args.imgsz, "batch": args.batch,
            "patience": args.patience, "seed": args.seed, "device": args.device,
            "amp": amp, "amp_demande": args.amp, "contraste": args.contraste,
+           "reequilibrage": args.reequilibrage,
            "augmentations": augmentations.HYPERPARAMETRES}
     run_dir.mkdir(parents=True)
+    _regler_reequilibrage(args.reequilibrage, args.seed, run_dir)
     (run_dir / RUN).write_text(json.dumps({
         "debut_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),

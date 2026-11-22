@@ -4,12 +4,16 @@ Les classes sont au niveau du module, et non créées dans une fonction : sous
 Windows, les processus qui chargent les images reçoivent le dataset par
 sérialisation (pickle), qui exige une classe importable par son nom.
 """
+import json
+from pathlib import Path
+
 from ultralytics.data.dataset import YOLODataset
 from ultralytics.models.yolo.detect import DetectionTrainer
-from ultralytics.utils import colorstr
+from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.torch_utils import de_parallel
 
 import augmentations
+import reequilibrage
 
 
 class DatasetPanoradent(YOLODataset):
@@ -19,6 +23,28 @@ class DatasetPanoradent(YOLODataset):
     le processus principal ; l'objet `ContrasteAleatoire` la transporte ensuite
     jusqu'aux processus de chargement.
     """
+
+    def get_labels(self):
+        """Étiquettes, et à l'entraînement seulement, clichés rares répétés
+        (`reequilibrage.SEUIL` > 0). ultralytics relit la liste des images dans
+        ces étiquettes : un cliché répété est simplement vu plus souvent, avec
+        des augmentations différentes à chaque passage."""
+        labels = super().get_labels()
+        if not self.augment or reequilibrage.SEUIL <= 0:
+            return labels
+        classes = [{int(c) for c in lb["cls"].reshape(-1)} for lb in labels]
+        copies = reequilibrage.repetitions(reequilibrage.facteurs(classes, reequilibrage.SEUIL),
+                                           reequilibrage.GRAINE)
+        bilan = reequilibrage.bilan(classes, copies)
+        if reequilibrage.FICHIER_BILAN:
+            Path(reequilibrage.FICHIER_BILAN).write_text(
+                json.dumps({"seuil": reequilibrage.SEUIL, "graine": reequilibrage.GRAINE, **bilan},
+                           indent=2), encoding="utf-8")
+        LOGGER.info(f"{self.prefix}rééquilibrage (seuil {reequilibrage.SEUIL}) : "
+                    f"{bilan['cliches_avant']} -> {bilan['cliches_apres']} clichés")
+        labels = reequilibrage.repeter(labels, copies)
+        self.im_files = [lb["im_file"] for lb in labels]
+        return labels
 
     def build_transforms(self, hyp=None):
         transforms = super().build_transforms(hyp)
