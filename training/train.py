@@ -14,10 +14,9 @@ entraînement soit **défendable** et **reprenable** :
 - **reprise** après interruption : `--reprendre runs/<nom>/weights/last.pt`
   repart de l'époque suivante, avec l'optimiseur et la moyenne mobile.
 
-Machine de développement (GTX 1650, 4 Go) :
+Machine de développement (GTX 1650, 4 Go) — les défauts lui sont réglés :
 
-    python training/train.py --data data/yolo/<jeu>/data.yaml --model yolo11s.pt \\
-        --imgsz 1024 --batch 4 --epochs 150 --device 0
+    python training/train.py --data data/yolo/<jeu>/data.yaml --name <nom>
 
 Reprise après coupure :
 
@@ -48,7 +47,10 @@ def _parse_args(argv=None):
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--imgsz", type=int, default=1024,
                    help="DOIT correspondre à MODEL_IMAGE_SIZE du service d'inférence")
-    p.add_argument("--batch", type=int, default=4, help="4 tient dans 4 Go en 1024 px avec yolo11s")
+    p.add_argument("--batch", type=int, default=2,
+                   help="yolo11s en 1024 px, sans précision mixte : 2 tient dans 4 Go "
+                        "(2,45 Go mesurés) ; 4 déborde (5,1 Go) et rend l'époque deux fois "
+                        "plus longue")
     p.add_argument("--patience", type=int, default=30, help="arrêt anticipé, en époques")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="0", help="'0' pour la première carte NVIDIA, 'cpu' sinon")
