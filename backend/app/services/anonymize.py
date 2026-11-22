@@ -8,11 +8,13 @@ Ce qui est garanti :
    décompression. Un refus par cas, avec son message.
 2. **Métadonnées** : seule la matrice de pixels est conservée (EXIF, en-têtes
    DICOM et champs patient disparaissent) ; l'image est ré-encodée en PNG.
-3. **Inscriptions incrustées** (nom, date, appareil imprimés dans les pixels,
-   généralement sur les bandes du haut et du bas) : seuillage puis composantes
-   connexes sur ces bandes pour repérer les blocs de caractères, sans OCR, et
-   masque noir plein par-dessus. Le praticien vérifie l'aperçu et peut ajouter
-   des masques à la main ; il ne peut pas retirer un masque automatique.
+3. **Inscriptions incrustées** (nom, date, cabinet, appareil imprimés dans
+   les pixels, à la périphérie du cliché) : détecteur de texte DB d'OpenCV
+   (`detecteur_texte.py`, sprint 6) ; s'il est indisponible, l'heuristique du
+   sprint 3 prend le relais (seuillage puis composantes connexes sur les bandes
+   du haut et du bas, sans OCR). La méthode employée est conservée. Masque
+   noir plein par-dessus. Le praticien vérifie l'aperçu et peut ajouter des
+   masques à la main ; il ne peut pas retirer un masque automatique.
 4. **Rien n'est écrit sur le disque** : tout se fait en mémoire. L'original
    n'est jamais conservé.
 
@@ -23,9 +25,19 @@ d'affichage de l'aperçu.
 import io
 from dataclasses import dataclass
 
+import logging
+
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+
+from .detecteur_texte import DetecteurIndisponible, detecteur
+
+logger = logging.getLogger("uvicorn.error")
+
+#: Méthode de détection des inscriptions, conservée avec l'analyse.
+METHODE_MODELE = "modele_texte"
+METHODE_HEURISTIQUE = "heuristique"
 
 TAILLE_MAX = 20 * 1024 * 1024          # 20 Mo
 LARGEUR_MIN, HAUTEUR_MIN = 800, 400     # une panoramique est large et basse
@@ -70,6 +82,7 @@ class Resultat:
     png: bytes                  # pleine résolution, sans métadonnées
     zones_auto: list[Zone]
     zones_manuelles: list[Zone]
+    methode: str = METHODE_HEURISTIQUE
 
     @property
     def taille(self) -> tuple[int, int]:
@@ -196,7 +209,31 @@ def _fusionner(rects: list[tuple[int, int, int, int]], mx: int, my: int) -> list
     return rects
 
 
+def _zones(rects, largeur: int, hauteur: int) -> list[Zone]:
+    """Rectangles en pixels -> zones en fractions, après fusion des voisins."""
+    zones = []
+    for x0, y0, x1, y1 in _fusionner(rects, mx=max(12, largeur // 100), my=max(3, hauteur // 200)):
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(largeur, x1), min(hauteur, y1)
+        zones.append(Zone(x0 / largeur, y0 / hauteur, (x1 - x0) / largeur, (y1 - y0) / hauteur))
+    return zones
+
+
+def detecter(image: Image.Image) -> tuple[list[Zone], str]:
+    """Zones à masquer et méthode employée : le détecteur de texte, ou
+    l'heuristique s'il est indisponible (modèle absent, altéré, illisible)."""
+    arr = np.asarray(image, dtype=np.uint8)
+    hauteur, largeur = arr.shape
+    try:
+        rects = detecteur().detecter(arr)
+    except DetecteurIndisponible as exc:
+        logger.warning("Détecteur de texte indisponible (%s) : repli sur l'heuristique.", exc)
+        return detecter_inscriptions(image), METHODE_HEURISTIQUE
+    return _zones(rects, largeur, hauteur), METHODE_MODELE
+
+
 def detecter_inscriptions(image: Image.Image) -> list[Zone]:
+    """Heuristique du sprint 3, gardée en secours : blocs de caractères clairs
+    sur fond sombre, dans les bandes du haut et du bas."""
     arr = np.asarray(image, dtype=np.uint8)
     hauteur, largeur = arr.shape
     rects = []
@@ -206,11 +243,7 @@ def detecter_inscriptions(image: Image.Image) -> list[Zone]:
     debut_bas = hauteur - int(hauteur * BANDE_BAS)
     for x0, y0, x1, y1 in _blocs_de_texte(arr[debut_bas:]):
         rects.append((x0, y0 + debut_bas, x1, y1 + debut_bas))
-    zones = []
-    for x0, y0, x1, y1 in _fusionner(rects, mx=max(12, largeur // 100), my=max(3, hauteur // 200)):
-        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(largeur, x1), min(hauteur, y1)
-        zones.append(Zone(x0 / largeur, y0 / hauteur, (x1 - x0) / largeur, (y1 - y0) / hauteur))
-    return zones
+    return _zones(rects, largeur, hauteur)
 
 
 # --- 3. Masquage ---------------------------------------------------------------------------
@@ -253,9 +286,9 @@ def anonymiser(raw: bytes, masques_manuels: list[dict] | None = None) -> Resulta
     """Contrôle, lecture sans métadonnées, détection des inscriptions et masquage."""
     image = lire(raw)
     manuelles = zones_depuis(masques_manuels)
-    auto = detecter_inscriptions(image)
+    auto, methode = detecter(image)
     anonyme = masquer(image, auto + manuelles)
-    return Resultat(image=anonyme, png=png(anonyme), zones_auto=auto, zones_manuelles=manuelles)
+    return Resultat(image=anonyme, png=png(anonyme), zones_auto=auto, zones_manuelles=manuelles, methode=methode)
 
 
 def version_affichage(image: Image.Image) -> bytes | None:

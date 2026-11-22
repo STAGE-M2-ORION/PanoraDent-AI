@@ -109,10 +109,10 @@ async def apercu(
         manuelles = anon.zones_depuis(_masques(masques))
     except anon.FichierRefuse as exc:
         raise _refus(exc) from exc
-    auto = anon.detecter_inscriptions(image)
+    auto, methode = anon.detecter(image)
     largeur, hauteur = image.size
     return ApercuOut(
-        largeur=largeur, hauteur=hauteur,
+        largeur=largeur, hauteur=hauteur, methode=methode,
         zones_auto=[ZoneOut(**z.en_dict()) for z in auto],
         zones_manuelles=[ZoneOut(**z.en_dict()) for z in manuelles],
         avant=_data_url(image),
@@ -170,6 +170,7 @@ async def create_analysis(
         masques={
             "auto": [z.en_dict() for z in resultat.zones_auto],
             "manuelles": [z.en_dict() for z in resultat.zones_manuelles],
+            "methode": resultat.methode,
         },
     )
     registre_modeles.epingler(db, analyse)
@@ -180,7 +181,7 @@ async def create_analysis(
             db, "import_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
             cible=f"analyse:{analyse.id}",
             details={"reference": analyse.reference, "zones_auto": len(resultat.zones_auto),
-                     "zones_manuelles": len(resultat.zones_manuelles)},
+                     "zones_manuelles": len(resultat.zones_manuelles), "methode": resultat.methode},
             commit=False,
         )
         try:

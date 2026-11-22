@@ -145,7 +145,8 @@ def analyse_out(a) -> AnalysisOut:
         "avancement": avancement(a),
         "deposant_id": a.utilisateur_id,
         "deposant_nom": _nom(a.deposant),
-        "zones_masquees": {"auto": len(masques.get("auto", [])), "manuelles": len(masques.get("manuelles", []))},
+        "zones_masquees": {"auto": len(masques.get("auto", [])), "manuelles": len(masques.get("manuelles", [])),
+                           "methode": masques.get("methode")},
     })
 
 
@@ -162,6 +163,8 @@ class ApercuOut(BaseModel):
     hauteur: int
     zones_auto: list[ZoneOut]
     zones_manuelles: list[ZoneOut]
+    # Détection des inscriptions : « modele_texte » ou « heuristique » (secours).
+    methode: str = "heuristique"
     avant: str
     apres: str
 
