@@ -188,11 +188,68 @@ Dans `runs/<nom>/evaluation_<split>/` : `metrics.json`, `rapport.md`,
 > inscrite dans `evaluations_test.jsonl` à côté de `split.json` ; une seconde est
 > refusée, sauf `--forcer "<motif>"`, motif porté au rapport.
 
-### 6. Publier
+### 6. Publier la paire
 
-`publish_model.py` écrit dans `model_versions` et copie les poids vers
-`inference/weights/`. Il sera adapté aux paires de modèles (dents + anomalies)
-au lot B du sprint 6.
+```powershell
+training\.venv\Scripts\python training\publish_model.py --version dentex-2026.11 `
+    --dents runs\dents-v1 --anomalies runsnomalies-v1 `
+    --database-url "postgresql+psycopg2://panoradent:<mot de passe>@localhost:<DB_PORT>/panoradent"
+```
+
+Copie les deux `best.pt` sous `inference/weights/<version>/` (`dents.pt`,
+`anomalies.pt`) avec leur sha256, et inscrit la version au registre, **non
+active**. Refusé si les deux modèles n'ont pas le même découpage, si l'ordre
+des classes diffère, si le test interne n'a pas été évalué (`--partition val`
+pour un essai), ou si le nom de version existe déjà avec d'autres poids (une
+version publiée ne change plus). L'activation se fait depuis
+**Administration › Modèles**, avec un motif : le service d'inférence charge et
+vérifie la version avant qu'elle ne devienne active.
+
+### 7. Rapport d'évaluation (mémoire)
+
+```powershell
+training\.venv\Scripts\python trainingapport_evaluation.py --version dentex-2026.11 `
+    --dents runs\dents-v1 --anomalies runsnomalies-v1
+```
+
+Écrit `docs/evaluation/<version>/rapport.md` et ses figures : données et
+découpage, entraînement de chaque modèle (réglages, carte, durée, meilleure
+époque, courbes), test interne par classe avec matrice de confusion et pires
+erreurs, test externe, limites. Rien n'est recalculé : le rapport assemble ce
+que la chaîne a produit.
+
+---
+
+## Sur la machine GPU, de bout en bout
+
+Une fois par machine : l'environnement (ci-dessus) et l'alimentation. Sur un
+portable, **chargeur d'origine branché** et mode d'alimentation Windows
+**« Performances optimales »** ; vérifier pendant l'entraînement que
+`nvidia-smi` montre l'état **P0** (en P8 à 300 MHz, la carte est bridée et
+l'entraînement dure des jours).
+
+```powershell
+$py = "training\.venv\Scripts\python"
+& $py training	elecharger_dentex.py --dest data\dentex
+& $py training\prepare_dataset.py --dentex data\dentex --out data\yolo
+& $py training\planche_augmentations.py --data data\yolonomalies\data.yaml --out runs\planche.jpg --imgsz 1024
+& $py training	rain.py --data data\yolo\dents\data.yaml     --name dents-v1
+& $py training	rain.py --data data\yolonomalies\data.yaml --name anomalies-v1
+# Réglages : la validation, autant que nécessaire
+& $py training\evaluate.py --weights runs\dents-v1\weightsest.pt --split val
+& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --split val
+# À la fin, une seule fois
+& $py training\evaluate.py --weights runs\dents-v1\weightsest.pt --split test
+& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --split test
+& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --data data\yolo\externe\data.yaml --split test
+& $py training\publish_model.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runsnomalies-v1 --database-url "<URL de la base>"
+& $py trainingapport_evaluation.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runsnomalies-v1
+```
+
+Coupure en cours d'entraînement : relancer avec
+`--reprendre runs\<nom>\weights\last.pt`. Carte plus puissante ou Colab :
+[`notebooks/colab_panoradent.ipynb`](notebooks/colab_panoradent.ipynb) appelle
+les mêmes scripts (lots de 8, précision mixte).
 
 ---
 
@@ -208,6 +265,7 @@ téléchargement (intégrité, reprise), les lecteurs DENTEX, la conversion (deu
 jeux sans mélange, groupes jamais séparés, test externe isolé, küretaj exclu),
 le découpage (même graine, même découpage), les augmentations (miroir et
 quadrants, jamais vertical, chaîne ultralytics), l'entraînement réel sur le
-processeur (journal, coupure puis reprise, garde NaN) et l'évaluation (IoU,
-confusion, test évalué une seule fois). Non couvert par la CI : torch y serait
+processeur (journal, coupure puis reprise, garde NaN), l'évaluation (IoU,
+confusion, test évalué une seule fois, test externe rangé à part), la
+publication (paire, découpage commun, version immuable) et le rapport. Non couvert par la CI : torch y serait
 trop lourd.

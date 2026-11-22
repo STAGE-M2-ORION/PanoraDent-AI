@@ -603,11 +603,10 @@ les tests reproductibles.
    --dents runs/<dents> --anomalies runs/<anomalies>` copie les poids sous
    [`inference/weights/<nom>/`](inference/weights/) (monté en lecture seule,
    `*.pt` exclus du dépôt) et inscrit la version au registre, **non active**.
-3. **Une fois** : décommenter `ultralytics` dans
-   [requirements.txt](inference/requirements.txt) et le bloc `torch` du
-   [Dockerfile](inference/Dockerfile), renseigner `MODEL_IMAGE_SIZE` dans
-   `.env`, puis `docker compose up --build inference`. Sans eux, une bascule est
-   refusée proprement (« modèle illisible »).
+3. **Rien à reconstruire** : l'image d'inférence embarque `torch` 2.3.1 et
+   `ultralytics` 8.3.40 ([requirements-modele.txt](inference/requirements-modele.txt),
+   mêmes versions que l'entraînement). Chaque modèle infère à **sa** taille
+   d'entraînement, lue dans ses poids.
 4. **Activer** — Administration › Modèles › Activer, avec un motif. Les
    versions suivantes se publient et s'activent **sans redéploiement** ; les
    analyses déjà en file gardent leur version.
@@ -632,8 +631,9 @@ docker compose logs inference | grep mode=
 - **CPU (défaut)** : `docker compose up --build`.
 - **GPU** (NVIDIA Container Toolkit requis) : `make up-gpu`, qui applique
   [`docker-compose.gpu.yml`](docker-compose.gpu.yml) — réserve un GPU au service
-  `inference` et passe `TORCH_VARIANT=gpu` au build. Sans le bloc `torch`
-  décommenté, cet override est sans effet : le mock ne consomme pas de GPU.
+  `inference` et passe `TORCH_VARIANT=gpu` au build (torch CUDA 12.1 au lieu de
+  la version processeur). Sur processeur, une paire analyse un panoramique en
+  quelques secondes.
 
 ---
 
