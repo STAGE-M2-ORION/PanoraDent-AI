@@ -11,14 +11,14 @@ Monorepo lançable en une commande. Cinq services orchestrés par Docker Compose
 frontend (Next.js), backend (FastAPI), service d'inférence IA **isolé**
 (PyTorch/YOLO), PostgreSQL et stockage objet S3-compatible (MinIO).
 
-**La chaîne tourne immédiatement, sans modèle entraîné.** Le service d'inférence
+**La chaîne tourne immédiatement, même sans modèle publié.** Le service d'inférence
 démarre en **mode mock** et renvoie des détections factices mais plausibles, ce
 qui permet de valider tout le pipeline (import → anonymisation → stockage →
 inférence → persistance → rapport PDF) dès le premier jour.
 
 | | |
 |---|---|
-| **Statut** | Prototype fonctionnel de bout en bout, sans modèle entraîné |
+| **Statut** | Prototype fonctionnel de bout en bout ; première version entraînée `dentex-2026.11` (dents mAP@0,50 0,987, anomalies 0,510 au test interne — [rapport](docs/evaluation/dentex-2026.11/rapport.md)) |
 | **Stack** | Next.js 14 · design system maison · FastAPI · PostgreSQL 16 · MinIO · YOLO (optionnel) |
 | **Prérequis** | Docker + Docker Compose v2, ~4 Go de disque. Aucun GPU requis |
 | **Démarrage** | `cp .env.example .env && docker compose up --build` |
