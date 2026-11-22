@@ -130,3 +130,62 @@ def test_dossier_du_test_externe_distinct_du_test_interne(tmp_path):
     assert evaluate.dossier_evaluation(interne, interne, "test") == "evaluation_test"
     assert evaluate.dossier_evaluation(externe, interne, "test") == "evaluation_externe_test"
     assert evaluate.dossier_evaluation(interne, None, "val") == "evaluation_val"
+    # jeu préparé sur Colab, copié en local : même jeu, même dossier
+    colab = evaluate.Path("/content/panoradent/data/yolo/anomalies/data.yaml")
+    assert evaluate.dossier_evaluation(interne, colab, "val") == "evaluation_val"
+    assert evaluate.dossier_evaluation(externe, colab, "test") == "evaluation_externe_test"
+
+
+def test_rappel_par_taille_a_la_resolution_du_modele():
+    """Côté mesuré en pixels VUS par le modèle : une boîte de 40 px sur un cliché
+    de 2 048 px ne fait plus que 20 px à 1 024."""
+    noms = ["tooth", "caries", "deep_caries"]
+    cliches = [{
+        "taille": (2048, 1024),
+        "verite": [(1, (0, 0, 40, 40)), (1, (100, 100, 300, 300)), (2, (500, 500, 540, 540))],
+        # la grande carie est trouvée ; la carie profonde est vue, mais typée « carie »
+        "predictions": [(1, (100, 100, 300, 300), 0.9), (1, (500, 500, 540, 540), 0.6)],
+        "trouvees": {1},
+    }]
+    r = evaluate.rappel_par_taille(cliches, 1024, noms)
+    assert r["imgsz"] == 1024 and r["tranches"][0] == "< 16 px"
+    carie = {c["tranche"]: c for c in r["par_classe"]["caries"]}
+    assert carie["16–32 px"] == {"tranche": "16–32 px", "n": 1, "trouvees": 0, "autre_classe": 0, "rappel": 0.0}
+    assert carie["≥ 64 px"]["rappel"] == 1.0
+    assert r["par_classe"]["deep_caries"] == [
+        {"tranche": "16–32 px", "n": 1, "trouvees": 0, "autre_classe": 1, "rappel": 0.0}]
+    assert "tooth" not in r["par_classe"]
+
+
+def test_rapport_montre_le_rappel_par_taille():
+    metrics = {"split": "val", "poids": "p.pt", "poids_sha256": "0" * 64, "decoupage": None,
+               "imgsz": 1024, "seuil_confiance": 0.25, "date_utc": "x", "git_commit": "y",
+               "niveau_image": {"par_classe": {}},
+               "detection": {"par_classe": {}, "global": {"precision": 0.5, "rappel": 0.5, "mAP50": 0.5, "mAP50_95": 0.3},
+                             "rappel_par_taille": {"imgsz": 1024, "tranches": ["< 16 px", "16–32 px"],
+                                                   "par_classe": {"caries": [{"tranche": "16–32 px", "n": 4, "trouvees": 1,
+                                                                              "autre_classe": 2, "rappel": 0.25}]}}}}
+    texte = evaluate.rapport_markdown(metrics)
+    assert "## Rappel selon la taille (côté de la boîte, en pixels à 1024 px)" in texte
+    assert "| caries | — | 0.250 (1/4, 2 mal typées) |" in texte
+
+
+def test_test_deja_evalue_ailleurs_reconnu_par_les_runs(tmp_path):
+    """Registre perdu (nouvelle machine, nouvelle session Colab) : l'évaluation
+    rangée dans un run rapatrié suffit à bloquer une seconde mesure."""
+    jeu = tmp_path / "data" / "anomalies"
+    jeu.mkdir(parents=True)
+    runs = tmp_path / "runs"
+    (runs / "anomalies-v1" / "evaluation_test").mkdir(parents=True)
+    (runs / "anomalies-v1" / "evaluation_test" / "metrics.json").write_text(json.dumps({
+        "split": "test", "data_yaml": "/content/panoradent/data/yolo/anomalies/data.yaml",
+        "date_utc": "2026-11-22T10:00:00+00:00", "poids": "best.pt", "poids_sha256": "a" * 64}))
+    # le test d'un AUTRE jeu (externe) ne compte pas pour celui-ci
+    (runs / "anomalies-v1" / "evaluation_externe_test").mkdir()
+    (runs / "anomalies-v1" / "evaluation_externe_test" / "metrics.json").write_text(json.dumps({
+        "split": "test", "data_yaml": "/x/externe/data.yaml"}))
+
+    with pytest.raises(SystemExit, match="anomalies-v1"):
+        evaluate.verifier_test_unique(jeu, "b" * 64, None, runs)
+    assert len(evaluate.verifier_test_unique(jeu, "b" * 64, "modèle v2 choisi sur la validation", runs)) == 1
+    assert evaluate.verifier_test_unique(tmp_path / "data" / "externe", "b" * 64, None, tmp_path / "vide") == []

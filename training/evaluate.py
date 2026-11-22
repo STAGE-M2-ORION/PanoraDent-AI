@@ -144,14 +144,37 @@ def sha256_de(chemin: Path) -> str:
 
 # --- Registre du test --------------------------------------------------------
 
-def verifier_test_unique(dossier_jeu: Path, poids_sha: str, forcer: str | None) -> list:
+def evaluations_rangees(dossier_runs: Path | None, nom_jeu: str) -> list:
+    """Évaluations du test de ce jeu déjà rangées dans les runs (`<run>/evaluation*_test/`).
+
+    Le registre vit dans le dossier des données, recréé à chaque nouvelle
+    machine ou session Colab ; les runs, eux, sont conservés (Drive, puis copie
+    locale). Les relire garde la règle « une seule fois » d'une machine à l'autre.
+    """
+    trouvees = []
+    if dossier_runs is None or not dossier_runs.is_dir():
+        return trouvees
+    for chemin in sorted(dossier_runs.glob("*/evaluation*_test/metrics.json")):
+        m = json.loads(chemin.read_text(encoding="utf-8"))
+        if m.get("split") == "test" and Path(m.get("data_yaml", "")).parent.name == nom_jeu:
+            trouvees.append({"date_utc": m.get("date_utc", "?"), "poids": m.get("poids", "?"),
+                             "poids_sha256": m.get("poids_sha256", "?"), "rapport": str(chemin)})
+    return trouvees
+
+
+def verifier_test_unique(dossier_jeu: Path, poids_sha: str, forcer: str | None,
+                         dossier_runs: Path | None = None) -> list:
     """Refuse une seconde évaluation sur le test, sauf motif explicite."""
     registre = dossier_jeu / REGISTRE_TEST
     precedentes = []
     if registre.exists():
         precedentes = [json.loads(l) for l in registre.read_text(encoding="utf-8").splitlines() if l]
+    connues = {e.get("rapport") for e in precedentes}
+    precedentes += [e for e in evaluations_rangees(dossier_runs, dossier_jeu.name)
+                    if e["rapport"] not in connues]
     if precedentes and not forcer:
         liste = "\n".join(f"  - {e['date_utc']} : {e['poids']} (sha256 {e['poids_sha256'][:12]})"
+                          + (f", rapport {e['rapport']}" if e.get("rapport") else "")
                           for e in precedentes)
         raise SystemExit(
             "Le jeu de test de ce découpage a déjà été évalué :\n" + liste + "\n"
@@ -166,6 +189,47 @@ def inscrire_test(dossier_jeu: Path, entree: dict) -> None:
 
 
 # --- Mesures -----------------------------------------------------------------
+
+# Tranches de taille d'une lésion : côté équivalent (racine de l'aire) en pixels
+# de l'image telle que le modèle la VOIT (réduite à imgsz). Sert à vérifier
+# l'hypothèse « les petites lésions sont manquées parce que trop réduites ».
+TRANCHES_TAILLE = ((0, 16, "< 16 px"), (16, 32, "16–32 px"), (32, 64, "32–64 px"),
+                   (64, float("inf"), "≥ 64 px"))
+
+
+def tranche_de(cote: float) -> str:
+    return next(nom for bas, haut, nom in TRANCHES_TAILLE if bas <= cote < haut)
+
+
+def rappel_par_taille(cliches: list, imgsz: int, noms: list, seuil: float = SEUIL_IOU) -> dict:
+    """Rappel par classe et par tranche de taille, au seuil d'exploitation.
+
+    `cliches` : [{"taille": (w, h), "verite": [(classe, boite)], "predictions":
+    [(classe, boite, confiance)], "trouvees": indices de vérité appariées}].
+    `autre_classe` : manquée, mais une détection d'une AUTRE classe la recouvre
+    (IoU ≥ seuil) — lésion vue au bon endroit, mal typée, et non pas ignorée.
+    """
+    compte = defaultdict(lambda: defaultdict(Counter))
+    for c in cliches:
+        w, h = c["taille"]
+        echelle = imgsz / max(w, h)
+        for j, (classe, b) in enumerate(c["verite"]):
+            cote = ((b[2] - b[0]) * (b[3] - b[1])) ** 0.5 * echelle
+            case = compte[classe][tranche_de(cote)]
+            case["n"] += 1
+            if j in c["trouvees"]:
+                case["trouvees"] += 1
+            elif any(pc != classe and iou(pb, b) >= seuil for pc, pb, _ in c["predictions"]):
+                case["autre_classe"] += 1
+    par_classe = {}
+    for classe in sorted(compte):
+        par_classe[noms[classe]] = [
+            {"tranche": nom, "n": k["n"], "trouvees": k["trouvees"],
+             "autre_classe": k["autre_classe"], "rappel": _ratio(k["trouvees"], k["n"])}
+            for _, _, nom in TRANCHES_TAILLE if (k := compte[classe][nom])["n"]]
+    return {"imgsz": imgsz, "tranches": [nom for _, _, nom in TRANCHES_TAILLE],
+            "seuil_iou": seuil, "par_classe": par_classe}
+
 
 def data_root(data_yaml: Path) -> Path:
     for ligne in data_yaml.read_text(encoding="utf-8").splitlines():
@@ -252,7 +316,8 @@ def parcourir_cliches(modele, args) -> tuple[dict, list, dict]:
                 matrice[i][j] += v
         erreurs =sum(v["fp"] + v["fn"] for v in appariement["par_classe"].values())
         cliches.append({"image": str(chemin), "erreurs": erreurs, "verite": verite,
-                        "predictions": predictions,
+                        "predictions": predictions, "taille": (w, h),
+                        "trouvees": appariement["verites_trouvees"],
                         "justes": sorted(appariement["predictions_justes"]),
                         "detail": {CLASSES[c]: v for c, v in appariement["par_classe"].items()}})
 
@@ -377,8 +442,26 @@ def rapport_markdown(metrics: dict) -> str:
                       f"{f(i.get('specificite'))} |")
     g = metrics["detection"]["global"]
     lignes += [f"| **global** | | {f(g['precision'])} | {f(g['rappel'])} | {f(g['mAP50'])} | "
-               f"{f(g['mAP50_95'])} | | |", "",
-               "Matrice de confusion : `confusion.png`. Pires erreurs : `pires_erreurs.jpg`.", ""]
+               f"{f(g['mAP50_95'])} | | |", ""]
+    taille = metrics["detection"].get("rappel_par_taille")
+    if taille and taille["par_classe"]:
+        lignes += [f"## Rappel selon la taille (côté de la boîte, en pixels à {taille['imgsz']} px)", "",
+                   "Une lésion « mal typée » est manquée, mais recouverte par une détection d'une "
+                   "autre classe : vue au bon endroit.", "",
+                   "| classe | " + " | ".join(taille["tranches"]) + " |",
+                   "|---|" + "---|" * len(taille["tranches"])]
+        for nom, cases in taille["par_classe"].items():
+            par_tranche = {c["tranche"]: c for c in cases}
+            cellules = []
+            for t in taille["tranches"]:
+                c = par_tranche.get(t)
+                cellules.append("—" if c is None else
+                                f"{f(c['rappel'])} ({c['trouvees']}/{c['n']}"
+                                + (f", {c['autre_classe']} mal typée{'s' if c['autre_classe'] > 1 else ''}"
+                                   if c["autre_classe"] else "") + ")")
+            lignes.append(f"| {nom} | " + " | ".join(cellules) + " |")
+        lignes.append("")
+    lignes += ["Matrice de confusion : `confusion.png`. Pires erreurs : `pires_erreurs.jpg`.", ""]
     return "\n".join(lignes)
 
 
@@ -386,8 +469,10 @@ def rapport_markdown(metrics: dict) -> str:
 
 def dossier_evaluation(data: Path, data_du_run: Path | None, split: str) -> str:
     """`evaluation_<partition>` sur le jeu d'entraînement ; `evaluation_<jeu>_<partition>`
-    sur un autre (le test externe ne doit pas écraser le test interne)."""
-    if data_du_run is None or data.resolve() == data_du_run.resolve():
+    sur un autre (le test externe ne doit pas écraser le test interne). Le jeu
+    se reconnaît à son NOM de dossier : préparé sur Colab (`/content/...`) puis
+    copié en local, `anomalies` reste le même jeu."""
+    if data_du_run is None or data.resolve().parent.name == data_du_run.parent.name:
         return f"evaluation_{split}"
     return f"evaluation_{data.resolve().parent.name}_{split}"
 
@@ -413,7 +498,8 @@ def evaluer(args) -> Path:
     dossier_jeu = args.data.parent
     poids_sha = sha256_de(args.weights)
     if args.split == "test":
-        verifier_test_unique(dossier_jeu, poids_sha, args.forcer)
+        # <runs>/<run>/weights/best.pt -> <runs>
+        verifier_test_unique(dossier_jeu, poids_sha, args.forcer, args.weights.resolve().parent.parent.parent)
 
     from ultralytics import YOLO
     modele = YOLO(str(args.weights))
@@ -428,6 +514,7 @@ def evaluer(args) -> Path:
 
     detection = mesures_detection(modele, args)
     niveau_image, cliches, detection["confusion"] = parcourir_cliches(modele, args)
+    detection["rappel_par_taille"] = rappel_par_taille(cliches, args.imgsz, CLASSES)
     metrics = {
         "date_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
