@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mot de passe · PanoraDent AI</title>
+<script>
+// Le parcours « mot de passe oublié » vit maintenant dans la carte de connexion
+var m = { demande: "oubli", envoye: "envoye", nouveau: "nouveau", expire: "expire", succes: "succes" };
+var e = new URLSearchParams(location.search).get("etat");
+location.replace("connexion.html?etat=" + (m[e] || "oubli"));
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=connexion.html?etat=oubli"></noscript>
+</head>
+<body><p><a href="connexion.html?etat=oubli">Aller à la connexion</a></p></body>
+</html>

@@ -1,0 +1,11 @@
+/* Écran « admin-audit » — styles propres, confinés sous .v-admin-audit (repris de la maquette). */
+
+.v-admin-audit {
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
+  .sub { display: block; font-size: var(--text-xs); color: var(--color-muted); }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+  .pager nav { display: flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; }
+  @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .filters { grid-template-columns: 1fr; } }
+}

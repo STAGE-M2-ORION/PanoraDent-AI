@@ -1,0 +1,97 @@
+/* Boutons : variantes, tailles, bouton Google, bouton « lumière » (pilule, libellé révélé). */
+
+/* ---------- Boutons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 44px; padding: 0 var(--space-5);
+  border-radius: var(--radius-md); border: 1px solid transparent;
+  font-weight: 500; font-size: var(--text-base); text-decoration: none; cursor: pointer;
+  transition: background var(--duration-fast), border-color var(--duration-fast), color var(--duration-fast);
+  white-space: nowrap;
+}
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn-primary { background: var(--color-primary); color: #fff; }
+.btn-primary:hover { background: var(--color-primary-hover); color: #fff; }
+.btn-secondary { background: var(--color-surface); color: var(--color-ink); border-color: var(--color-border-strong); }
+.btn-secondary:hover { border-color: var(--color-primary); color: var(--color-primary-hover); }
+.btn-ghost { background: transparent; color: var(--color-ink); }
+.btn-ghost:hover { background: var(--color-subtle); color: var(--color-ink); }
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger:hover { background: #991B1B; color: #fff; }
+.btn-sm { min-height: 36px; padding: 0 var(--space-3); font-size: var(--text-sm); }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+/* Connexion avec Google (logo officiel « G », fond blanc, bordure neutre) */
+.btn-google { background: var(--color-surface); color: var(--color-ink); border-color: var(--color-border-strong); width: 100%; }
+.btn-google:hover { background: var(--color-bg); border-color: var(--color-muted); color: var(--color-ink); }
+.btn-google .g-logo { width: 18px; height: 18px; }
+.or-sep { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--color-muted); }
+.or-sep::before, .or-sep::after { content: ""; flex: 1; height: 1px; background: var(--color-border); }
+
+/* ---------- Bouton lumière (pilule sombre, libellé doublé révélé de gauche à droite) ----------
+   Branché automatiquement par app.js sur .btn-primary (principal) et .btn-secondary (classe « discret »).
+   Variables : --bl-fond, --bl-texte, --bl-accent, --bl-halo, --bl-liseré, --bl-duree, --bl-courbe. */
+.btn-lumiere {
+  --bl-fond: #0F2A43;            /* marine */
+  --bl-texte: #F1F5F9;           /* repos : 13,9:1 sur marine */
+  --bl-accent: #22D3EE;          /* copie allumée : 8,2:1 sur marine */
+  --bl-halo: rgba(34, 211, 238, .55);
+  --bl-lisere: rgba(34, 211, 238, .7);
+  --bl-duree: 520ms;
+  --bl-courbe: cubic-bezier(.45, 0, .2, 1);
+  position: relative; overflow: hidden; isolation: isolate;
+  border-radius: 999px !important;
+  background: var(--bl-fond) !important; color: var(--bl-texte) !important;
+  border: 1px solid var(--bl-lisere) !important;
+  padding-inline: var(--space-6);
+}
+.btn-lumiere.btn-sm { padding-inline: var(--space-4); }
+.btn-lumiere:hover { background: var(--bl-fond) !important; }
+.btn-lumiere.discret {
+  --bl-fond: var(--color-surface);
+  --bl-texte: var(--color-ink);       /* 14:1 sur blanc */
+  --bl-accent: var(--color-primary);  /* teal : 5,4:1 sur blanc (le cyan serait illisible ici) */
+  --bl-halo: rgba(14, 116, 144, .25);
+  --bl-lisere: var(--color-border-strong);
+}
+.btn-lumiere .bl-base, .btn-lumiere .bl-on { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); white-space: nowrap; }
+.btn-lumiere .bl-on {
+  position: absolute; inset: 0; color: var(--bl-accent);
+  text-shadow: 0 0 10px var(--bl-halo);
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path var(--bl-duree) var(--bl-courbe);
+  user-select: none; -webkit-user-select: none; pointer-events: none;
+}
+.btn-lumiere .bl-on svg { filter: drop-shadow(0 0 6px var(--bl-halo)); }
+.btn-lumiere::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
+  background: var(--bl-accent); box-shadow: 0 0 10px 2px var(--bl-halo);
+  opacity: 0; pointer-events: none;
+}
+.btn-lumiere:not([disabled]):not([aria-disabled="true"]):hover .bl-on,
+.btn-lumiere:not([disabled]):not([aria-disabled="true"]):focus-visible .bl-on { clip-path: inset(0 0 0 0); }
+.btn-lumiere:not([disabled]):not([aria-disabled="true"]):hover::after,
+.btn-lumiere:not([disabled]):not([aria-disabled="true"]):focus-visible::after {
+  animation: bl-barre var(--bl-duree) var(--bl-courbe) forwards;
+}
+@keyframes bl-barre {
+  0%   { left: 0;               opacity: 1; }
+  85%  { left: calc(100% - 2px); opacity: 1; }
+  100% { left: calc(100% - 2px); opacity: 0; }
+}
+.btn-lumiere:focus-visible { box-shadow: 0 0 0 3px var(--color-surface), 0 0 0 5px var(--bl-accent); }
+:root[data-theme="dark"] .btn-lumiere:not(.discret) { --bl-fond: #0B1220; }
+:root[data-theme="dark"] .btn-lumiere.discret { --bl-fond: #111C2E; --bl-texte: #E2E8F0; --bl-accent: #22D3EE; --bl-halo: rgba(34,211,238,.45); --bl-lisere: #33476A; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-lumiere .bl-on { transition: none !important; }
+  .btn-lumiere::after { display: none; }
+}
+
+/* Téléphone : cibles tactiles de 44 px, sélecteur de démo discret */
+@media (max-width: 640px) {
+  .btn-sm, .menu-btn, .theme-toggle { min-height: 44px; }
+  .demo-switch .maq-note { display: none; }
+  .maq-details > summary { min-height: 44px; }
+}
+
+/* Bouton secondaire sur fond marine : bordure cyan */
+.btn-lumiere.discret.sur-marine { --bl-fond: transparent; --bl-texte: #F1F5F9; --bl-accent: #22D3EE; --bl-halo: rgba(34, 211, 238, 0.55); --bl-lisere: #22D3EE; }

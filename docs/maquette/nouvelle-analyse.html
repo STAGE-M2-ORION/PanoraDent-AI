@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nouvelle analyse · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="pano.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .states-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .states-bar .btn { min-height: 36px; }
+  .states-bar .btn[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-hover); }
+
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); font-size: var(--text-sm); }
+  .steps li { display: flex; align-items: center; gap: var(--space-2); color: var(--color-muted); }
+  .steps .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--color-border-strong); background: var(--color-surface); font-weight: 600; font-size: var(--text-xs); }
+  .steps li[data-done="true"] { color: var(--color-ink); }
+  .steps li[data-done="true"] .n { background: var(--color-success); border-color: var(--color-success); color: #fff; }
+  .steps li[aria-current="step"] { color: var(--color-ink); font-weight: 600; }
+  .steps li[aria-current="step"] .n { background: var(--color-primary); border-color: var(--color-primary); color: #fff; box-shadow: var(--focus-ring); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-6); align-items: start; }
+  .stack { display: grid; gap: var(--space-4); min-width: 0; }
+  [hidden] { display: none !important; }
+
+  .dropzone { position: relative; display: grid; justify-items: center; gap: var(--space-3); text-align: center; padding: var(--space-12) var(--space-6);
+    border: 2px dashed var(--color-border-strong); border-radius: var(--radius-xl); background: var(--color-surface);
+    transition: background var(--duration-fast), border-color var(--duration-fast); }
+  .dropzone.is-over { background: var(--color-primary-soft); border-color: var(--color-primary); }
+  .dropzone:focus-within { box-shadow: var(--focus-ring); }
+  .dropzone .dz-icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--color-primary-soft); color: var(--color-primary); }
+  .dropzone .dz-icon svg { width: 28px; height: 28px; }
+  .dropzone h3 { font-size: var(--text-xl); }
+  .dropzone .formats { font-size: var(--text-sm); color: var(--color-muted); display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; align-items: center; }
+
+  .progress { height: 10px; border-radius: 999px; background: var(--color-subtle); border: 1px solid var(--color-border); overflow: hidden; }
+  .progress > span { display: block; height: 100%; width: 0; background: var(--color-primary); transition: width var(--duration-base) linear; }
+  .file-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
+
+  .ok-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: 4px; }
+  .ok-list li { display: flex; gap: var(--space-2); align-items: flex-start; }
+  .ok-list svg { width: 16px; height: 16px; margin-top: 3px; flex: none; color: var(--color-success); }
+
+  .preview-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: var(--space-4); align-items: start; }
+  .viewer { position: relative; background: var(--color-viewer-bg); border-radius: var(--radius-lg); border: 1px solid var(--color-viewer-border); overflow: hidden; }
+  .viewer svg.pano { width: 100%; height: auto; }
+  .redact { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); color: var(--color-viewer-text);
+    background: var(--color-viewer-panel); border: 1px solid var(--color-viewer-border); border-radius: var(--radius-md); padding: 4px 8px 4px 4px; }
+  .redact i { display: block; width: 44px; height: 16px; background: #000; border-radius: 2px; }
+  .info-list { margin: 0; display: grid; gap: var(--space-3); font-size: var(--text-sm); }
+  .info-list div { display: grid; gap: 2px; }
+  .info-list dt { color: var(--color-muted); }
+  .info-list dd { margin: 0; font-weight: 500; }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+
+  .astep-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
+  .astep-list li { display: flex; align-items: center; gap: var(--space-2); color: var(--color-muted); }
+  .astep-list li .dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--color-border-strong); flex: none; }
+  .astep-list li[data-s="done"] { color: var(--color-ink); }
+  .astep-list li[data-s="done"] .dot { background: var(--color-success); border-color: var(--color-success); }
+  .astep-list li[data-s="now"] { color: var(--color-ink); font-weight: 600; }
+  .astep-list li[data-s="now"] .dot { border-color: var(--color-primary); background: var(--color-primary-soft); }
+  .big-pct { font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 500; }
+
+  .side ol { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-3); font-size: var(--text-sm); }
+  .side h3 { font-size: var(--text-base); margin-bottom: var(--space-3); }
+
+  @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 640px) {
+    .preview-grid { grid-template-columns: minmax(0, 1fr); }
+    .dropzone { padding: var(--space-8) var(--space-4); }
+    .steps { gap: var(--space-2) var(--space-4); }
+    .actions .btn { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body data-page="nouvelle-analyse" data-allow="praticien">
+<div class="app">
+<aside class="sidebar" id="sidebar"></aside>
+<div class="main">
+<header class="topbar"><div><p class="crumbs">Application</p><h1>Nouvelle analyse</h1></div></header>
+<main class="page">
+
+  <div class="states-bar" role="group" aria-label="États de la maquette">
+    <span class="maq-note">États de la maquette</span>
+    <button class="btn btn-sm btn-ghost" data-go="attente">En attente</button>
+    <button class="btn btn-sm btn-ghost" data-go="import">Import en cours</button>
+    <button class="btn btn-sm btn-ghost" data-go="invalide">Format invalide</button>
+    <button class="btn btn-sm btn-ghost" data-go="invalide-taille">Fichier trop lourd</button>
+    <button class="btn btn-sm btn-ghost" data-go="non-pano">Non panoramique</button>
+    <button class="btn btn-sm btn-ghost" data-go="importe">Import réussi</button>
+    <button class="btn btn-sm btn-ghost" data-go="analyse">Analyse en cours</button>
+    <button class="btn btn-sm btn-ghost" data-go="terminee">Terminée</button>
+    <button class="btn btn-sm btn-ghost" data-go="echec">Échec</button>
+  </div>
+
+  <div class="page-head">
+    <div>
+      <h2>Nouvelle analyse</h2>
+      <p>Déposez une radiographie panoramique. Elle est anonymisée dès l’import, avant tout traitement.</p>
+    </div>
+  </div>
+
+  <nav aria-label="Étapes de l’analyse">
+    <ol class="steps" id="steps">
+      <li data-n="1"><span class="n">1</span>Importer</li>
+      <li data-n="2"><span class="n">2</span>Vérifier l’aperçu</li>
+      <li data-n="3"><span class="n">3</span>Analyser</li>
+      <li data-n="4"><span class="n">4</span>Relire</li>
+    </ol>
+  </nav>
+
+  <div class="layout">
+    <div class="stack" aria-live="polite">
+
+      <!-- Alertes d'erreur d'import (c) -->
+      <div class="alert alert-danger" role="alert" data-st="invalide"><i data-icon="alert"></i><div><strong>Fichier refusé</strong>Ce format n’est pas pris en charge. Formats acceptés : DICOM, JPG, PNG.</div></div>
+      <div class="alert alert-danger" role="alert" data-st="invalide-taille"><i data-icon="alert"></i><div><strong>Fichier refusé</strong>Le fichier dépasse 20 Mo.</div></div>
+
+      <!-- Zone de dépôt (a, c) -->
+      <section class="dropzone" id="dz" data-st="attente invalide invalide-taille" aria-label="Zone de dépôt de la radiographie">
+        <span class="dz-icon"><i data-icon="upload"></i></span>
+        <h3>Glissez votre radiographie ici</h3>
+        <p class="muted">ou</p>
+        <input type="file" id="file" class="sr-only" accept=".dcm,.jpg,.jpeg,.png,image/jpeg,image/png,application/dicom">
+        <label for="file" class="btn btn-primary" id="browse" role="button">Parcourir les fichiers</label>
+        <p class="formats">DICOM (.dcm), JPG, PNG · 20 Mo maximum <span class="maq-note">20 Mo : à confirmer</span></p>
+        <p class="hint">Radiographies panoramiques uniquement.</p>
+      </section>
+
+      <!-- Import en cours (b) -->
+      <section class="card card-pad stack" data-st="import" aria-label="Import en cours">
+        <div class="file-line"><strong class="mono" style="font-weight:500">pano_cabinet_0042.dcm · 8,4 Mo</strong><span class="mono" id="upPct">62 %</span></div>
+        <div class="progress" role="progressbar" aria-label="Téléversement" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" id="upBar"><span style="width:62%"></span></div>
+        <p class="hint">Import et anonymisation en cours. Ne fermez pas la page.</p>
+      </section>
+
+      <!-- Non panoramique (d) -->
+      <section class="stack" data-st="non-pano">
+        <div class="alert alert-warning" role="alert"><i data-icon="alert"></i><div><strong>Image à vérifier</strong>Cette image ne ressemble pas à une radiographie panoramique (format ou proportions inhabituels). L’analyse n’est fiable que sur des panoramiques.</div></div>
+        <div class="card card-pad stack">
+          <p class="mono" style="font-size:var(--text-sm)">scan_0017.jpg · 1,2 Mo</p>
+          <div class="actions">
+            <label for="file" class="btn btn-secondary" role="button">Choisir une autre image</label>
+            <button class="btn btn-ghost" data-go="importe" type="button">Continuer quand même</button>
+            <span class="maq-note">« Continuer quand même » : hypothèse à valider</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Import réussi (e) + analyse (f, g, h) : bloc commun -->
+      <section class="stack" data-st="importe analyse terminee echec">
+        <div class="alert alert-success" role="status">
+          <i data-icon="check"></i>
+          <div>
+            <strong>Anonymisation appliquée</strong>
+            <ul class="ok-list">
+              <li><i data-icon="check"></i>Balises DICOM supprimées : 7</li>
+              <li><i data-icon="check"></i>Métadonnées du fichier effacées</li>
+              <li><i data-icon="check"></i>Texte incrusté masqué : 1 zone</li>
+              <li><i data-icon="check"></i>Identifiant anonyme attribué : <span class="mono">7F3A</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card card-pad stack">
+          <h3 style="font-size:var(--text-lg)">Aperçu de l’image anonymisée</h3>
+          <div class="preview-grid">
+            <div class="viewer">
+              <svg class="pano" id="pano" viewBox="0 0 1200 600" role="img" aria-label="Aperçu simulé de la radiographie panoramique anonymisée"></svg>
+              <span class="redact"><i aria-hidden="true"></i>Texte incrusté masqué</span>
+            </div>
+            <dl class="info-list">
+              <div><dt>ID anonyme</dt><dd class="mono">7F3A</dd></div>
+              <div><dt>Dimensions</dt><dd class="mono">2 868 × 1 504 px <span class="maq-note">fictif</span></dd></div>
+              <div><dt>Type</dt><dd><span class="badge badge-success">Panoramique</span></dd></div>
+              <div><dt>Fichier</dt><dd class="mono">pano_cabinet_0042.dcm</dd></div>
+            </dl>
+          </div>
+        </div>
+
+        <!-- e : actions -->
+        <div class="actions" data-st="importe">
+          <button class="btn btn-primary" data-go="analyse" data-auto="1" type="button"><i data-icon="sparkle"></i>Lancer l’analyse</button>
+          <button class="btn btn-secondary" data-go="attente" type="button">Remplacer l’image</button>
+        </div>
+
+        <!-- f : en cours -->
+        <div class="card card-pad stack" data-st="analyse" aria-label="Analyse en cours">
+          <div class="file-line" style="align-items:baseline"><strong>Analyse en cours</strong><span class="big-pct" id="anPct">45 %</span></div>
+          <div class="progress" role="progressbar" aria-label="Progression de l’analyse" aria-valuemin="0" aria-valuemax="100" aria-valuenow="45" id="anBar"><span style="width:45%"></span></div>
+          <ol class="astep-list" id="anSteps">
+            <li><span class="dot"></span>Prétraitement</li>
+            <li><span class="dot"></span>Numérotation des dents</li>
+            <li><span class="dot"></span>Détection des anomalies</li>
+            <li><span class="dot"></span>Préparation de la relecture</li>
+          </ol>
+          <div class="actions">
+            <button class="btn btn-secondary" data-go="importe" type="button">Annuler</button>
+            <span class="hint">Environ 20 secondes <span class="maq-note">durée : hypothèse</span></span>
+          </div>
+        </div>
+
+        <!-- g : terminée -->
+        <div class="stack" data-st="terminee">
+          <div class="alert alert-success" role="status"><i data-icon="check"></i><div><strong>Analyse terminée</strong>Analyse terminée : 31 dents numérotées, 8 anomalies proposées.</div></div>
+          <div class="actions"><a class="btn btn-primary" href="analyse.html">Ouvrir la relecture<i data-icon="chevron"></i></a></div>
+        </div>
+
+        <!-- h : échec -->
+        <div class="stack" data-st="echec">
+          <div class="alert alert-danger" role="alert"><i data-icon="alert"></i><div><strong>Échec de l’analyse</strong>L’analyse n’a pas pu aboutir : le service d’inférence ne répond pas. Votre image est conservée, vous pouvez relancer.<br><span class="mono" style="font-size:var(--text-xs)">Code d’incident : INC-0042-7F3A <span class="maq-note">fictif</span></span></div></div>
+          <div class="actions"><button class="btn btn-primary" data-go="analyse" data-auto="1" type="button"><i data-icon="refresh"></i>Relancer l’analyse</button></div>
+        </div>
+      </section>
+
+      <p class="hint" data-st="importe analyse terminee echec">Modèle utilisé : panoradent-yolo v0.3.1 (fictif)</p>
+    </div>
+
+    <aside class="card card-pad side" aria-labelledby="side-h">
+      <img class="illus" src="medias/anonymisation.webp" width="1232" height="896" alt="Illustration : document dont le nom est masqué, cadenas et coins de cadre" loading="lazy" style="max-width:220px;margin:0 auto var(--space-4)">
+      <h3 id="side-h">Ce qui se passe à l’import</h3>
+      <ol>
+        <li>Suppression des balises DICOM identifiantes (nom, date de naissance, identifiant patient, établissement).</li>
+        <li>Effacement des métadonnées du fichier (EXIF).</li>
+        <li>Masquage du texte incrusté dans l’image.</li>
+        <li>Attribution d’un identifiant anonyme.</li>
+      </ol>
+      <p class="hint" style="margin-top:var(--space-4)">L’image reste sur le serveur du cabinet : elle n’est jamais envoyée à un service externe.</p>
+    </aside>
+  </div>
+
+</main>
+</div>
+</div>
+
+<script>
+setTimeout(function () {
+  var main = document.querySelector("main");
+  if (!main || !document.getElementById("dz")) return; // écran 403
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var timer = null, state = null;
+  var STEP_OF = { attente: 1, invalide: 1, "invalide-taille": 1, import: 1, "non-pano": 1, importe: 2, analyse: 3, echec: 3, terminee: 4 };
+  var ASTEPS = ["Prétraitement", "Numérotation des dents", "Détection des anomalies", "Préparation de la relecture"];
+  var drawn = false;
+
+  function setBar(id, pctId, v) {
+    var b = document.getElementById(id);
+    b.firstElementChild.style.width = v + "%"; b.setAttribute("aria-valuenow", v);
+    if (pctId) document.getElementById(pctId).textContent = v + " %";
+  }
+  function paintSteps(v) {
+    var lis = document.querySelectorAll("#anSteps li"), cur = Math.min(3, Math.floor(v / 25));
+    lis.forEach(function (li, i) { li.dataset.s = v >= 100 || i < cur ? "done" : i === cur ? "now" : ""; if (li.dataset.s === "now") li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current"); });
+  }
+  function go(s, auto) {
+    clearInterval(timer);
+    state = s;
+    document.querySelectorAll("[data-st]").forEach(function (e) { e.hidden = e.dataset.st.split(" ").indexOf(s) < 0; });
+    document.querySelectorAll("[data-go]").forEach(function (b) { if (b.closest(".states-bar")) b.setAttribute("aria-pressed", b.dataset.go === s ? "true" : "false"); });
+    var n = STEP_OF[s];
+    document.querySelectorAll("#steps li").forEach(function (li) {
+      var k = +li.dataset.n;
+      li.dataset.done = k < n || s === "terminee" && k <= 3 ? "true" : "false";
+      if (k === n) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    });
+    if (["importe", "analyse", "terminee", "echec"].indexOf(s) >= 0 && !drawn) { window.Pano.draw(document.getElementById("pano")); drawn = true; }
+    var u = new URL(location.href); u.searchParams.set("etat", s); history.replaceState(null, "", u);
+
+    if (s === "import") {
+      var v = auto ? 0 : 62; setBar("upBar", "upPct", v);
+      if (auto) timer = setInterval(function () { v += reduce ? 100 : 14; if (v >= 100) go("importe"); else setBar("upBar", "upPct", v); }, 300);
+    }
+    if (s === "analyse") {
+      var p = auto ? 0 : 45; setBar("anBar", "anPct", p); paintSteps(p);
+      if (reduce) { setBar("anBar", "anPct", 100); paintSteps(100); timer = setTimeout(function () { go("terminee"); }, 1200); return; }
+      timer = setInterval(function () { p += 2; if (p >= 100) { setBar("anBar", "anPct", 100); paintSteps(100); go("terminee"); } else { setBar("anBar", "anPct", p); paintSteps(p); } }, 400);
+    }
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-go]");
+    if (b) go(b.dataset.go, !!b.dataset.auto);
+  });
+
+  var file = document.getElementById("file");
+  file.addEventListener("change", function () { if (file.files.length) { file.value = ""; go("import", true); } });
+  // Simulation : aucun fichier n'est lu
+  var dz = document.getElementById("dz");
+  ["dragenter", "dragover"].forEach(function (t) { dz.addEventListener(t, function (e) { e.preventDefault(); dz.classList.add("is-over"); }); });
+  ["dragleave", "drop"].forEach(function (t) { dz.addEventListener(t, function (e) { e.preventDefault(); dz.classList.remove("is-over"); }); });
+  dz.addEventListener("drop", function (e) { if (e.dataTransfer && e.dataTransfer.files.length) go("import", true); });
+  document.addEventListener("dragover", function (e) { e.preventDefault(); });
+  document.addEventListener("drop", function (e) { e.preventDefault(); });
+
+  var q = new URLSearchParams(location.search).get("etat");
+  go(STEP_OF[q] ? q : "importe");
+}, 0);
+</script>
+</body>
+</html>

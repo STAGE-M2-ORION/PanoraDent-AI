@@ -1,0 +1,16 @@
+/* Styles propres à chaque écran, confinés sous `.v-<nom>` (CSS imbriqué natif). */
+@import "../../views/accueil/ui/accueil.css";
+@import "../../views/connexion/ui/connexion.css";
+@import "../../views/mentions/ui/mentions.css";
+@import "../../views/tableau-de-bord/ui/tableau-de-bord.css";
+@import "../../views/historique/ui/historique.css";
+@import "../../views/nouvelle-analyse/ui/nouvelle-analyse.css";
+@import "../../views/analyse/ui/analyse.css";
+@import "../../views/compte-rendu/ui/compte-rendu.css";
+@import "../../views/profil/ui/profil.css";
+@import "../../views/performance/ui/performance.css";
+@import "../../views/admin-comptes/ui/admin-comptes.css";
+@import "../../views/admin-roles/ui/admin-roles.css";
+@import "../../views/admin-audit/ui/admin-audit.css";
+@import "../../views/admin-supervision/ui/admin-supervision.css";
+@import "../../views/design-system/ui/design-system.css";

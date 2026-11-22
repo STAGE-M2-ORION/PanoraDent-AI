@@ -1,48 +1,171 @@
-"""Évaluation sur le jeu de test gelé — produit `metrics.json`.
+"""Évaluation d'un modèle : mesures par classe, matrice de confusion, pires erreurs.
 
-Deux familles de chiffres, qui ne répondent pas à la même question :
+**Le jeu de test ne s'évalue qu'une fois.** Régler quoi que ce soit en regardant
+le test le contamine : ses chiffres cessent d'être une mesure indépendante. Les
+réglages se font sur la validation (`--split val`, sans limite). Chaque
+évaluation sur le test est inscrite dans `evaluations_test.jsonl`, à côté de
+`split.json` ; une seconde est refusée, sauf `--forcer "<motif>"`, et le motif
+figure alors dans le rapport et dans le registre.
 
-**Métriques de détection, par classe** (mAP@0.5, mAP@0.5:0.95, précision,
-rappel). Elles mesurent la localisation. Elles sont calculées à seuil de
-confiance quasi nul — c'est la définition de la mAP, qui intègre toute la courbe
-précision/rappel. Rapportées **par classe** : une moyenne globale masquerait
-qu'une classe rare est ignorée par le modèle.
+Ce qui est produit, dans `<run>/evaluation_<split>/` :
 
-**Sensibilité et spécificité au niveau image**, au seuil d'exploitation réel.
-La spécificité n'a pas de sens en détection pure — il n'existe pas de « vrai
-négatif » sur une boîte qui n'a pas été proposée. Elle en a un dès qu'on pose la
-question clinique : *ce cliché présente-t-il au moins une carie ?* On compare
-alors présence prédite et présence annotée, cliché par cliché. C'est la lecture
-qui intéresse un praticien, et la seule qui rende « spécificité » calculable.
+- `metrics.json` : précision, rappel, mAP@0,50 et mAP@0,50:0,95 **par classe**,
+  puis globalement (une moyenne seule masquerait qu'une classe rare est
+  ignorée) ; sensibilité et spécificité **par cliché**, au seuil d'exploitation
+  (« ce cliché présente-t-il une carie ? ») ; empreinte du découpage et des poids ;
+- `confusion.png` / matrice dans `metrics.json` : quelle classe est prise pour
+  quelle autre, et ce que le modèle manque ou invente (colonne et ligne « fond ») ;
+- `pires_erreurs.jpg` : les clichés qui cumulent le plus de faux positifs et de
+  faux négatifs, vérité terrain en vert, détections justes en bleu, fausses en
+  rouge ;
+- `rapport.md` : le résumé lisible, repris dans le mémoire.
 
-    python training/evaluate.py --weights runs/xxx/weights/best.pt \\
-                                --data data/yolo/data.yaml
+Une détection est juste si sa classe est celle de la vérité terrain et si les
+deux boîtes se recouvrent à au moins 0,50 (IoU).
+
+    python training/evaluate.py --weights runs/<nom>/weights/best.pt --split val
+    python training/evaluate.py --weights runs/<nom>/weights/best.pt --split test
 """
 import argparse
+import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from config import CLASSES, git_commit
 from train import check_class_order
 
+SEUIL_IOU = 0.50
+REGISTRE_TEST = "evaluations_test.jsonl"
 
-def _parse_args():
+
+def _parse_args(argv=None):
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--weights", type=Path, required=True)
-    p.add_argument("--data", type=Path, required=True)
-    p.add_argument("--split", default="test", choices=("train", "val", "test"),
-                   help="test par défaut — le jeu gelé, à n'utiliser qu'une fois")
-    p.add_argument("--imgsz", type=int, default=640)
+    p.add_argument("--data", type=Path, default=None, help="défaut : celui de run.json")
+    p.add_argument("--split", default="val", choices=("train", "val", "test"))
+    p.add_argument("--imgsz", type=int, default=None, help="défaut : celui de run.json")
     p.add_argument("--conf", type=float, default=0.25,
-                   help="seuil d'exploitation pour la sensibilité/spécificité "
-                        "image. N'affecte PAS la mAP, calculée sur toute la courbe.")
-    p.add_argument("--out", type=Path, default=None,
-                   help="défaut : metrics.json à côté des poids")
-    return p.parse_args()
+                   help="seuil d'exploitation (pires erreurs, mesures par cliché). "
+                        "N'affecte PAS la mAP, calculée sur toute la courbe.")
+    p.add_argument("--device", default=None)
+    p.add_argument("--n-erreurs", type=int, default=12, help="clichés sur la planche")
+    p.add_argument("--forcer", default=None, metavar="MOTIF",
+                   help="réévaluer le test malgré une évaluation précédente")
+    p.add_argument("--out", type=Path, default=None)
+    return p.parse_args(argv)
 
+
+# --- Fonctions pures ---------------------------------------------------------
+
+def iou(a, b) -> float:
+    """Recouvrement de deux boîtes (x1, y1, x2, y2)."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def apparier(verite: list, predictions: list, seuil: float = SEUIL_IOU) -> dict:
+    """Appariement glouton, classe par classe, par confiance décroissante.
+
+    `verite` : [(classe, boite)] ; `predictions` : [(classe, boite, confiance)].
+    Une vérité terrain n'est appariée qu'une fois. Retourne, par classe, les
+    vrais positifs, faux positifs et faux négatifs, et les indices concernés.
+    """
+    resultat = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+    prises = set()
+    justes = set()
+    for i in sorted(range(len(predictions)), key=lambda k: -predictions[k][2]):
+        classe, boite, _ = predictions[i]
+        meilleur, j_meilleur = seuil, None
+        for j, (c, b) in enumerate(verite):
+            if c == classe and j not in prises:
+                v = iou(boite, b)
+                if v >= meilleur:
+                    meilleur, j_meilleur = v, j
+        if j_meilleur is None:
+            resultat[classe]["fp"] += 1
+        else:
+            prises.add(j_meilleur)
+            justes.add(i)
+            resultat[classe]["tp"] += 1
+    for j, (c, _) in enumerate(verite):
+        if j not in prises:
+            resultat[c]["fn"] += 1
+    return {"par_classe": dict(resultat), "predictions_justes": justes, "verites_trouvees": prises}
+
+
+def confusion(verite: list, predictions: list, nc: int, seuil: float = SEUIL_IOU) -> list:
+    """Matrice (nc + 1) x (nc + 1) d'un cliché ; ligne = prédit, colonne = vrai.
+
+    Appariement **toutes classes confondues** (c'est justement la classe qu'on
+    compare) : chaque vérité terrain prend la prédiction libre qui la recouvre
+    le plus, au-dessus du seuil. Vérité sans prédiction : ligne « fond » (manquée).
+    Prédiction sans vérité : colonne « fond » (inventée).
+    """
+    m = [[0] * (nc + 1) for _ in range(nc + 1)]
+    libres = set(range(len(predictions)))
+    paires = sorted(((iou(pb, vb), j, i) for j, (_, vb) in enumerate(verite)
+                     for i, (_, pb, _) in enumerate(predictions)), reverse=True)
+    appariees = set()
+    for valeur, j, i in paires:
+        if valeur < seuil:
+            break
+        if j in appariees or i not in libres:
+            continue
+        appariees.add(j)
+        libres.discard(i)
+        m[predictions[i][0]][verite[j][0]] += 1
+    for j, (c, _) in enumerate(verite):
+        if j not in appariees:
+            m[nc][c] += 1
+    for i in libres:
+        m[predictions[i][0]][nc] += 1
+    return m
+
+
+def _ratio(n: int, d: int):
+    """None plutôt que 0 quand le dénominateur est vide : l'absence de mesure
+    n'est pas une mesure à zéro."""
+    return round(n / d, 4) if d else None
+
+
+def sha256_de(chemin: Path) -> str:
+    h = hashlib.sha256()
+    with chemin.open("rb") as f:
+        for bloc in iter(lambda: f.read(1 << 20), b""):
+            h.update(bloc)
+    return h.hexdigest()
+
+
+# --- Registre du test --------------------------------------------------------
+
+def verifier_test_unique(dossier_jeu: Path, poids_sha: str, forcer: str | None) -> list:
+    """Refuse une seconde évaluation sur le test, sauf motif explicite."""
+    registre = dossier_jeu / REGISTRE_TEST
+    precedentes = []
+    if registre.exists():
+        precedentes = [json.loads(l) for l in registre.read_text(encoding="utf-8").splitlines() if l]
+    if precedentes and not forcer:
+        liste = "\n".join(f"  - {e['date_utc']} : {e['poids']} (sha256 {e['poids_sha256'][:12]})"
+                          for e in precedentes)
+        raise SystemExit(
+            "Le jeu de test de ce découpage a déjà été évalué :\n" + liste + "\n"
+            "Une seconde mesure n'est plus indépendante. Évaluer sur la validation "
+            "(--split val), ou justifier avec --forcer \"<motif>\".")
+    return precedentes
+
+
+def inscrire_test(dossier_jeu: Path, entree: dict) -> None:
+    with (dossier_jeu / REGISTRE_TEST).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entree, ensure_ascii=False) + "\n")
+
+
+# --- Mesures -----------------------------------------------------------------
 
 def data_root(data_yaml: Path) -> Path:
     for ligne in data_yaml.read_text(encoding="utf-8").splitlines():
@@ -51,139 +174,275 @@ def data_root(data_yaml: Path) -> Path:
     return data_yaml.parent
 
 
-def _ratio(numerateur: int, denominateur: int):
-    """None plutôt que 0 quand le dénominateur est vide : l'absence de mesure
-    n'est pas une mesure à zéro."""
-    return round(numerateur / denominateur, 4) if denominateur else None
+def instances_par_classe(labels_dir: Path) -> Counter:
+    """Nombre de boîtes de vérité terrain par index de classe."""
+    compte = Counter()
+    for fichier in labels_dir.glob("*.txt"):
+        for ligne in fichier.read_text(encoding="utf-8").splitlines():
+            if ligne.strip():
+                compte[int(ligne.split()[0])] += 1
+    return compte
 
 
-def detection_metrics(modele, args) -> dict:
-    """mAP par classe. Aucun seuil de confiance imposé : c'est la définition."""
-    resultats = modele.val(data=str(args.data.resolve()), split=args.split,
-                           imgsz=args.imgsz, verbose=False)
+def mesures_detection(modele, args) -> dict:
+    """mAP par classe (toute la courbe).
+
+    La présence d'une classe se lit dans les étiquettes, pas dans les résultats
+    d'ultralytics : une classe que le modèle ne détecte jamais n'y figure pas, et
+    serait déclarée « absente » au lieu de recevoir les zéros qu'elle mérite.
+    """
+    resultats = modele.val(data=str(args.data.resolve()), split=args.split, imgsz=args.imgsz,
+                           device=args.device, plots=False, verbose=False)
     box = resultats.box
-    presentes = {int(c): i for i, c in enumerate(box.ap_class_index)}
-
+    instances = instances_par_classe(data_root(args.data) / args.split / "labels")
+    calculees = {int(c): i for i, c in enumerate(box.ap_class_index)}
     par_classe = {}
     for index, nom in enumerate(CLASSES):
-        if index not in presentes:
-            par_classe[nom] = None      # classe absente du jeu de test
+        if not instances[index]:
+            par_classe[nom] = None      # aucune vérité terrain : rien à mesurer
             continue
-        precision, rappel, ap50, ap = box.class_result(presentes[index])
-        par_classe[nom] = {
-            "precision": round(float(precision), 4),
-            "rappel": round(float(rappel), 4),
-            "mAP50": round(float(ap50), 4),
-            "mAP50_95": round(float(ap), 4),
-        }
+        if index in calculees:
+            precision, rappel, ap50, ap = box.class_result(calculees[index])
+        else:
+            precision = rappel = ap50 = ap = 0.0   # présente, jamais détectée
+        par_classe[nom] = {"instances": instances[index],
+                           "precision": round(float(precision), 4),
+                           "rappel": round(float(rappel), 4),
+                           "mAP50": round(float(ap50), 4),
+                           "mAP50_95": round(float(ap), 4)}
     return {
-        "global": {
-            "precision": round(float(box.mp), 4),
-            "rappel": round(float(box.mr), 4),
-            "mAP50": round(float(box.map50), 4),
-            "mAP50_95": round(float(box.map), 4),
-        },
+        "global": {"precision": round(float(box.mp), 4), "rappel": round(float(box.mr), 4),
+                   "mAP50": round(float(box.map50), 4), "mAP50_95": round(float(box.map), 4)},
         "par_classe": par_classe,
     }
 
 
-def image_level_metrics(modele, args) -> dict:
-    """Présence prédite vs présence annotée, un cliché à la fois."""
+def lire_verite(fichier: Path, w: int, h: int) -> list:
+    verite = []
+    if fichier.exists():
+        for ligne in fichier.read_text(encoding="utf-8").splitlines():
+            if ligne.strip():
+                c, cx, cy, bw, bh = ligne.split()[:5]
+                cx, cy, bw, bh = float(cx) * w, float(cy) * h, float(bw) * w, float(bh) * h
+                verite.append((int(c), (cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2)))
+    return verite
+
+
+def parcourir_cliches(modele, args) -> tuple[dict, list, dict]:
+    """Mesures par cliché, erreurs et matrice de confusion, au seuil d'exploitation."""
     racine = data_root(args.data)
-    images_dir = racine / args.split / "images"
-    labels_dir = racine / args.split / "labels"
+    images_dir, labels_dir = racine / args.split / "images", racine / args.split / "labels"
     if not images_dir.is_dir():
         raise SystemExit(f"partition introuvable : {images_dir}")
 
-    compteurs = defaultdict(lambda: {"tp": 0, "fp": 0, "tn": 0, "fn": 0})
-    n_images = 0
+    nc = len(CLASSES)
+    matrice = [[0] * (nc + 1) for _ in range(nc + 1)]
+    presence = defaultdict(Counter)
+    cliches = []
+    for r in modele.predict(source=str(images_dir), imgsz=args.imgsz, conf=args.conf,
+                            device=args.device, verbose=False, stream=True):
+        chemin = Path(r.path)
+        h, w = r.orig_shape
+        verite = lire_verite(labels_dir / f"{chemin.stem}.txt", w, h)
+        predictions = [(int(c), tuple(b), float(s)) for c, b, s in
+                       zip(r.boxes.cls.tolist(), r.boxes.xyxy.tolist(), r.boxes.conf.tolist())]
+        appariement = apparier(verite, predictions)
+        for i, ligne in enumerate(confusion(verite, predictions, nc)):
+            for j, v in enumerate(ligne):
+                matrice[i][j] += v
+        erreurs =sum(v["fp"] + v["fn"] for v in appariement["par_classe"].values())
+        cliches.append({"image": str(chemin), "erreurs": erreurs, "verite": verite,
+                        "predictions": predictions,
+                        "justes": sorted(appariement["predictions_justes"]),
+                        "detail": {CLASSES[c]: v for c, v in appariement["par_classe"].items()}})
 
-    for resultat in modele.predict(source=str(images_dir), imgsz=args.imgsz,
-                                   conf=args.conf, verbose=False, stream=True):
-        n_images += 1
-        chemin = Path(resultat.path)
-        fichier_label = labels_dir / f"{chemin.stem}.txt"
-        annotees = set()
-        if fichier_label.exists():
-            annotees = {int(l.split()[0]) for l in
-                        fichier_label.read_text(encoding="utf-8").splitlines() if l.strip()}
-        predites = {int(c) for c in resultat.boxes.cls.tolist()}
-
+        annotees = {c for c, _ in verite}
+        predites = {c for c, _, _ in predictions}
         for index, nom in enumerate(CLASSES):
             attendu, obtenu = index in annotees, index in predites
-            cle = "tp" if (attendu and obtenu) else \
-                  "fn" if attendu else \
-                  "fp" if obtenu else "tn"
-            compteurs[nom][cle] += 1
+            presence[nom]["tp" if attendu and obtenu else "fn" if attendu else
+                          "fp" if obtenu else "tn"] += 1
 
-    return {
-        "n_images": n_images,
+    niveau_image = {
+        "n_images": len(cliches),
         "seuil_confiance": args.conf,
-        "par_classe": {
-            nom: {**c,
-                  "sensibilite": _ratio(c["tp"], c["tp"] + c["fn"]),
-                  "specificite": _ratio(c["tn"], c["tn"] + c["fp"])}
-            for nom, c in compteurs.items()
-        },
+        "par_classe": {nom: {**c, "sensibilite": _ratio(c["tp"], c["tp"] + c["fn"]),
+                             "specificite": _ratio(c["tn"], c["tn"] + c["fp"])}
+                       for nom, c in presence.items()},
     }
+    matrice_confusion = {"etiquettes": CLASSES + ["fond"], "matrice": matrice,
+                         "lecture": "ligne = prédit, colonne = vrai ; fond = manqué ou inventé",
+                         "seuil_confiance": args.conf, "seuil_iou": SEUIL_IOU}
+    return niveau_image, cliches, matrice_confusion
 
 
-def report(metrics: dict) -> None:
-    largeur = max(len(c) for c in CLASSES)
-    detection = metrics["detection"]["par_classe"]
+# --- Sorties visuelles -------------------------------------------------------
+
+def dessiner_confusion(confusion: dict, sortie: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    m = np.array(confusion["matrice"], dtype=float)
+    # Normalisée par colonne : part de chaque vraie classe prédite comme...
+    totaux = m.sum(axis=0, keepdims=True)
+    norm = np.divide(m, totaux, out=np.zeros_like(m), where=totaux > 0)
+    etiquettes = confusion["etiquettes"]
+    fig, ax = plt.subplots(figsize=(7, 6))
+    ax.imshow(norm, cmap="Blues", vmin=0, vmax=1)
+    ax.set_xticks(range(len(etiquettes)), etiquettes, rotation=40, ha="right")
+    ax.set_yticks(range(len(etiquettes)), etiquettes)
+    ax.set_xlabel("vraie classe")
+    ax.set_ylabel("classe prédite")
+    for i in range(len(etiquettes)):
+        for j in range(len(etiquettes)):
+            if m[i, j]:
+                ax.text(j, i, f"{int(m[i, j])}", ha="center", va="center",
+                        color="white" if norm[i, j] > 0.5 else "black", fontsize=8)
+    ax.set_title(f"Matrice de confusion, confiance ≥ {confusion['seuil_confiance']}\n"
+                 "(effectifs ; couleur : part de la colonne)")
+    fig.tight_layout()
+    fig.savefig(sortie, dpi=150)
+    plt.close(fig)
+
+
+def dessiner_pires_erreurs(cliches: list, n: int, sortie: Path, largeur: int = 800) -> list:
+    import cv2
+    import numpy as np
+
+    pires = sorted(cliches, key=lambda c: (-c["erreurs"], c["image"]))[:n]
+    pires = [c for c in pires if c["erreurs"] > 0]
+    if not pires:
+        return []
+    vignettes = []
+    for c in pires:
+        img = cv2.imread(c["image"])
+        echelle = largeur / img.shape[1]
+        img = cv2.resize(img, (largeur, int(img.shape[0] * echelle)))
+
+        def cadre(boite, couleur, epaisseur, texte=None):
+            x1, y1, x2, y2 = (int(v * echelle) for v in boite)
+            cv2.rectangle(img, (x1, y1), (x2, y2), couleur, epaisseur)
+            if texte:
+                cv2.putText(img, texte, (x1, max(12, y1 - 3)), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.4, couleur, 1, cv2.LINE_AA)
+
+        for classe, boite in c["verite"]:
+            cadre(boite, (60, 200, 60), 2)
+        for k, (classe, boite, conf) in enumerate(c["predictions"]):
+            juste = k in c["justes"]
+            cadre(boite, (230, 120, 30) if juste else (40, 40, 230), 1,
+                  f"{CLASSES[classe]} {conf:.2f}")
+        cv2.putText(img, f"{Path(c['image']).name} : {c['erreurs']} erreurs", (8, 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+        vignettes.append(img)
+
+    hauteur = max(v.shape[0] for v in vignettes)
+    colonnes = 2
+    lignes = -(-len(vignettes) // colonnes)
+    toile = np.full((lignes * hauteur, colonnes * largeur, 3), 255, np.uint8)
+    for k, v in enumerate(vignettes):
+        r, col = divmod(k, colonnes)
+        toile[r * hauteur:r * hauteur + v.shape[0], col * largeur:(col + 1) * largeur] = v
+    cv2.imwrite(str(sortie), toile)
+    return [{"image": Path(c["image"]).name, "erreurs": c["erreurs"], "detail": c["detail"]}
+            for c in pires]
+
+
+def rapport_markdown(metrics: dict) -> str:
+    def f(v):
+        return "—" if v is None else f"{v:.3f}"
+    lignes = [
+        f"# Évaluation — partition `{metrics['split']}`", "",
+        f"- Poids : `{metrics['poids']}` (sha256 `{metrics['poids_sha256'][:12]}`)",
+        f"- Découpage : empreinte `{(metrics['decoupage'] or {}).get('empreinte', '?')[:12]}`",
+        f"- Taille d'image : {metrics['imgsz']} px ; seuil d'exploitation : {metrics['seuil_confiance']}",
+        f"- Date : {metrics['date_utc']} ; commit `{metrics['git_commit']}`",
+    ]
+    if metrics.get("motif_reevaluation"):
+        lignes.append(f"- **Réévaluation du test** — motif : {metrics['motif_reevaluation']}")
+    lignes += ["", "## Détection, par classe (IoU ≥ 0,50 pour la précision et le rappel)", "",
+               "| classe | instances | précision | rappel | mAP@0,50 | mAP@0,50:0,95 | sensibilité (cliché) | spécificité (cliché) |",
+               "|---|---|---|---|---|---|---|---|"]
     image = metrics["niveau_image"]["par_classe"]
-
-    entete = ("classe".ljust(largeur) + "   mAP50 mAP50-95  precis.  rappel"
-              "   sensib.  specif.")
-    print("\n" + entete)
-    print("-" * len(entete))
     for nom in CLASSES:
-        d, i = detection.get(nom), image.get(nom, {})
+        d = metrics["detection"]["par_classe"].get(nom)
+        i = image.get(nom, {})
         if d is None:
-            print(nom.ljust(largeur) + "   ABSENTE DU JEU DE TEST")
+            lignes.append(f"| {nom} | 0 | absente de la partition | | | | | |")
             continue
-        def f(v):
-            return "   -   " if v is None else f"{v:>7.3f}"
-        print(nom.ljust(largeur) + " " + " ".join(f(v) for v in (
-            d["mAP50"], d["mAP50_95"], d["precision"], d["rappel"],
-            i.get("sensibilite"), i.get("specificite"))))
-    print("-" * len(entete))
+        lignes.append(f"| {nom} | {d['instances']} | {f(d['precision'])} | {f(d['rappel'])} | "
+                      f"{f(d['mAP50'])} | {f(d['mAP50_95'])} | {f(i.get('sensibilite'))} | "
+                      f"{f(i.get('specificite'))} |")
     g = metrics["detection"]["global"]
-    print(f"{'GLOBAL'.ljust(largeur)} {g['mAP50']:>7.3f} {g['mAP50_95']:>7.3f} "
-          f"{g['precision']:>7.3f} {g['rappel']:>7.3f}")
-
-    absentes = [n for n, d in detection.items() if d is None]
-    if absentes:
-        print(f"\n[!] Classes absentes du jeu de test : {', '.join(absentes)}. "
-              "Aucune conclusion ne peut être tirée à leur sujet.")
+    lignes += [f"| **global** | | {f(g['precision'])} | {f(g['rappel'])} | {f(g['mAP50'])} | "
+               f"{f(g['mAP50_95'])} | | |", "",
+               "Matrice de confusion : `confusion.png`. Pires erreurs : `pires_erreurs.jpg`.", ""]
+    return "\n".join(lignes)
 
 
-def main():
-    args = _parse_args()
+# --- Programme ---------------------------------------------------------------
+
+def lire_run(poids: Path) -> dict:
+    chemin = poids.parent.parent / "run.json"
+    return json.loads(chemin.read_text(encoding="utf-8")) if chemin.exists() else {}
+
+
+def evaluer(args) -> Path:
+    run = lire_run(args.weights)
+    args.data = args.data or (Path(run["data_yaml"]) if run.get("data_yaml") else None)
+    if args.data is None:
+        raise SystemExit("--data manquant, et aucun run.json à côté des poids.")
+    args.imgsz = args.imgsz or run.get("hyperparametres", {}).get("imgsz") or 640
     check_class_order(args.data)
 
-    from ultralytics import YOLO
+    dossier_jeu = args.data.parent
+    poids_sha = sha256_de(args.weights)
+    if args.split == "test":
+        verifier_test_unique(dossier_jeu, poids_sha, args.forcer)
 
+    from ultralytics import YOLO
     modele = YOLO(str(args.weights))
+
+    sortie = args.out or args.weights.parent.parent / f"evaluation_{args.split}"
+    sortie.mkdir(parents=True, exist_ok=True)
+
+    decoupage = None
+    if (dossier_jeu / "split.json").exists():
+        split = json.loads((dossier_jeu / "split.json").read_text(encoding="utf-8"))
+        decoupage = {"empreinte": split.get("empreinte"), "graine": split.get("graine")}
+
+    detection = mesures_detection(modele, args)
+    niveau_image, cliches, detection["confusion"] = parcourir_cliches(modele, args)
     metrics = {
         "date_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
-        "poids": str(args.weights),
-        "data_yaml": str(args.data.resolve()),
-        "split": args.split,
-        "imgsz": args.imgsz,
-        "classes": CLASSES,
-        "detection": detection_metrics(modele, args),
-        "niveau_image": image_level_metrics(modele, args),
+        "poids": str(args.weights), "poids_sha256": poids_sha,
+        "data_yaml": str(args.data.resolve()), "split": args.split, "decoupage": decoupage,
+        "imgsz": args.imgsz, "seuil_confiance": args.conf, "seuil_iou": SEUIL_IOU,
+        "classes": CLASSES, "motif_reevaluation": args.forcer if args.split == "test" else None,
+        "detection": detection, "niveau_image": niveau_image,
     }
+    dessiner_confusion(detection["confusion"], sortie / "confusion.png")
+    metrics["pires_erreurs"] = dessiner_pires_erreurs(cliches, args.n_erreurs,
+                                                      sortie / "pires_erreurs.jpg")
+    (sortie / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False),
+                                         encoding="utf-8")
+    (sortie / "rapport.md").write_text(rapport_markdown(metrics), encoding="utf-8")
 
-    sortie = args.out or args.weights.parent / "metrics.json"
-    sortie.write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
-    report(metrics)
-    print(f"\n-> {sortie}")
-    print(f"\nÉtape suivante :\n"
-          f"  python training/publish_model.py --version <nom> --dataset <jeu> "
-          f"--metrics {sortie} --weights {args.weights} --install")
+    if args.split == "test":
+        inscrire_test(dossier_jeu, {"date_utc": metrics["date_utc"], "poids": str(args.weights),
+                                    "poids_sha256": poids_sha, "motif": args.forcer,
+                                    "rapport": str(sortie / "metrics.json")})
+    return sortie
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    sortie = evaluer(args)
+    print((sortie / "rapport.md").read_text(encoding="utf-8"))
+    print(f"-> {sortie}")
 
 
 if __name__ == "__main__":

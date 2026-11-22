@@ -1,0 +1,24 @@
+/* Mode sombre des pages de l'application. */
+
+/* ---------- Mode sombre (pages de l'application) ---------- */
+:root[data-theme="dark"] {
+  --color-bg: #0B1220; --color-surface: #111C2E; --color-subtle: #17253B;
+  --color-ink: #E2E8F0; --color-muted: #94A3B8; --color-border: #22324C; --color-border-strong: #33476A;
+  --color-primary-soft: rgba(14, 116, 144, .22); --color-primary-hover: #67E8F9;
+  --color-success-soft: rgba(21, 128, 61, .18); --color-warning-soft: rgba(180, 83, 9, .2);
+  --color-danger-soft: rgba(185, 28, 28, .2); --color-info-soft: rgba(3, 105, 161, .2);
+  --focus-ring: 0 0 0 2px #0B1220, 0 0 0 4px #22D3EE;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] a { color: #67E8F9; }
+:root[data-theme="dark"] .btn-primary { color: #fff; }
+:root[data-theme="dark"] .sidebar { background: #0F2A43; }
+:root[data-theme="dark"] .alert-success, :root[data-theme="dark"] .alert-warning,
+:root[data-theme="dark"] .alert-danger, :root[data-theme="dark"] .alert-info { color: var(--color-ink); border-color: var(--color-border); }
+:root[data-theme="dark"] .badge-success { color: #4ADE80; border-color: rgba(74,222,128,.35); }
+:root[data-theme="dark"] .badge-warning { color: #FBBF24; border-color: rgba(251,191,36,.35); }
+:root[data-theme="dark"] .badge-danger { color: #FCA5A5; border-color: rgba(252,165,165,.35); }
+:root[data-theme="dark"] .badge-info, :root[data-theme="dark"] .badge-primary { color: #7DD3FC; border-color: rgba(125,211,252,.35); }
+:root[data-theme="dark"] .illus { mix-blend-mode: normal; background: #fff; border-radius: var(--radius-lg); }
+:root[data-theme="dark"] .sheet { color: #0F2A43; }
+:root[data-theme="dark"] .proto-banner { background: #2A1F0B; color: #FDE68A; border-bottom-color: #4A3410; }

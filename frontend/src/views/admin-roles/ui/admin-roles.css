@@ -1,0 +1,23 @@
+/* Écran « admin-roles » — styles propres, confinés sous .v-admin-roles (repris de la maquette). */
+
+.v-admin-roles {
+  .state-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .matrix th, .matrix td { text-align: center; }
+  .matrix th:first-child, .matrix td:first-child { text-align: left; }
+  .matrix td:first-child { font-weight: 500; }
+  .cell-yes, .cell-no { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); }
+  .cell-yes { color: var(--color-success); font-weight: 500; }
+  .cell-yes svg { width: 18px; height: 18px; }
+  .cell-no { color: var(--color-muted); }
+  .check-row { display: flex; align-items: flex-start; gap: var(--space-3); min-height: 44px; font-size: var(--text-sm); }
+  .check-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--color-primary); flex: none; }
+  .matrix .check-row { justify-content: center; min-height: 36px; }
+  .modal.wide { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+  fieldset { border: 1px solid var(--color-border); border-radius: var(--radius-md); margin: 0; padding: var(--space-3) var(--space-4); display: grid; gap: 0; min-width: 0; }
+  legend { font-size: var(--text-sm); font-weight: 600; padding: 0 var(--space-2); }
+  .summary { background: var(--color-subtle); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); font-size: var(--text-sm); }
+  .summary ul { margin: var(--space-1) 0 0; padding-left: var(--space-5); }
+  .matrix-card .table-wrap { margin-inline: calc(var(--space-6) * -1); width: calc(100% + var(--space-6) * 2); max-width: none; }
+  .matrix-card .dcard-h { flex-wrap: wrap; }
+  @media (max-width: 1008px), (min-width: 1025px) and (max-width: 1271px) { .matrix-card .table-wrap { margin-inline: 0; width: auto; } }
+}

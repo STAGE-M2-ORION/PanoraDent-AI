@@ -1,154 +1,213 @@
 # Pipeline d'entraînement
 
 **L'entraînement est un processus hors ligne.** Aucun code de ce dossier n'est
-embarqué dans le service d'inférence, et aucun code d'entraînement ne tourne
-dans le conteneur qui sert les prédictions (principe posé en
+embarqué dans le service d'inférence (principe posé en
 [DOCUMENTATION.md §13.5](../docs/DOCUMENTATION.md)). Le seul artefact qui
 traverse la frontière est un fichier de poids `.pt`.
 
-Ce dossier ne dépend d'aucun service : il tourne aussi bien sur Colab que sur
-une machine GPU, sans base ni stockage objet — à l'exception de
-`publish_model.py`, qui écrit dans PostgreSQL.
+Rien ici ne dépend de la stack (ni base, ni stockage), sauf `publish_model.py`,
+qui écrit dans PostgreSQL.
+
+---
+
+## Données : DENTEX
+
+| | |
+|---|---|
+| Source | Hugging Face `ibrahimhamamci/DENTEX`, révision figée `7b27ccc` — public, sans compte |
+| Licence | **CC BY-NC-SA 4.0** : usage académique et non commercial. Les poids entraînés héritent de cette restriction |
+| Volume | 11,3 Go à télécharger (dont 10,4 Go pour l'archive d'entraînement) |
+
+DENTEX arrive en plusieurs ensembles, qui **n'encadrent pas la même chose** et
+**se recouvrent** (mesuré au pixel près) :
+
+| Ensemble | Clichés | Ce qui est encadré |
+|---|---|---|
+| `quadrant_enumeration` | 634 (11 doublons) | **toutes les dents**, avec leur FDI, sans diagnostic |
+| `quadrant-enumeration-disease` | 705 (27 sans boîte) | **seulement les dents malades** : carie, carie profonde, inclusion, lésion péri-apicale |
+| validation officielle | 50 | dents malades, même protocole |
+| test officiel | 250 | dents malades, **autre protocole** : polygones LabelMe, taxonomie turque à 8 codes |
+| `quadrant`, `unlabelled` | 693, 1 571 | inutiles pour nos classes |
+
+260 clichés sont à la fois dans l'énumération et dans les maladies (les deux
+annotations y concordent : IoU médian 0,93) ; 85 clichés du test officiel sont
+aussi dans l'énumération.
+
+### Décisions (sprint 6, S6-1)
+
+- **Deux modèles.** Mélanger les ensembles apprendrait au modèle qu'une dent
+  non encadrée n'est pas une dent. Le modèle **dents** apprend sur
+  l'énumération (classe `tooth`), le modèle **anomalies** sur les maladies et la
+  validation officielle (quatre diagnostics). Les deux jeux gardent la liste
+  `CLASSES` entière, dans l'ordre du contrat : aucun renumérotage côté service.
+- **Un seul découpage** pour les deux jeux, par groupe de clichés identiques au
+  pixel près, tous ensembles confondus : un cliché de test de l'un n'entraîne
+  jamais l'autre. Stratifié sur la classe la plus rare ; empreinte sha256
+  conservée avec chaque modèle.
+- **Test interne + test officiel en externe.** Le test interne (15 %) mesure les
+  deux modèles. Le test officiel est évalué **une seule fois**, à part ; tout
+  cliché qui y figure est retiré de l'apprentissage. Seules les correspondances
+  sûres y sont gardées (carie, inclusion, lésion) : « küretaj » (curetage) est
+  exclu, sa correspondance avec « carie profonde » n'étant pas documentée.
 
 ---
 
 ## Environnement
 
-**Python 3.11.** PyTorch ne publie pas encore pour 3.14, la version par défaut
-de cette machine — un environnement dédié est obligatoire.
+Python 3.11. Sur une carte NVIDIA, installer torch **avec CUDA avant** le reste :
 
-```bash
-py -3.11 -m venv .venv-train
-.venv-train/Scripts/activate          # Linux/macOS : source .venv-train/bin/activate
-pip install -r training/requirements.txt
+```powershell
+py -3.11 -m venv training\.venv
+training\.venv\Scripts\python -m pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
+training\.venv\Scripts\python -m pip install -r training\requirements.txt
+training\.venv\Scripts\python -c "import torch; print(torch.cuda.is_available())"   # True
 ```
 
-**Sans GPU, l'entraînement n'est pas exploitable.** Le notebook
-[`notebooks/colab_panoradent.ipynb`](notebooks/colab_panoradent.ipynb) clone le
-dépôt sur Colab (T4 gratuit) et appelle ces mêmes scripts : le code reste
-versionné ici, seul le calcul part là-bas.
+`ultralytics` est épinglé en **8.3.40** (YOLO11 n'existe pas en 8.2) : le service
+d'inférence doit charger les poids avec la même version.
 
 ---
 
-## Les quatre étapes
+## Les étapes
 
 ```
-  COCO source                                          plateforme
-       │                                                    ▲
-       ▼                                                    │
- prepare_dataset.py ──▶ train.py ──▶ evaluate.py ──▶ publish_model.py
-   data.yaml              best.pt      metrics.json    model_versions
-   split.json             run.json                     + weights/model.pt
+telecharger_dentex.py ─▶ prepare_dataset.py ─▶ train.py (×2) ─▶ evaluate.py ─▶ publish_model.py
+   data/dentex/           data/yolo/{dents,      runs/<nom>/      evaluation_<split>/
+                          anomalies,externe}     best.pt, run.json, journal.jsonl
 ```
 
-### 1. `prepare_dataset.py` — le fichier qui porte la validité
+Toutes les commandes se lancent depuis la racine du dépôt.
 
-Convertit un COCO en format YOLO. Deux garanties qu'il est seul à apporter :
+### 1. Télécharger
 
-- **Découpage par patient.** Deux clichés d'un même patient ne peuvent pas se
-  répartir entre entraînement et test. Sans cela, les scores sont gonflés et le
-  résultat n'a aucune valeur scientifique.
-- **Test gelé et reproductible.** `split.json` consigne la graine, les ratios et
-  l'affectation patient par patient. Rejouer la commande redonne exactement le
-  même découpage, et le fichier permet de le prouver.
-
-Il affiche aussi la **distribution par classe et par partition** : c'est là que
-le déséquilibre devient visible — une carie est bien plus fréquente qu'une dent
-incluse.
-
-```bash
-python training/prepare_dataset.py \
-    --annotations data/dentex/annotations.json \
-    --images      data/dentex/images \
-    --out         data/yolo \
-    --class-map   training/class_map.dentex.json
+```powershell
+training\.venv\Scripts\python training\telecharger_dentex.py --dest data\dentex
 ```
 
-> ⚠️ La structure hiérarchique de DENTEX (quadrant → numérotation → diagnostic)
-> **n'a pas pu être vérifiée** : aucune donnée n'était disponible à l'écriture.
-> `--category-field` désigne le champ portant la classe. Les catégories non
-> reconnues sont **comptées et signalées**, jamais perdues en silence — vérifier
-> cette sortie à la première exécution.
+Chaque archive est contrôlée contre l'empreinte sha256 publiée ; un
+téléchargement interrompu reprend où il s'était arrêté (relancer la même
+commande). Les archives sont extraites sous leur propre nom.
 
-### 2. `train.py`
+### 2. Préparer
 
-Enveloppe fine autour d'ultralytics. Refuse de démarrer si l'ordre des classes
-du `data.yaml` diverge de
-[`inference/app/config.py`](../inference/app/config.py) : le service mappe
-l'index prédit sur sa propre liste, un décalage d'un cran produirait des
-diagnostics faux **sans lever la moindre erreur**. Écrit `run.json`
-(hyperparamètres, empreinte git, ordre des classes).
-
-### 3. `evaluate.py`
-
-Deux familles de chiffres, qui ne répondent pas à la même question :
-
-| Mesure | Question | Seuil |
-|---|---|---|
-| mAP@0.5, mAP@0.5:0.95, précision, rappel — **par classe** | Le modèle localise-t-il bien ? | toute la courbe |
-| **Sensibilité / spécificité au niveau image** | *Ce cliché présente-t-il au moins une carie ?* | seuil d'exploitation (`--conf`) |
-
-La spécificité n'a pas de sens en détection pure — il n'existe pas de « vrai
-négatif » sur une boîte jamais proposée. Elle en retrouve un dès qu'on pose la
-question au niveau du cliché, qui est la lecture du praticien.
-
-> **Le jeu de test ne se regarde qu'une fois.** Régler des hyperparamètres en
-> observant le test le contamine : les chiffres cessent d'être une mesure
-> indépendante. Itérer avec `--split val`.
-
-### 4. `publish_model.py`
-
-Le chaînon manquant vers la plateforme. La table `model_versions` et
-`GET /api/model/versions` existent depuis le premier jour et n'ont **jamais été
-alimentées** : rien n'écrivait dedans. Ce script écrit dedans, et copie les
-poids dans `inference/weights/model.pt`.
-
-```bash
-python training/publish_model.py \
-    --version yolov11n-dentex-2026.09 \
-    --dataset "DENTEX disease, split patient 70/15/15, graine 42" \
-    --metrics runs/colab-run/weights/metrics.json \
-    --weights runs/colab-run/weights/best.pt --install
+```powershell
+training\.venv\Scripts\python training\prepare_dataset.py --dentex data\dentex --out data\yolo
 ```
 
-Depuis Colab, la base n'est pas joignable : ajouter `--skip-db`, puis rejouer le
-script sur la machine qui héberge la stack.
+Produit `dents/`, `anomalies/` et `externe/`, chacun avec `data.yaml`,
+`split.json` (graine, empreinte, liste des clichés par partition) et, à côté des
+étiquettes, `fdi/<cliché>.json` (vérité terrain numérotée, pour le sprint 7).
+`rapport_preparation.md` donne les retraits et les effectifs. Avec la graine 42 :
 
----
-
-## Obtenir les données
-
-Rien n'est versionné ici — `.gitignore` bloque `data/`, `*.pt` et `*.dcm`. Le
-risque nº 1 du projet est le **délai d'accès aux datasets** : lancer les
-demandes avant d'écrire une ligne de plus.
-
-| Jeu | Accès | Délai | Ce qu'il apporte |
+| | train | val | test |
 |---|---|---|---|
-| **UFBA-425** | Téléchargement direct, **CC BY 4.0** | immédiat | Démarrer aujourd'hui : détection et numérotation des dents. **Pas les anomalies.** Seule licence autorisant clairement un usage commercial |
-| **DENTEX** | Inscription au challenge Grand Challenge, usage académique | jours | **Le socle** : le seul à porter à la fois la numérotation FDI et les 4 diagnostics du périmètre |
-| **Tufts Dental** | Demande académique via le portail officiel | **long** — à lancer maintenant | Renfort qualité et diversité sur la détection |
+| **dents** — clichés / dents | 372 / 10 602 | 79 / 2 308 | 87 / 2 445 |
+| **anomalies** — clichés | 501 | 113 | 109 |
+| caries | 1 546 | 407 | 332 |
+| caries profondes | 450 | 81 | 76 |
+| lésions péri-apicales | 120 | 25 | 22 |
+| dents incluses | 465 | 85 | 94 |
+| **externe** (test officiel) | | | 250 clichés : 747 caries, 221 inclusions, 75 lésions |
 
-Ordre recommandé : commencer sur UFBA-425 pour valider tout le pipeline sur des
-données réelles pendant que la demande DENTEX est en cours. Le périmètre est
-alors réduit à la classe `tooth` — c'est suffisant pour vérifier la conversion,
-le découpage par patient, l'entraînement et la numérotation FDI.
+La première exécution lit les pixels de 1 639 images (quelques minutes) ; les
+empreintes sont ensuite en cache (`data/dentex/empreintes_pixels.json`).
 
-**Kystes et fractures n'ont aucun dataset annoté** et sont hors périmètre.
+### 3. Contrôler les augmentations
+
+```powershell
+training\.venv\Scripts\python training\planche_augmentations.py --data data\yolo\anomalies\data.yaml --out runs\planche.jpg --imgsz 1024
+```
+
+La planche passe par la chaîne réelle d'entraînement : miroir horizontal seul
+(jamais vertical), luminosité, contraste, léger recadrage ; mosaïque et mixup
+coupés. Le miroir inverse aussi les quadrants de la vérité terrain FDI
+(`augmentations.miroir_fdi` : 1↔2, 3↔4).
+
+### 4. Entraîner les deux modèles
+
+```powershell
+training\.venv\Scripts\python training\train.py --data data\yolo\dents\data.yaml     --name dents-v1
+training\.venv\Scripts\python training\train.py --data data\yolo\anomalies\data.yaml --name anomalies-v1
+```
+
+Défauts réglés pour une GTX 1650 (4 Go) : `yolo11s.pt`, 1024 px, **lots de 2**,
+150 époques, arrêt anticipé après 30 époques sans progrès. Dans `runs/<nom>/` :
+`run.json` (hyperparamètres, empreinte du découpage, versions, carte),
+`journal.jsonl` (une ligne par époque), `weights/best.pt` et `last.pt`.
+
+**Reprise après coupure** (courant, Ctrl+C, mise en veille) :
+
+```powershell
+training\.venv\Scripts\python training\train.py --reprendre runs\anomalies-v1\weights\last.pt
+```
+
+**Précision mixte.** Sur GTX 1650, le test d'AMP d'ultralytics passe mais les
+pertes deviennent NaN dès le premier lot (constaté). `--amp auto` (défaut) la
+coupe donc sur les cartes GTX 16xx ; un garde-fou arrête l'entraînement au
+premier lot dont la perte n'est pas finie.
+
+**Mémoire et durée** (GTX 1650, jeu `anomalies`, yolo11s, sans précision mixte,
+mesuré le 2026-11-22 sur 30 lots) :
+
+| Réglage | Mémoire réservée | Temps par lot | Époque (501 clichés) |
+|---|---|---|---|
+| **1024 px, lots de 2** (défaut) | 2,45 Go | 4,7 s | ~20 min |
+| 800 px, lots de 4 | 3,50 Go | 5,6 s | ~12 min |
+| 1024 px, lots de 4 | 5,13 Go — **déborde** | 19,7 s | ~41 min |
+
+Au-delà de 4 Go, Windows place le surplus en mémoire système et chaque lot
+devient quatre fois plus lent. Ces durées ont été prises **carte bridée** (état
+P8, 300 MHz, 9 W, plafond de puissance logiciel) : sur secteur avec le mode
+d'alimentation « Performances optimales », elles doivent baisser nettement ;
+vérifier avec `nvidia-smi` que la carte passe en P0 pendant l'entraînement.
+800 px est l'option de repli si la durée devient un problème, au prix des
+petites lésions (une carie ne fait que quelques dizaines de pixels sur un
+panoramique de 2 900 px de large).
+
+### 5. Évaluer
+
+```powershell
+# Pendant les réglages : la validation, autant que nécessaire
+training\.venv\Scripts\python training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --split val
+# À la fin, UNE fois : le test interne, puis le test externe
+training\.venv\Scripts\python training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --split test
+training\.venv\Scripts\python training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --data data\yolo\externe\data.yaml --split test
+```
+
+Dans `runs/<nom>/evaluation_<split>/` : `metrics.json`, `rapport.md`,
+`confusion.png`, `pires_erreurs.jpg`.
+
+- Précision, rappel, mAP@0,50 et mAP@0,50:0,95 **par classe**, puis globalement.
+  Une détection est juste si sa classe est la bonne et si l'IoU atteint 0,50.
+- Sensibilité / spécificité **par cliché** au seuil d'exploitation (`--conf`) :
+  « ce cliché présente-t-il une carie ? ».
+- Matrice de confusion au seuil d'exploitation, avec ligne « fond » (manqué) et
+  colonne « fond » (inventé).
+
+> **Le test ne se regarde qu'une fois.** Chaque évaluation sur le test est
+> inscrite dans `evaluations_test.jsonl` à côté de `split.json` ; une seconde est
+> refusée, sauf `--forcer "<motif>"`, motif porté au rapport.
+
+### 6. Publier
+
+`publish_model.py` écrit dans `model_versions` et copie les poids vers
+`inference/weights/`. Il sera adapté aux paires de modèles (dents + anomalies)
+au lot B du sprint 6.
 
 ---
 
-## Après l'entraînement
+## Tests
 
-Le service ne bascule pas tout seul. Voir
-[DOCUMENTATION.md §10.5](../docs/DOCUMENTATION.md) et, surtout, poser
-`MODEL_STRICT=1` : sans lui, des poids illisibles font **retomber le service en
-mode mock silencieusement**, et l'on mesure du bruit en croyant mesurer un
-modèle.
-
-```bash
-curl http://localhost:8001/health          # doit répondre "mode":"real"
+```powershell
+cd training
+.venv\Scripts\python -m pytest -q
 ```
 
-En mode réel, la numérotation FDI est calculée par
-[`inference/app/fdi.py`](../inference/app/fdi.py) à partir de la géométrie des
-boîtes : le détecteur n'apprend pas les numéros de dents, ils sont déduits.
+Sans données réelles ni réseau : jeu synthétique et faux DENTEX. Couvre le
+téléchargement (intégrité, reprise), les lecteurs DENTEX, la conversion (deux
+jeux sans mélange, groupes jamais séparés, test externe isolé, küretaj exclu),
+le découpage (même graine, même découpage), les augmentations (miroir et
+quadrants, jamais vertical, chaîne ultralytics), l'entraînement réel sur le
+processeur (journal, coupure puis reprise, garde NaN) et l'évaluation (IoU,
+confusion, test évalué une seule fois). Non couvert par la CI : torch y serait
+trop lourd.

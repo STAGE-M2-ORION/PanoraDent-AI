@@ -32,9 +32,28 @@ def get(key: str) -> bytes:
     return obj["Body"].read()
 
 
+def delete(key: str):
+    _s3.delete_object(Bucket=settings.s3_bucket, Key=key)
+
+
+def usage(prefixe: str = "") -> tuple[int, int]:
+    """(nombre d'objets, octets) du bucket, ou d'un préfixe."""
+    objets = octets = 0
+    for page in _s3.get_paginator("list_objects_v2").paginate(Bucket=settings.s3_bucket, Prefix=prefixe):
+        for obj in page.get("Contents", []):
+            objets += 1
+            octets += obj["Size"]
+    return objets, octets
+
+
 def presigned_url(key: str, expires: int = 3600) -> str:
-    return _s3.generate_presigned_url(
+    url = _s3.generate_presigned_url(
         "get_object",
         Params={"Bucket": settings.s3_bucket, "Key": key},
         ExpiresIn=expires,
     )
+    # La signature couvre le chemin et l'en-tête Host, pas l'origine : le proxy
+    # public (nginx `/storage/`) rétablit `Host: minio:9000` avant MinIO.
+    if settings.s3_public_url and url.startswith(settings.s3_endpoint):
+        url = settings.s3_public_url.rstrip("/") + url[len(settings.s3_endpoint.rstrip("/")):]
+    return url

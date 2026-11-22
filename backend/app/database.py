@@ -13,3 +13,9 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_session_factory():
+    """Fabrique de sessions pour le travail fait APRÈS la réponse (tâches de
+    fond) : la session de la requête est déjà fermée à ce moment-là."""
+    return SessionLocal

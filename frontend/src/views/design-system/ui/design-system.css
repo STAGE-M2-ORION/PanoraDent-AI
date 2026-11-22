@@ -1,0 +1,54 @@
+/* Écran « design-system » (catalogue) — styles propres, confinés sous .v-design-system (repris de la maquette). */
+
+.v-design-system {
+  .catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+  .card h3 { font-size: var(--text-lg); }
+  .card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+  .center { display: grid; justify-items: center; text-align: center; gap: var(--space-3); padding: var(--space-6) var(--space-2); }
+  .ill-img { width: 160px; height: 160px; object-fit: contain; margin: -24px 0; }
+  .center svg.ill { width: 120px; height: 90px; color: var(--color-border-strong); }
+  .center h4 { font-size: var(--text-base); margin: 0; }
+  .skel-row { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); }
+  .skel-row:last-child { border-bottom: 0; }
+  .skel-row .skeleton { height: 14px; }
+  .preview { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--color-bg); }
+  .toast-zone { position: fixed; right: var(--space-4); bottom: var(--space-4); display: grid; gap: var(--space-3); z-index: 200; width: min(360px, calc(100vw - 2 * var(--space-4))); }
+  .toast { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-left-width: 4px; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: var(--text-sm); }
+  .toast svg { width: 20px; height: 20px; flex: none; }
+  .toast.ok { border-left-color: var(--color-success); } .toast.ok > svg { color: var(--color-success); }
+  .toast.ko { border-left-color: var(--color-danger); } .toast.ko > svg { color: var(--color-danger); }
+  .toast span { flex: 1; }
+  .toast button { background: none; border: 0; cursor: pointer; width: 28px; height: 28px; color: var(--color-muted); display: grid; place-items: center; }
+  .toast button svg { width: 16px; height: 16px; color: inherit; }
+  .btn-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .offline-banner { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--color-warning-soft); color: #78350F; border: 1px solid #FDE68A; border-radius: var(--radius-md); font-size: var(--text-sm); }
+  .offline-banner svg { width: 18px; height: 18px; color: var(--color-warning); flex: none; }
+  @media (max-width: 1100px) { .catalog { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Mise en page du catalogue */
+  & { min-height: 100vh; background: var(--color-bg); }
+  .ds-head { position: sticky; top: 0; z-index: 50; background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
+  .ds-head .container { display: flex; align-items: center; gap: var(--space-6); min-height: 64px; flex-wrap: wrap; }
+  .ds-nav { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--text-sm); }
+  .ds-nav a { color: var(--color-ink); text-decoration: none; font-weight: 500; }
+  .ds-nav a:hover { color: var(--color-primary); }
+  .ds-body { display: grid; gap: var(--space-16); padding-block: var(--space-12) var(--space-24); }
+  .ds-sec { display: grid; gap: var(--space-6); scroll-margin-top: 80px; }
+  .ds-sec > header h2 { font-family: var(--font-display); font-size: var(--text-2xl); }
+  .ds-sec > header p { color: var(--color-muted); max-width: 70ch; margin-top: var(--space-2); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+  .swatch { border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); font-size: var(--text-xs); }
+  .swatch i { display: block; height: 64px; border-bottom: 1px solid var(--color-border); }
+  .swatch div { padding: var(--space-2) var(--space-3); display: grid; gap: 2px; }
+  .swatch code { font-family: var(--font-mono); color: var(--color-muted); }
+  .type-scale { display: grid; gap: var(--space-3); }
+  .type-scale > div { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-4); align-items: baseline; border-bottom: 1px solid var(--color-border); padding-bottom: var(--space-3); }
+  .type-scale code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-muted); }
+  .space-scale { display: grid; gap: var(--space-2); }
+  .space-scale div { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); }
+  .space-scale span.bar { height: 12px; background: var(--color-primary); border-radius: 3px; }
+  .row-wrap { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+  .viewer-demo { border-radius: var(--radius-lg); overflow: hidden; background: #05080F; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } .type-scale > div { grid-template-columns: 1fr; } }
+}

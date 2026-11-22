@@ -1,0 +1,75 @@
+/* Graphiques : courbe, histogramme, jauge, barres de progression, état vide. */
+
+/* Graphiques */
+.viz { display: grid; gap: var(--space-3); min-width: 0; }
+.viz-plot { position: relative; outline: none; border-radius: var(--radius-md); min-width: 0; touch-action: pan-y; }
+.viz-plot:focus-visible { box-shadow: var(--focus-ring); }
+.viz-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.viz-grid { stroke: var(--viz-grid); stroke-width: 1; }
+.viz-tick { fill: var(--color-muted); font-family: var(--font-mono); font-size: 11px; }
+.viz-cap { fill: var(--color-ink); font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+.viz-line { fill: none; stroke: var(--viz-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.viz-line.is-context { stroke: var(--viz-context); stroke-dasharray: 5 5; }
+.viz-area { fill: var(--viz-area); }
+.viz-dot { fill: var(--viz-accent); stroke: var(--color-surface); stroke-width: 2; transition: opacity 120ms; }
+.viz-dot.is-context { fill: var(--viz-context); }
+.viz-cross { stroke: var(--color-border-strong); stroke-width: 1; }
+.viz-bar { fill: var(--viz-bar); transition: fill 120ms; }
+.viz-bar.is-current { fill: var(--viz-accent); }
+.viz-bar.is-hover { fill: var(--viz-accent-hover); }
+.viz-trend { fill: none; stroke: var(--viz-trend); stroke-width: 2; stroke-dasharray: 1 5; stroke-linecap: round; }
+.viz-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); font-size: 13px; color: var(--color-muted); }
+.viz-legend li { display: inline-flex; align-items: center; gap: 8px; }
+.viz-key { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--viz-accent); flex: none; }
+.viz-key.k-context { border-top: 2px dashed var(--viz-context); }
+.viz-key.k-trend { border-top: 2px dotted var(--viz-trend); }
+.viz-key.k-bar { width: 10px; height: 12px; border: 0; border-radius: 3px 3px 0 0; background: var(--viz-bar); }
+.viz-tip { position: absolute; z-index: 5; pointer-events: none; min-width: 168px; display: grid; gap: 4px; padding: 10px 12px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 14px 32px -12px rgba(15, 42, 67, 0.28); font-size: 13px; }
+.viz-tip[hidden] { display: none; }
+.viz-tip-t { font-weight: 600; }
+.viz-tip-r { display: flex; align-items: center; gap: 8px; color: var(--color-muted); white-space: nowrap; }
+.viz-tip-r b { color: var(--color-ink); font-family: var(--font-mono); font-weight: 600; }
+.viz-data > summary { display: inline-flex; align-items: center; min-height: 32px; cursor: pointer; font-size: 13px; color: var(--color-primary); width: fit-content; }
+:root[data-theme="dark"] .viz-data > summary { color: #67E8F9; }
+.viz-data .table-wrap { margin-top: var(--space-2); max-height: 260px; overflow: auto; }
+.viz-data .num { text-align: right; }
+@keyframes viz-arc { from { stroke-dashoffset: 100; } }
+@keyframes viz-grow { from { transform: scaleY(0); } }
+@keyframes viz-fill { from { width: 0; } }
+
+/* Jauge en demi-cercle */
+.gauge-wrap { position: relative; width: 100%; max-width: 300px; margin: var(--space-2) auto 0; }
+.gauge-wrap svg { display: block; width: 100%; height: auto; overflow: visible; }
+.g-trk { fill: none; stroke: var(--viz-accent-soft); stroke-width: 20; stroke-linecap: round; }
+.g-val { fill: none; stroke: var(--viz-accent); stroke-width: 20; stroke-linecap: round; stroke-dasharray: 100 200; stroke-dashoffset: calc(100 - var(--p, 0)); animation: viz-arc 1100ms cubic-bezier(.22, 1, .36, 1) both; }
+.gauge-center { position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%); display: grid; justify-items: center; gap: 6px; }
+.gauge-ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--viz-accent); box-shadow: var(--card-shadow); }
+.gauge-ic svg { width: 20px; height: 20px; }
+.gauge-v { font-family: var(--font-display); font-size: 2.25rem; line-height: 1; }
+.gauge-cap { text-align: center; font-size: 13px; color: var(--color-muted); max-width: 34ch; margin: 0 auto; }
+
+/* Barres de progression */
+.prog { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-5); }
+.prog-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); margin-bottom: 8px; }
+.prog-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; min-width: 0; }
+.prog-abbr { font-family: var(--font-mono); font-size: 11px; color: var(--color-muted); border: 1px solid var(--color-border); border-radius: 6px; padding: 0 5px; }
+.prog-v { font-size: 13px; white-space: nowrap; }
+.prog-trk { height: 8px; border-radius: 999px; background: var(--color-subtle); overflow: hidden; }
+.prog-fill { display: block; height: 100%; width: var(--w); border-radius: 999px; background: var(--viz-accent); animation: viz-fill 800ms cubic-bezier(.22, 1, .36, 1) both; }
+.prog-fill[class*="det-"] { background: currentColor; }
+
+/* État vide : mesures « à renseigner » */
+.viz-empty { position: relative; display: grid; justify-items: center; gap: 6px; text-align: center; padding: var(--space-8) var(--space-6); border-radius: 14px; background: var(--color-subtle); }
+.viz-empty::after { content: ""; position: absolute; inset: 10px; pointer-events: none; background: var(--corner-bg); }
+.viz-empty-ic { color: var(--viz-accent); }
+.viz-empty-ic svg { width: 26px; height: 26px; }
+.viz-empty p { color: var(--color-muted); font-size: var(--text-sm); max-width: 44ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kr-val, .g-val, .prog-fill, .viz-bar { animation: none !important; }
+  .kpi-ring, .viz-dot, .viz-bar { transition: none !important; }
+}
+
+/* Indicateur à icône propre : trait en encre, accent à la couleur de l anneau */
+.kr-ic.kr-duo { color: var(--color-ink); }
+.kr-ic.kr-duo svg { --ic-accent: var(--kr-c, var(--viz-accent)); }

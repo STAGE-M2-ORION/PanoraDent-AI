@@ -1,0 +1,110 @@
+/* Jetons de design : couleurs, typographie, espacements, rayons, ombres, mouvement, z-index.
+   Noms au format Tailwind v4 (@theme), repris tels quels de la maquette validée. */
+
+:root {
+  /* Thème clair — pages classiques */
+  --color-primary: #0E7490;
+  --color-primary-hover: #155E75;
+  --color-primary-soft: #ECFEFF;
+  --color-ink: #0F2A43;
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-subtle: #F1F5F9;
+  --color-border: #E2E8F0;
+  --color-border-strong: #CBD5E1;
+  --color-muted: #64748B;
+  --color-success: #15803D;
+  --color-success-soft: #F0FDF4;
+  --color-warning: #B45309;
+  --color-warning-soft: #FFFBEB;
+  --color-danger: #B91C1C;
+  --color-danger-soft: #FEF2F2;
+  --color-info: #0369A1;
+  --color-info-soft: #F0F9FF;
+
+  /* Visionneuse — thème sombre, uniquement autour de la radiographie */
+  --color-viewer-bg: #0B1220;
+  --color-viewer-panel: #111C2E;
+  --color-viewer-raised: #17253B;
+  --color-viewer-border: #22324C;
+  --color-viewer-text: #E2E8F0;
+  --color-viewer-muted: #94A3B8;
+  --color-viewer-accent: #22D3EE;
+
+  /* Détections (palette Okabe-Ito, lisible par les daltoniens) */
+  --color-det-tooth: #56B4E9;
+  --color-det-caries: #F0E442;
+  --color-det-deep: #D55E00;
+  --color-det-periapical: #CC79A7;
+  --color-det-impacted: #009E73;
+
+  /* Typographie — Satoshi (titres 700, texte 400/500) + JetBrains Mono (identifiants, versions, valeurs) */
+  --font-sans: "Satoshi", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --text-xs: 0.8125rem;   /* 13 px — légendes seulement */
+  --text-sm: 0.875rem;    /* 14 px — interface dense */
+  --text-base: 1rem;      /* 16 px */
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);
+  --text-3xl: clamp(1.875rem, 1.4rem + 1.8vw, 2.5rem);
+  --text-display: clamp(2.125rem, 1.4rem + 3vw, 3.5rem);
+  --leading-tight: 1.15;
+  --leading-normal: 1.55;
+  --tracking-display: -0.02em;
+
+  /* Espacements, rayons, ombres */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px; --space-24: 96px;
+  --radius-sm: 4px;
+  --radius-md: 10px;   /* boutons, champs */
+  --radius-lg: 16px;   /* cartes */
+  --radius-xl: 16px;
+  --radius-ai: 8px;    /* pastille « AI » et étiquettes de détection */
+  --shadow-sm: none;
+  --shadow-md: 0 1px 2px rgba(15, 42, 67, 0.06);
+  --font-display: "Panora Display", "Satoshi", sans-serif;
+  --shadow-lg: 0 8px 30px rgba(15, 42, 67, 0.12);
+  --focus-ring: 0 0 0 2px #FFFFFF, 0 0 0 4px #0E7490;
+
+  /* Mouvement — discret, jamais décoratif */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 480ms;
+
+  --sidebar-w: 248px;
+  --container: 1200px;
+}
+
+:root {
+  --cc: #22D3EE; --cl: 26px; --ct: 3px;
+  --corner-bg:
+    linear-gradient(var(--cc), var(--cc)) top left / var(--cl) var(--ct) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top left / var(--ct) var(--cl) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top right / var(--cl) var(--ct) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) top right / var(--ct) var(--cl) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom left / var(--cl) var(--ct) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom left / var(--ct) var(--cl) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom right / var(--cl) var(--ct) no-repeat,
+    linear-gradient(var(--cc), var(--cc)) bottom right / var(--ct) var(--cl) no-repeat;
+}
+:root { --z-sticky: 50; --z-drawer: 60; --z-floating: 80; --z-toast: 90; --z-modal: 100; }
+
+:root {
+  --ease-ressort: linear(0, 0.012, 0.047 2.3%, 0.186 4.9%, 0.403 8%, 0.761 12.9%, 0.94 16%, 1.026 18.6%, 1.081 21.4%, 1.103 24.1%, 1.106 26.4%, 1.096 29.4%, 1.033 37.4%, 1.006 42.8%, 0.993 49.6%, 0.994 58.8%, 1.001 76.5%, 1);
+  --duree-ressort: 680ms;
+}
+
+:root {
+  --viz-accent: #0E7490; --viz-accent-hover: #0B5E73; --viz-accent-soft: #D5F3F8;
+  --viz-bar: #7CC3D3; --viz-context: #94A3B8; --viz-trend: #0F2A43; --viz-grid: #EEF2F6;
+  --viz-area: rgba(14, 116, 144, 0.10);
+  --card-shadow: 0 1px 2px rgba(15, 42, 67, 0.04), 0 12px 32px -16px rgba(15, 42, 67, 0.16);
+}
+:root[data-theme="dark"] {
+  --viz-accent: #22D3EE; --viz-accent-hover: #67E8F9; --viz-accent-soft: #16384A;
+  --viz-bar: #1D7487; --viz-context: #64748B; --viz-trend: #E2E8F0; --viz-grid: #1C2B42;
+  --viz-area: rgba(34, 211, 238, 0.10);
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}

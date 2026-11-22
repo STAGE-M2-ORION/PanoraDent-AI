@@ -1,0 +1,17 @@
+/* Icônes PanoraDent (duotone) : aplat, trait, accent. */
+
+/* ══ Icônes PanoraDent (duotone) ═════════════════════════════════════════
+   .ic-f = aplat discret, .ic-a = détail d accent. Le trait garde currentColor.
+   L accent suit le fond : teal sur clair, cyan sur marine ou en mode sombre,
+   et la couleur du texte quand l icône porte un sens (alerte, succès, danger). */
+:root { --ic-accent: #0E7490; --ic-fill: 0.14; }
+:root[data-theme="dark"] { --ic-accent: #22D3EE; --ic-fill: 0.16; }
+svg .ic-f { fill: currentColor; fill-opacity: var(--ic-fill); stroke: none; }
+svg .ic-a { stroke: var(--ic-accent); }
+.sidebar svg, .btn-primary svg, .btn-lumiere svg, .proto-banner svg { --ic-accent: #22D3EE; }
+.sidebar .nav-link[aria-current="page"] svg { --ic-accent: #CFFAFE; color: #FFFFFF; }
+.alert svg, .badge svg, .btn-danger svg, .toast svg, .kr-d svg, .inline-sem svg { --ic-accent: currentColor; }
+.alert svg .ic-a, .badge svg .ic-a, .btn-danger svg .ic-a { stroke: currentColor; }
+
+/* Tuiles d icône (rôles, indicateurs) : l aplat prend un peu plus de corps */
+.role-ic, .kr-ic, .gauge-ic { --ic-fill: 0.2; }

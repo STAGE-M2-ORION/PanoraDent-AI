@@ -1,11 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 import httpx
+from ..auth_deps import publique
 from ..config import settings
 
 router = APIRouter()
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(publique)])
 async def health():
     inference_ok = False
     inference_mode = "unknown"

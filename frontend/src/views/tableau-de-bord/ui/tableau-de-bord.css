@@ -1,0 +1,18 @@
+/* Écran « tableau-de-bord » — styles propres, confinés sous .v-tableau-de-bord (repris de la maquette). */
+
+.v-tableau-de-bord {
+  .list { list-style: none; margin: 0; padding: 0; display: grid; }
+  .list li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+  .list li:last-child { border-bottom: 0; }
+  .list .who { display: grid; gap: 2px; min-width: 0; }
+  .list .who span { font-size: var(--text-sm); color: var(--color-muted); }
+  .rowl { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+  .dets { display: inline-flex; gap: 4px; align-items: center; }
+  .svc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
+  .svc li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--text-sm); }
+  .svc svg { width: 18px; height: 18px; color: var(--color-muted); flex: none; }
+  .svc .badge { margin-left: auto; }
+  .ro { display: inline-flex; align-items: center; gap: 6px; }
+  .ro svg { width: 14px; height: 14px; }
+  @media (max-width: 480px) { .svc { grid-template-columns: 1fr; } .list li .btn { width: 100%; } }
+}

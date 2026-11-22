@@ -1,0 +1,35 @@
+/* Champs de formulaire. */
+
+/* ---------- Champs ---------- */
+.field { display: grid; gap: 6px; }
+.label { font-size: var(--text-sm); font-weight: 500; }
+.hint { font-size: var(--text-sm); color: var(--color-muted); }
+.input, .select, .textarea {
+  width: 100%; min-height: 44px; padding: 0 var(--space-3);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md);
+}
+.textarea { padding: var(--space-3); min-height: 88px; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--focus-ring); }
+.input[aria-invalid="true"] { border-color: var(--color-danger); }
+.error-text { color: var(--color-danger); font-size: var(--text-sm); }
+
+/* ---------- Mot de passe : afficher / masquer, robustesse ---------- */
+.pw-field { position: relative; }
+.pw-field .input { padding-right: 48px; }
+.pw-toggle {
+  position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+  width: 40px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-muted); cursor: pointer;
+}
+.pw-toggle:hover { color: var(--color-ink); background: var(--color-subtle); }
+.pw-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.pw-toggle svg { width: 18px; height: 18px; }
+.pw-meter { display: grid; gap: 6px; margin-top: -4px; }
+.pw-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.pw-bars span { height: 4px; border-radius: 2px; background: var(--color-border); }
+.pw-meter[data-score="1"] .pw-bars .on { background: var(--color-danger); }
+.pw-meter[data-score="2"] .pw-bars .on { background: var(--color-warning); }
+.pw-meter[data-score="3"] .pw-bars .on, .pw-meter[data-score="4"] .pw-bars .on { background: var(--color-success); }
+.pw-label { margin: 0; font-size: var(--text-sm); color: var(--color-muted); }
+.pw-label strong { color: var(--color-ink); font-weight: 600; }
+.pw-rules { margin: 0; padding-left: 1.1em; font-size: var(--text-sm); color: var(--color-muted); display: grid; gap: 2px; }

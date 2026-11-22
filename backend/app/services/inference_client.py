@@ -9,3 +9,12 @@ async def infer(image_bytes: bytes, filename: str = "image.png") -> dict:
         resp = await client.post(f"{settings.inference_url}/infer", files=files)
         resp.raise_for_status()
         return resp.json()
+
+
+def infer_sync(image_bytes: bytes, filename: str = "image.png") -> dict:
+    """Version synchrone, pour le worker de la file de traitement."""
+    with httpx.Client(timeout=120.0) as client:
+        files = {"file": (filename, image_bytes, "image/png")}
+        resp = client.post(f"{settings.inference_url}/infer", files=files)
+        resp.raise_for_status()
+        return resp.json()

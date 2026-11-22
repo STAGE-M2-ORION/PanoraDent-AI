@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compte rendu · Analyse n° 0042 · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="pano.js"></script>
+<script src="app.js" defer></script>
+<style>
+  /* Styles propres à la page (uniquement des variables du thème) */
+  .maq-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .maq-bar .btn[aria-pressed="true"] { background: var(--color-subtle); border-color: var(--color-border-strong); font-weight: 600; }
+  .back-link { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); text-decoration: none; font-weight: 500; white-space: nowrap; }
+  .back-link:hover { text-decoration: underline; }
+  .topbar h1 { font-size: var(--text-lg); }
+
+  .cr-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-6); align-items: start; }
+  .sheet-zone { background: var(--color-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-8) var(--space-4); display: flex; justify-content: center; }
+  .sheet-frame { width: min(100%, 660px); container-type: inline-size; }
+
+  /* Feuille A4 — toutes les tailles en cqw : la feuille se met à l'échelle sans déborder */
+  .sheet { position: relative; aspect-ratio: 210 / 297; background: #fff; color: var(--color-ink); box-shadow: var(--shadow-lg); overflow: hidden; padding: 4cqw 5cqw 2.6cqw; display: flex; flex-direction: column; gap: 1.1cqw; font-size: 1.8cqw; line-height: 1.4; }
+  .sheet h2, .sheet h3 { letter-spacing: 0; }
+  .sh-head { display: flex; justify-content: space-between; gap: 3cqw; padding-bottom: 1.2cqw; border-bottom: 0.3cqw solid var(--color-primary); }
+  .sh-head .logo { font-size: 2.4cqw; gap: 1.2cqw; pointer-events: none; }
+  .sh-head .logo svg { width: 4.4cqw; height: 4.4cqw; }
+  .sh-cab { margin-top: 1cqw; font-weight: 600; font-size: 2cqw; }
+  .sh-cab span { font-weight: 400; color: var(--color-muted); }
+  .sh-meta { text-align: right; font-size: 1.7cqw; line-height: 1.55; }
+  .sh-meta b { font-weight: 600; }
+  .sheet h2 { font-size: 2.9cqw; line-height: 1.2; }
+  .sheet h3 { font-size: 2cqw; font-weight: 600; color: var(--color-primary-hover); margin-bottom: 0.6cqw; }
+  .sh-img { background: var(--color-viewer-bg); border-radius: 0.8cqw; overflow: hidden; }
+  .sh-img svg { width: 100%; height: auto; }
+  .sh-legend { display: flex; flex-wrap: wrap; gap: 0.6cqw 2.2cqw; font-size: 1.6cqw; margin-top: 1cqw; align-items: center; }
+  .sh-legend span { display: inline-flex; align-items: center; gap: 0.7cqw; }
+  .sh-legend .det-swatch { width: 1.8cqw; height: 1.8cqw; border-width: 0.3cqw; background: currentColor; }
+  .sh-legend .ln { width: 4cqw; height: 0; border-top: 0.35cqw solid var(--color-ink); }
+  .sh-legend .ln.dash { border-top-style: dashed; }
+  .sh-table { width: 100%; border-collapse: collapse; font-size: 1.65cqw; }
+  .sh-table th { white-space: nowrap; text-align: left; font-weight: 600; padding: 0.7cqw 1cqw; background: var(--color-subtle); border-bottom: 0.2cqw solid var(--color-border-strong); }
+  .sh-table td { padding: 0.45cqw 1cqw; border-bottom: 0.15cqw solid var(--color-border); vertical-align: top; }
+  .sh-table .det-swatch { width: 1.4cqw; height: 1.4cqw; border-width: 0.25cqw; background: currentColor; margin-right: 0.6cqw; vertical-align: -0.1cqw; }
+  .sh-sum { display: flex; gap: 3cqw; font-size: 1.7cqw; }
+  .sh-sum b { font-family: var(--font-mono); font-size: 2.3cqw; font-weight: 500; margin-right: 0.5cqw; }
+  .sh-trace { font-size: 1.6cqw; color: var(--color-muted); }
+  .sh-legal { margin-top: auto; border: 0.25cqw solid var(--color-warning); background: var(--color-warning-soft); color: #78350F; border-radius: 0.8cqw; padding: 1.2cqw 1.6cqw; font-size: 1.6cqw; }
+  .sh-foot { display: flex; justify-content: space-between; font-size: 1.5cqw; color: var(--color-muted); border-top: 0.15cqw solid var(--color-border); padding-top: 0.9cqw; }
+  .sheet[data-comments="off"] .col-comment { display: none; }
+
+  /* États de la feuille */
+  .sheet-skel { display: none; position: absolute; inset: 0; background: #fff; padding: 5cqw; gap: 2cqw; flex-direction: column; }
+  .sheet[data-state="loading"] .sheet-skel { display: flex; }
+  .sheet-err { display: none; position: absolute; inset: 0; background: #fff; align-items: center; justify-content: center; text-align: center; padding: 8cqw; color: var(--color-muted); font-size: 2cqw; }
+  .sheet[data-state="error"] .sheet-err { display: flex; }
+
+  .actions { display: grid; gap: var(--space-4); position: sticky; top: var(--space-4); }
+  .actions .card-pad { display: grid; gap: var(--space-4); }
+  .actions h2 { font-size: var(--text-base); }
+  .btn-row { display: grid; gap: var(--space-2); }
+  .opt { display: flex; gap: var(--space-3); align-items: flex-start; min-height: 44px; padding: var(--space-2) 0; font-size: var(--text-sm); cursor: pointer; }
+  .opt input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--color-primary); flex: none; }
+  .opt small { display: block; color: var(--color-muted); font-size: var(--text-xs); }
+  .live { font-size: var(--text-sm); color: var(--color-muted); min-height: 1.4em; }
+
+  @media (max-width: 1100px) {
+    .cr-grid { grid-template-columns: minmax(0, 1fr); }
+    .actions { position: static; order: -1; }
+    .sheet-zone { padding: var(--space-4) var(--space-2); }
+  }
+
+  /* Impression : seule la feuille */
+  @media print {
+    @page { size: A4; margin: 0; }
+    .proto-banner, .sidebar, .topbar, .maq-bar, .actions, .menu-btn { display: none !important; }
+    body, .app, .main, .page { background: #fff; display: block; padding: 0; margin: 0; max-width: none; }
+    .cr-grid { display: block; }
+    .sheet-zone { background: #fff; border: 0; padding: 0; }
+    .sheet-frame { width: 210mm; }
+    .sheet { box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body data-page="historique" data-allow="admin praticien lecteur">
+<div class="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="analyse.html"><span aria-hidden="true">←</span> Revenir à l’analyse</a>
+        <h1>Compte rendu · Analyse n° 0042</h1>
+      </div>
+    </header>
+    <main class="page">
+      <div class="maq-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette</span>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="closed" aria-pressed="true">Clôturée</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="open" aria-pressed="false">Non clôturée</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="loading" aria-pressed="false">Génération en cours</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-state="error" aria-pressed="false">Erreur de génération</button>
+      </div>
+
+      <div class="cr-grid">
+        <section aria-label="Aperçu du compte rendu" class="sheet-zone">
+          <div class="sheet-frame">
+            <article class="sheet" id="sheet" data-state="closed" data-comments="on" aria-label="Aperçu du compte rendu PDF, page 1 sur 1">
+              <header class="sh-head">
+                <div>
+                  <span id="sh-logo"></span>
+                  <p class="sh-cab" id="sh-cab">Cabinet dentaire de démonstration · Toliara</p>
+                  <p id="sh-cab-line" class="muted" style="font-size:1.6cqw"></p>
+                </div>
+                <div class="sh-meta">
+                  <p>Analyse n° <b class="mono" id="sh-n"></b></p>
+                  <p>ID anonyme <b class="mono" id="sh-id"></b></p>
+                  <p>Date : <b id="sh-date"></b></p>
+                  <p>Relu par <b id="sh-rev"></b></p>
+                </div>
+              </header>
+
+              <h2>Compte rendu d’aide à la lecture — radiographie panoramique</h2>
+
+              <section id="sh-image-block" aria-label="Image annotée">
+                <h3>Image annotée</h3>
+                <div class="sh-img"><svg id="sh-svg" role="img" aria-label="Radiographie panoramique simulée avec les cadres des détections retenues"></svg></div>
+                <div class="sh-legend" id="sh-legend"></div>
+              </section>
+
+              <section aria-label="Détections retenues">
+                <h3>Détections retenues</h3>
+                <table class="sh-table">
+                  <thead><tr><th>Dent (FDI)</th><th>Anomalie</th><th>Confiance</th><th>Statut</th><th class="col-comment">Commentaire</th></tr></thead>
+                  <tbody id="sh-rows"></tbody>
+                </table>
+              </section>
+
+              <section aria-label="Synthèse chiffrée">
+                <h3>Synthèse</h3>
+                <p class="sh-sum" id="sh-sum"></p>
+              </section>
+
+              <p class="sh-trace"><b>Traçabilité.</b> Modèle <span id="sh-model"></span> · seuil de confiance <span id="sh-thr"></span> % · entraîné sur DENTEX (jeu public)</p>
+
+              <p class="sh-legal">Document d’aide à la décision généré par un prototype académique non certifié. Il ne constitue pas un diagnostic et ne remplace pas le jugement clinique du praticien, seul responsable de l’interprétation.</p>
+
+              <footer class="sh-foot"><span>Page 1 / 1</span><span>Généré le <span id="sh-gen"></span></span></footer>
+
+              <div class="sheet-skel" aria-hidden="true">
+                <div class="skeleton" style="height:5cqw;width:60%"></div>
+                <div class="skeleton" style="height:3.5cqw;width:90%"></div>
+                <div class="skeleton" style="height:42cqw"></div>
+                <div class="skeleton" style="height:2.5cqw;width:70%"></div>
+                <div class="skeleton" style="height:20cqw"></div>
+                <div class="skeleton" style="height:3cqw;width:50%"></div>
+                <div class="skeleton" style="height:9cqw;margin-top:auto"></div>
+              </div>
+              <div class="sheet-err"><p>L’aperçu n’a pas pu être généré.</p></div>
+            </article>
+          </div>
+        </section>
+
+        <aside class="actions" aria-label="Actions sur le compte rendu">
+          <div class="card card-pad">
+            <h2>Exporter</h2>
+            <div id="status-zone" aria-live="polite"></div>
+            <div class="btn-row">
+              <button class="btn btn-primary" type="button" id="btn-dl"><i data-icon="download"></i> Télécharger le PDF</button>
+              <button class="btn btn-secondary" type="button" id="btn-print"><i data-icon="printer"></i> Imprimer</button>
+            </div>
+            <p class="live" id="live" role="status"></p>
+          </div>
+
+          <div class="card card-pad" data-hide-roles="lecteur">
+            <h2>Personnaliser l’en-tête du cabinet</h2>
+            <div class="field"><label class="label" for="f-name">Nom du cabinet</label><input class="input" id="f-name" type="text" value="Cabinet dentaire de démonstration" autocomplete="off"></div>
+            <div class="field"><label class="label" for="f-city">Ville</label><input class="input" id="f-city" type="text" value="Toliara" autocomplete="off"></div>
+            <div class="field"><label class="label" for="f-line">Ligne libre</label><input class="input" id="f-line" type="text" placeholder="Exemple : horaires ou adresse du cabinet" autocomplete="off"><span class="hint">Facultatif. L’aperçu se met à jour en direct.</span></div>
+          </div>
+
+          <div class="card card-pad">
+            <h2>Contenu du compte rendu</h2>
+            <div>
+              <label class="opt"><input type="checkbox" id="o-img" checked><span>Inclure l’image annotée</span></label>
+              <label class="opt"><input type="checkbox" id="o-com" checked><span>Inclure les commentaires du praticien</span></label>
+              <label class="opt"><input type="checkbox" id="o-rej"><span>Inclure les détections rejetées<small>Aucune détection rejetée dans cette analyse.</small></span></label>
+            </div>
+            <div class="alert alert-info"><i data-icon="shield"></i><span>Aucune donnée identifiante : le compte rendu ne contient que l’identifiant anonyme.</span></div>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+window.addEventListener("load", function () {
+  var A = DEMO.analysis, T = DEMO.TYPES, S = DEMO.STATUS;
+  var $ = function (id) { return document.getElementById(id); };
+  var sheet = $("sheet");
+  var retained = DEMO.detections.filter(function (d) { return d.status !== "pending"; }).sort(function (a, b) { return a.fdi - b.fdi || a.id.localeCompare(b.id); });
+  var pendingN = DEMO.detections.filter(function (d) { return d.status === "pending"; }).length;
+  var today = A.date;
+
+  $("sh-logo").innerHTML = PD.logo("#");
+  $("sh-n").textContent = A.number; $("sh-id").textContent = A.patientId;
+  $("sh-date").textContent = A.date; $("sh-rev").textContent = A.reviewer; $("sh-gen").textContent = today;
+  $("sh-model").textContent = A.model; $("sh-thr").textContent = A.threshold;
+
+  // Image annotée
+  var svg = $("sh-svg");
+  Pano.draw(svg);
+  var g = Pano.el("g", {}, svg);
+  retained.forEach(function (d) {
+    var b = Pano.boxFor(d.fdi, d.type); if (!b) return;
+    var col = T[d.type].color, dashed = d.status !== "validated";
+    Pano.el("rect", { x: b.x, y: b.y, width: b.w, height: b.h, fill: "none", stroke: col, "stroke-width": 3.5, "stroke-dasharray": dashed ? "10 6" : "none" }, g);
+    var txt = d.fdi + " · " + T[d.type].short + (d.conf != null ? " " + d.conf + " %" : " · ajoutée");
+    var w = txt.length * 12.2 + 14, h = 28;
+    var below = d.type === "periapical" && Pano.teeth[d.fdi].upper === false;
+    var x = Math.max(6, Math.min(Pano.W - w - 6, b.x + b.w / 2 - w / 2));
+    var y = below ? b.y + b.h + 4 : b.y - h - 4;
+    Pano.el("rect", { x: x, y: y, width: w, height: h, rx: 4, fill: "#0B1220", stroke: col, "stroke-width": 1.5, opacity: .92 }, g);
+    var t = Pano.el("text", { x: x + 7, y: y + 20, fill: "#fff", "font-family": "Satoshi, sans-serif", "font-size": 19, "font-weight": 600 }, g);
+    t.textContent = txt;
+  });
+
+  // Légende
+  var used = {}; retained.forEach(function (d) { used[d.type] = 1; });
+  var lg = "";
+  ["deep", "caries", "periapical", "impacted"].forEach(function (k) {
+    lg += '<span><i class="det-swatch ' + T[k].cls + '"></i>' + T[k].short + "</span>";
+  });
+  lg += '<span><i class="ln"></i>Trait plein : détection de l’IA validée</span><span><i class="ln dash"></i>Pointillé : ajoutée ou corrigée par le praticien</span>';
+  $("sh-legend").innerHTML = lg;
+
+  // Tableau
+  $("sh-rows").innerHTML = retained.map(function (d) {
+    return "<tr><td class='mono'>" + d.fdi + "</td><td><i class='det-swatch " + T[d.type].cls + "'></i>" + T[d.type].short + "</td><td class='mono'>" + (d.conf != null ? d.conf + " %" : "—") + "</td><td>" + S[d.status].label + "</td><td class='col-comment'>" + (d.note || "—") + "</td></tr>";
+  }).join("");
+
+  $("sh-sum").innerHTML = "<span><b>" + A.teethCount + "</b>dents numérotées</span><span><b>" + retained.length + "</b>détections retenues</span><span><b>" + pendingN + "</b>non revues, exclues</span>";
+
+  // En-tête personnalisable
+  function head() {
+    var n = $("f-name"), c = $("f-city"), l = $("f-line");
+    var nm = (n && n.value.trim()) || "Cabinet dentaire de démonstration", ct = c ? c.value.trim() : "";
+    $("sh-cab").textContent = nm + (ct ? " · " + ct : "");
+    if (l) $("sh-cab-line").textContent = l.value;
+  }
+  ["f-name", "f-city", "f-line"].forEach(function (id) { var e = $(id); if (e) e.addEventListener("input", head); });
+  head();
+
+  // Options
+  $("o-img").addEventListener("change", function (e) { $("sh-image-block").style.display = e.target.checked ? "" : "none"; });
+  $("o-com").addEventListener("change", function (e) { sheet.dataset.comments = e.target.checked ? "on" : "off"; });
+
+  // États
+  var live = $("live");
+  function setState(s) {
+    document.querySelectorAll("[data-state]").forEach(function (b) { if (b.tagName === "BUTTON") b.setAttribute("aria-pressed", b.dataset.state === s ? "true" : "false"); });
+    sheet.dataset.state = s;
+    var z = $("status-zone"), busy = s === "loading" || s === "error";
+    live.textContent = "";
+    if (s === "closed") z.innerHTML = '<div class="alert alert-success">' + PD.icon("check") + "<span>Analyse clôturée le " + today + " par " + A.reviewer + ".</span></div>";
+    else if (s === "open") z.innerHTML = '<div class="alert alert-warning">' + PD.icon("alert") + "<span>L’analyse n’est pas clôturée : " + pendingN + " détections non revues ne figureront pas dans le compte rendu.</span></div>";
+    else if (s === "loading") z.innerHTML = '<div class="alert alert-info">' + PD.icon("clock") + "<span>Génération du compte rendu en cours…</span></div>";
+    else z.innerHTML = '<div class="alert alert-danger">' + PD.icon("x") + '<span><strong>La génération a échoué.</strong>Aucun fichier n’a été créé. Réessayez ; si le problème persiste, signalez-le à l’administrateur.</span></div><button class="btn btn-secondary" type="button" id="btn-retry">' + PD.icon("refresh") + " Réessayer</button>";
+    $("btn-dl").disabled = busy; $("btn-print").disabled = busy;
+    var r = $("btn-retry"); if (r) r.addEventListener("click", function () { setState("loading"); setTimeout(function () { setState("closed"); }, 1500); });
+  }
+  document.querySelectorAll(".maq-bar [data-state]").forEach(function (b) { b.addEventListener("click", function () { setState(b.dataset.state); }); });
+  setState("closed");
+
+  $("btn-print").addEventListener("click", function () { window.print(); });
+  $("btn-dl").addEventListener("click", function () { live.textContent = "Téléchargement du fichier compte-rendu-0042.pdf (simulé dans la maquette)."; });
+});
+</script>
+</body>
+</html>

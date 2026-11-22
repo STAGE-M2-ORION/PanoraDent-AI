@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profil et mot de passe · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="app.js" defer></script>
+<style>
+  .stack { display: grid; gap: var(--space-6); max-width: 760px; }
+  .card h3 { font-size: var(--text-lg); }
+  .card-head { display: grid; gap: var(--space-1); margin-bottom: var(--space-4); }
+  .form { display: grid; gap: var(--space-4); }
+  .ro { background: var(--color-subtle); }
+  .pw-wrap { position: relative; }
+  .pw-wrap .input { padding-right: 52px; }
+  .pw-toggle { position: absolute; right: 2px; top: 0; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; cursor: pointer; color: var(--color-muted); border-radius: var(--radius-md); }
+  .pw-toggle svg { width: 20px; height: 20px; }
+  .states-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .states-bar .btn[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-hover); }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+  .rules li { display: flex; align-items: center; gap: var(--space-2); color: var(--color-muted); }
+  .rules .mk { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 1.5px solid var(--color-border-strong); display: grid; place-items: center; }
+  .rules .mk svg { width: 12px; height: 12px; display: none; }
+  .rules li.ok { color: var(--color-success); }
+  .rules li.ok .mk { background: var(--color-success); border-color: var(--color-success); color: #fff; }
+  .rules li.ok .mk svg { display: block; }
+  .meter { display: grid; gap: var(--space-1); }
+  .meter-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .meter-bar span { height: 6px; border-radius: 3px; background: var(--color-subtle); border: 1px solid var(--color-border); }
+  .meter[data-lvl="1"] .meter-bar span:nth-child(-n+1) { background: var(--color-danger); border-color: var(--color-danger); }
+  .meter[data-lvl="2"] .meter-bar span:nth-child(-n+2) { background: var(--color-warning); border-color: var(--color-warning); }
+  .meter[data-lvl="3"] .meter-bar span:nth-child(-n+3) { background: var(--color-info); border-color: var(--color-info); }
+  .meter[data-lvl="4"] .meter-bar span:nth-child(-n+4) { background: var(--color-success); border-color: var(--color-success); }
+  .sess { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; }
+  .sess li { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); font-size: var(--text-sm); }
+  .sess li:last-child { border-bottom: 0; }
+  .btn-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .sec-list { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+</style>
+</head>
+<body data-page="profil" data-allow="admin praticien lecteur">
+<div class="app"><aside class="sidebar" id="sidebar"></aside>
+<div class="main">
+  <header class="topbar"><div><p class="crumbs">Compte</p><h1>Profil et mot de passe</h1></div></header>
+  <main class="page">
+    <div class="stack">
+      <div class="states-bar" role="group" aria-label="États de la maquette">
+        <span class="maq-note">États de la maquette (mot de passe)</span>
+        <button class="btn btn-sm btn-ghost" data-etat="normal" aria-pressed="true">Normal</button>
+        <button class="btn btn-sm btn-ghost" data-etat="succes">Succès</button>
+        <button class="btn btn-sm btn-ghost" data-etat="erreur">Mot de passe actuel incorrect</button>
+      </div>
+
+      <section class="card card-pad" aria-labelledby="h-info">
+        <div class="card-head"><h3 id="h-info">Mes informations</h3></div>
+        <div class="form">
+          <div class="field"><label class="label" for="i-nom">Nom</label><input class="input" id="i-nom" value="" autocomplete="name"></div>
+          <div class="field"><label class="label" for="i-mail">Adresse e-mail</label><input class="input" id="i-mail" type="email" value="" autocomplete="email"></div>
+          <div class="field"><label class="label" for="i-role">Rôle</label><input class="input ro" id="i-role" value="" readonly aria-describedby="i-role-h"><span class="hint" id="i-role-h">Modifiable uniquement par l’administrateur.</span></div>
+          <div><button class="btn btn-secondary" type="button">Enregistrer mes informations</button></div>
+        </div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="h-pw">
+        <div class="card-head"><h3 id="h-pw">Changer mon mot de passe</h3></div>
+        <div id="pw-msg" aria-live="polite" style="margin-bottom:var(--space-4)"></div>
+        <form class="form" id="f-pw" novalidate>
+          <div class="field">
+            <label class="label" for="p-old">Mot de passe actuel</label>
+            <div class="pw-wrap"><input class="input" id="p-old" type="password" autocomplete="current-password" aria-describedby="p-old-err"><button type="button" class="pw-toggle" aria-label="Afficher le mot de passe actuel" aria-pressed="false" data-toggle="p-old"></button></div>
+            <span class="error-text" id="p-old-err" hidden>Le mot de passe actuel est incorrect.</span>
+          </div>
+          <div class="field">
+            <label class="label" for="p-new">Nouveau mot de passe</label>
+            <div class="pw-wrap"><input class="input" id="p-new" type="password" autocomplete="new-password" aria-describedby="rules meter-txt"><button type="button" class="pw-toggle" aria-label="Afficher le nouveau mot de passe" aria-pressed="false" data-toggle="p-new"></button></div>
+          </div>
+          <div class="meter" id="meter" data-lvl="0"><div class="meter-bar" aria-hidden="true"><span></span><span></span><span></span><span></span></div><span class="hint" id="meter-txt" aria-live="polite">Robustesse : à saisir</span></div>
+          <ul class="rules" id="rules" aria-label="Règles du mot de passe"></ul>
+          <div class="field">
+            <label class="label" for="p-new2">Confirmer le nouveau mot de passe</label>
+            <div class="pw-wrap"><input class="input" id="p-new2" type="password" autocomplete="new-password" aria-describedby="p-err"><button type="button" class="pw-toggle" aria-label="Afficher la confirmation" aria-pressed="false" data-toggle="p-new2"></button></div>
+            <span class="error-text" id="p-err" hidden>Les deux mots de passe ne correspondent pas.</span>
+          </div>
+          <div><button class="btn btn-primary" id="p-submit" type="submit" disabled>Enregistrer le nouveau mot de passe</button></div>
+        </form>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="h-google">
+        <div class="card-head"><h3 id="h-google">Connexion avec Google</h3><span><span class="badge badge-success badge-dot" id="g-badge">Associé</span></span></div>
+        <div id="g-on" style="display:grid;gap:var(--space-4)">
+          <div style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap"><span id="g-logo-p"></span><span><strong>Compte Google associé</strong><br><span class="mono muted">rakoto.cabinet@gmail.com</span> <span class="maq-note">fictif</span></span></div>
+          <p class="hint">Vous pouvez vous connecter avec ce compte Google ou avec votre e-mail et votre mot de passe. PanoraDent ne reçoit que votre nom et votre adresse, jamais votre mot de passe Google.</p>
+          <div class="btn-row"><button class="btn btn-secondary" type="button" id="g-unlink">Dissocier le compte Google</button></div>
+        </div>
+        <div id="g-off" hidden style="display:grid;gap:var(--space-4)">
+          <p class="hint">Aucun compte Google associé. L’adresse Google doit être celle de votre compte PanoraDent ; sinon, demandez à l’administrateur de la modifier.</p>
+          <div class="btn-row"><button class="btn btn-google" type="button" id="g-link" style="width:auto"><span id="g-logo-b"></span>Associer un compte Google</button></div>
+        </div>
+        <div id="g-msg" aria-live="polite" style="margin-top:var(--space-4)"></div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="h-sess">
+        <div class="card-head"><h3 id="h-sess">Sessions</h3></div>
+        <ul class="sess">
+          <li><span><strong>Session actuelle</strong><br><span class="muted">Poste du cabinet · navigateur de bureau</span></span><span class="badge badge-success badge-dot">Active</span></li>
+          <li><span><strong>Dernière connexion</strong><br><span class="muted" id="last-login"></span></span><span class="muted">données fictives</span></li>
+        </ul>
+        <div class="btn-row">
+          <a class="btn btn-secondary" href="connexion.html?etat=deconnecte"><i data-icon="logout"></i>Se déconnecter</a>
+          <button class="btn btn-secondary" type="button" id="close-others">Fermer les autres sessions</button>
+        </div>
+        <div id="others-msg" aria-live="polite" style="margin-top:var(--space-4)"></div>
+      </section>
+
+      <section class="card card-pad" aria-labelledby="h-sec">
+        <div class="card-head"><h3 id="h-sec">Rappel de sécurité</h3><span><span class="maq-note">Durées : hypothèses, à confirmer</span></span></div>
+        <ul class="sec-list">
+          <li>Le compte est verrouillé 15 minutes après 5 échecs de connexion.</li>
+          <li>La session expire après 30 minutes d’inactivité.</li>
+          <li>Changer de mot de passe ferme toutes les autres sessions ouvertes.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div></div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var u = DEMO.users[PD.role];
+  document.getElementById("i-nom").value = u.name;
+  document.getElementById("i-mail").value = u.email;
+  document.getElementById("i-role").value = u.role;
+  document.getElementById("last-login").textContent = "Aujourd’hui, 08:12 · Toliara";
+
+  document.querySelectorAll(".pw-toggle").forEach(function (t) {
+    var inp = document.getElementById(t.dataset.toggle);
+    var draw = function () { t.innerHTML = PD.icon(inp.type === "password" ? "eye" : "eyeoff"); };
+    draw();
+    t.addEventListener("click", function () {
+      var show = inp.type === "password"; inp.type = show ? "text" : "password";
+      t.setAttribute("aria-pressed", show); t.setAttribute("aria-label", show ? "Masquer le mot de passe" : "Afficher le mot de passe"); draw();
+    });
+  });
+
+  var RULES = [
+    ["12 caractères minimum", function (v) { return v.length >= 12; }],
+    ["Une majuscule et une minuscule", function (v) { return /[A-Z]/.test(v) && /[a-z]/.test(v); }],
+    ["Un chiffre", function (v) { return /\d/.test(v); }],
+    ["Un caractère spécial", function (v) { return /[^A-Za-z0-9]/.test(v); }],
+    ["Différent des 3 derniers mots de passe", function (v) { return v.length > 0 && ["Ancien-Mdp#2024a", "Ancien-Mdp#2025b", "Ancien-Mdp#2026c"].indexOf(v) < 0; }]
+  ];
+  var ul = document.getElementById("rules");
+  ul.innerHTML = RULES.map(function (r) { return '<li><span class="mk">' + PD.icon("check") + '</span><span>' + r[0] + '<span class="sr-only"> : non respectée</span></span></li>'; }).join("");
+  var old = document.getElementById("p-old"), pw = document.getElementById("p-new"), pw2 = document.getElementById("p-new2"),
+      meter = document.getElementById("meter"), mt = document.getElementById("meter-txt"), btn = document.getElementById("p-submit"), err = document.getElementById("p-err");
+  var LAB = ["à saisir", "faible", "moyenne", "bonne", "solide"];
+  function check() {
+    var v = pw.value, okAll = true, n = 0;
+    RULES.forEach(function (r, i) {
+      var ok = r[1](v), li = ul.children[i];
+      li.classList.toggle("ok", ok);
+      li.querySelector(".sr-only").textContent = ok ? " : respectée" : " : non respectée";
+      if (!ok) okAll = false; if (i < 4 && ok) n++;
+    });
+    var lvl = v ? Math.max(1, n) : 0;
+    meter.dataset.lvl = lvl; mt.textContent = "Robustesse : " + LAB[lvl];
+    var match = pw2.value === v;
+    err.hidden = !pw2.value || match;
+    pw2.setAttribute("aria-invalid", !!(pw2.value && !match));
+    btn.disabled = !(okAll && match && pw2.value && old.value);
+  }
+  [old, pw, pw2].forEach(function (i) { i.addEventListener("input", check); }); check();
+
+  var msg = document.getElementById("pw-msg"), oerr = document.getElementById("p-old-err");
+  function setState(s) {
+    document.querySelectorAll("[data-etat]").forEach(function (x) { x.setAttribute("aria-pressed", x.dataset.etat === s); });
+    msg.innerHTML = ""; oerr.hidden = true; old.removeAttribute("aria-invalid");
+    if (s === "succes") msg.innerHTML = '<div class="alert alert-success" role="status">' + PD.icon("check") + "<div>Mot de passe modifié. Les autres sessions ouvertes ont été fermées.</div></div>";
+    if (s === "erreur") { oerr.hidden = false; old.setAttribute("aria-invalid", "true"); msg.innerHTML = '<div class="alert alert-danger" role="alert">' + PD.icon("alert") + "<div>Le mot de passe actuel est incorrect.</div></div>"; }
+  }
+  document.querySelectorAll("[data-etat]").forEach(function (x) { x.addEventListener("click", function () { setState(x.dataset.etat); }); });
+  document.getElementById("f-pw").addEventListener("submit", function (e) {
+    e.preventDefault(); if (btn.disabled) return;
+    setState(old.value === "incorrect" ? "erreur" : "succes");
+  });
+  document.getElementById("close-others").addEventListener("click", function () {
+    document.getElementById("others-msg").innerHTML = '<div class="alert alert-success" role="status">' + PD.icon("check") + "<div>Les autres sessions ont été fermées.</div></div>";
+  });
+});
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var $ = function (id) { return document.getElementById(id); };
+  $("g-logo-p").innerHTML = PD.GOOGLE_G.replace('class="g-logo"', 'style="width:28px;height:28px"'); $("g-logo-b").innerHTML = PD.GOOGLE_G;
+  function set(on, msg) {
+    $("g-on").hidden = !on; $("g-off").hidden = on;
+    $("g-badge").className = on ? "badge badge-success badge-dot" : "badge"; $("g-badge").textContent = on ? "Associé" : "Non associé";
+    $("g-msg").innerHTML = msg ? '<div class="alert alert-success" role="status">' + PD.icon("check") + "<div>" + msg + "</div></div>" : "";
+  }
+  $("g-unlink").onclick = function () { set(false, "Compte Google dissocié. Connectez-vous désormais avec votre e-mail et votre mot de passe. Action inscrite au journal d’audit."); };
+  $("g-link").onclick = function () { set(true, "Compte Google associé. Action inscrite au journal d’audit."); };
+});
+</script>
+</body>
+</html>

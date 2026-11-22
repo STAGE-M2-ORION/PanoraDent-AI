@@ -1,0 +1,33 @@
+/* Identité Panora : police de marque, logo, motif signature (équerres cyan), illustrations. */
+
+/* ---------- Identité Panora (police de marque : jamais sous 20 px, jamais en italique) ---------- */
+.topbar h1, .page-head h2, .hero h1, .auth-box h1, .display, .stat-num {
+  font-family: var(--font-display); font-weight: 700; font-style: normal; font-synthesis: none; letter-spacing: 0;
+}
+.topbar h1 { font-size: 1.375rem; }
+.logo img { height: 28px; width: auto; display: block; }
+.logo { padding: 2px 0; }
+.badge-dot::before { border-radius: 1px; }
+/* Motif signature : boîte de détection (coins cyan) */
+.frame-corners { position: relative; }
+.frame-corners::after, .dropzone::after {
+  content: ""; position: absolute; inset: -8px; pointer-events: none; background: var(--corner-bg);
+}
+.dropzone::after { inset: 10px; }
+.corner-img { padding: 14px; background: var(--corner-bg); }
+
+/* Illustrations générées (fond blanc fondu dans les fonds clairs) */
+.illus { display: block; width: 100%; height: auto; mix-blend-mode: multiply; user-select: none; }
+.illus-card { background: var(--color-surface); border-radius: var(--radius-xl); padding: var(--space-4); }
+
+
+/* Marque provisoire */
+.logo { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--color-ink); font-weight: 600; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.logo:hover { color: var(--color-ink); }
+.logo svg { width: 30px; height: 30px; }
+.logo small { font-weight: 500; color: var(--color-primary); }
+
+/* Grands chiffres et titres de marque */
+.kpi .v, .stat-num { font-family: var(--font-display) !important; font-weight: 700 !important; letter-spacing: 0; }
+.sheet h2 { font-family: var(--font-display); font-size: max(3.2cqw, 20px) !important; }
+.state-box .ill-img, .center .ill-img { padding: 14px; background: var(--corner-bg); margin: 0 0 var(--space-2); }

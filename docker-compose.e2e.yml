@@ -1,0 +1,43 @@
+# Stack de test de bout en bout (Playwright) avec le fournisseur d'identité de
+# remplacement à la place de Google, et les e-mails gardés en mémoire (lus par
+# le parcours via /api/v1/test/courriels). NE JAMAIS utiliser hors tests.
+#
+# En CI (port 3000) :
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+#   cd frontend && npm run test:e2e
+#
+# Sur un poste qui fait déjà tourner la stack de développement : projet séparé
+# (ses propres volumes, donc sa propre base) et port 3100, sans rien toucher :
+#   E2E_PORT=3100 docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+#   cd frontend && E2E_BASE_URL=http://localhost:3100 npm run test:e2e
+#   docker compose -p panoradent-e2e -f docker-compose.yml -f docker-compose.e2e.yml down -v
+#
+# Le backend refuse IDENTITY_PROVIDER=fake et COURRIEL_MODE=memoire si APP_ENV
+# n'est pas « test ».
+services:
+  # Seul le frontend (nginx) est exposé : aucun conflit de port avec la stack
+  # de développement.
+  db:
+    ports: !reset []
+  minio:
+    ports: !reset []
+  inference:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      APP_ENV: test
+      IDENTITY_PROVIDER: fake
+      GOOGLE_CLIENT_ID: e2e-client.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: ""
+      APP_URL: http://localhost:${E2E_PORT:-3000}
+      GOOGLE_REDIRECT_URI: http://localhost:${E2E_PORT:-3000}/api/v1/auth/google/retour
+      ALLOWED_ORIGINS: '["http://localhost:${E2E_PORT:-3000}"]'
+      ADMIN_EMAIL: admin@e2e.example.org
+      COURRIEL_MODE: memoire
+      BCRYPT_COUT: "4"
+
+  frontend:
+    ports: !override
+      - "${E2E_PORT:-3000}:80"

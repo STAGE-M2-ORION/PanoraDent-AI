@@ -1,0 +1,14 @@
+/* Pastilles d'anomalie : couleur + nom, jamais la couleur seule. */
+
+/* Pastille d'anomalie : couleur + nom (jamais la couleur seule) */
+.det-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; border: 2px solid currentColor; }
+.det-tooth { color: var(--color-det-tooth); }
+.det-caries { color: var(--color-det-caries); }
+.det-deep { color: var(--color-det-deep); }
+.det-periapical { color: var(--color-det-periapical); }
+.det-impacted { color: var(--color-det-impacted); }
+
+/* Note de maquette (annotation hors produit) */
+.maq-note { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--color-muted); background: var(--color-subtle); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-ai); padding: 2px 10px; }
+/* Abréviation de type (jamais la couleur seule) */
+.type-chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--color-muted); margin-right: 6px; }

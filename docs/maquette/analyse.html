@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Analyse n° 0042 · PanoraDent AI</title>
+<link rel="stylesheet" href="theme.css">
+<script src="data.js"></script>
+<script src="pano.js"></script>
+<script src="app.js" defer></script>
+<style>
+  /* Barre latérale réduite en rail sur l'écran de lecture */
+  .sidebar.rail { width: 72px; padding-inline: var(--space-2); }
+  .sidebar.rail .nav-link { justify-content: center; padding: 0; }
+  .sidebar.rail .nav-link > span:not(.nav-ic), .sidebar.rail .nav-label, .sidebar.rail .user-chip > span:last-child,
+  .sidebar.rail .sidebar-foot p, .sidebar.rail .logo span { display: none; }
+  .sidebar.rail .user-chip { justify-content: center; padding-inline: 0; }
+  .sidebar.rail .brand { padding-inline: 0; display: flex; justify-content: center; }
+
+  .topbar { flex-wrap: wrap; padding-block: var(--space-2); }
+  .head-meta { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; margin-top: 2px; }
+  .head-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  /* ---------- Espace de lecture (thème sombre de la visionneuse) ---------- */
+  .ws { background: var(--color-viewer-bg); color: var(--color-viewer-text); flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .ws a { color: var(--color-viewer-accent); }
+  .strip { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-2) var(--space-4); background: var(--color-viewer-panel); border-bottom: 1px solid var(--color-viewer-border); font-size: var(--text-sm); min-height: 52px; }
+  .strip .progress { width: 160px; height: 6px; border-radius: 99px; background: var(--color-viewer-raised); overflow: hidden; }
+  .strip .progress span { display: block; height: 100%; background: var(--color-viewer-accent); transition: width var(--duration-base) var(--ease-out); }
+  .strip .trace { color: var(--color-viewer-muted); font-size: var(--text-xs); margin-left: auto; flex: 1 1 220px; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .strip .locked { display: inline-flex; gap: var(--space-2); align-items: center; color: var(--color-viewer-text); font-weight: 500; }
+  .strip .locked svg { width: 16px; height: 16px; color: var(--color-viewer-accent); }
+
+  .grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 384px; min-height: 0; }
+  .grid.panel-closed { grid-template-columns: minmax(0, 1fr) 0; }
+  .grid.panel-closed .panel { display: none; }
+  .viewer-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--color-viewer-border); }
+
+  /* Boutons sombres */
+  .vbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; min-width: 36px; padding: 0 var(--space-2); border-radius: var(--radius-md); border: 1px solid transparent; background: transparent; color: var(--color-viewer-text); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
+  .vbtn svg { width: 18px; height: 18px; flex: none; }
+  .vbtn:hover { background: var(--color-viewer-raised); }
+  .vbtn[aria-pressed="true"] { background: var(--color-viewer-raised); border-color: var(--color-viewer-accent); color: #fff; }
+  .vbtn[disabled] { opacity: .4; cursor: not-allowed; }
+  .vbtn.outline { border-color: var(--color-viewer-border); }
+  .vbtn.accent { background: var(--color-primary); color: #fff; font-weight: 600; }
+  .vbtn.accent:hover { background: var(--color-primary-hover); }
+  .vbtn.danger:hover { background: rgba(185, 28, 28, .25); color: #FCA5A5; }
+  .vsep { width: 1px; height: 24px; background: var(--color-viewer-border); margin: 0 var(--space-1); }
+
+  .toolbar { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-viewer-border); background: var(--color-viewer-panel); }
+  .zoom-val { font-family: var(--font-mono); font-size: var(--text-xs); width: 48px; text-align: center; color: var(--color-viewer-muted); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--color-viewer-border); background: transparent; color: var(--color-viewer-text); font-size: var(--text-xs); cursor: pointer; }
+  .chip[aria-pressed="false"] { opacity: .5; text-decoration: line-through; }
+  .chip .n { font-family: var(--font-mono); color: var(--color-viewer-muted); }
+  .adjust { position: relative; }
+  .pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: 260px; padding: var(--space-4); background: var(--color-viewer-raised); border: 1px solid var(--color-viewer-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: none; gap: var(--space-3); }
+  .pop[data-open="true"] { display: grid; }
+  .pop label { display: grid; gap: 4px; font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .pop label span { display: flex; justify-content: space-between; }
+  input[type=range] { accent-color: var(--color-viewer-accent); width: 100%; }
+
+  .stage { position: relative; flex: 1; min-height: 340px; overflow: hidden; background: #05080F; cursor: grab; touch-action: none; user-select: none; }
+  .stage.panning { cursor: grabbing; }
+  .stage.drawing { cursor: crosshair; }
+  .layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .layer svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage-hint { position: absolute; left: 50%; top: var(--space-3); transform: translateX(-50%); background: rgba(11, 18, 32, .92); border: 1px solid var(--color-viewer-accent); color: var(--color-viewer-text); padding: 6px 14px; border-radius: 99px; font-size: var(--text-sm); display: none; z-index: 5; }
+  .stage-hint[data-show="true"] { display: block; }
+  .minimap-note { position: absolute; right: var(--space-3); bottom: var(--space-3); font-size: var(--text-xs); color: var(--color-viewer-muted); background: rgba(11, 18, 32, .8); padding: 4px 8px; border-radius: var(--radius-sm); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-2) var(--space-4); font-size: var(--text-xs); color: var(--color-viewer-muted); border-top: 1px solid var(--color-viewer-border); background: var(--color-viewer-panel); }
+  .legend .ln { display: inline-flex; align-items: center; gap: 6px; }
+  .legend svg { width: 28px; height: 10px; }
+
+  /* Odontogramme */
+  .odonto { padding: var(--space-3) var(--space-4) var(--space-4); background: var(--color-viewer-panel); border-top: 1px solid var(--color-viewer-border); }
+  .odonto-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-2); flex-wrap: wrap; }
+  .odonto-head h3 { font-size: var(--text-sm); font-weight: 600; }
+  .odonto-head p { font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .arch { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; }
+  .arch + .arch { margin-top: 3px; }
+  .arch .mid { border-left: 2px solid var(--color-viewer-muted); }
+  .tcell { position: relative; display: grid; justify-items: center; gap: 1px; padding: 3px 0 4px; border-radius: var(--radius-sm); border: 1px solid var(--color-viewer-border); background: var(--color-viewer-bg); color: var(--color-viewer-text); cursor: pointer; min-height: 56px; font-size: 11px; }
+  .tcell:hover { border-color: var(--color-viewer-muted); }
+  .tcell[aria-pressed="true"] { border-color: var(--color-viewer-accent); box-shadow: 0 0 0 1px var(--color-viewer-accent) inset; }
+  .tcell .num { font-family: var(--font-mono); font-weight: 500; color: var(--color-det-tooth); }
+  .tcell svg { width: 16px; height: 18px; }
+  .tcell .marks { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+  .mk { font-size: 9px; font-weight: 700; line-height: 1; padding: 2px 3px; border-radius: 2px; color: #0B1220; }
+  .tcell.absent { opacity: .45; cursor: default; }
+  .tcell.absent .num { text-decoration: line-through; color: var(--color-viewer-muted); }
+  .tcell .ok { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; color: #4ADE80; }
+
+  /* Panneau droit */
+  .panel { display: flex; flex-direction: column; min-height: 0; background: var(--color-viewer-panel); }
+  .tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--color-viewer-border); }
+  .tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--color-viewer-muted); font-weight: 500; font-size: var(--text-sm); cursor: pointer; }
+  .tab svg { width: 17px; height: 17px; }
+  .tab[aria-selected="true"] { color: var(--color-viewer-text); border-bottom-color: var(--color-viewer-accent); }
+  .tab .count { font-family: var(--font-mono); font-size: var(--text-xs); background: var(--color-viewer-raised); border-radius: 99px; padding: 1px 7px; }
+  .tabpane { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .tabpane[data-active="true"] { display: flex; }
+
+  .thr { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-viewer-border); display: grid; gap: 6px; }
+  .thr-top { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--text-sm); }
+  .thr-top output { font-family: var(--font-mono); font-weight: 500; color: var(--color-viewer-accent); }
+  .thr small { font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .list-tools { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-4); font-size: var(--text-xs); color: var(--color-viewer-muted); border-bottom: 1px solid var(--color-viewer-border); flex-wrap: wrap; }
+  .list-tools select { background: var(--color-viewer-bg); border: 1px solid var(--color-viewer-border); color: var(--color-viewer-text); border-radius: var(--radius-sm); min-height: 30px; font-size: var(--text-xs); }
+  .list-tools label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .list { flex: 1; overflow-y: auto; padding: var(--space-2) var(--space-2) var(--space-3); min-height: 210px; }
+  .grp { font-size: var(--text-xs); color: var(--color-viewer-muted); padding: var(--space-3) var(--space-2) 4px; display: flex; justify-content: space-between; }
+  .grp b { color: var(--color-viewer-text); font-weight: 600; font-family: var(--font-mono); }
+  .row { width: 100%; display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 10px; align-items: center; text-align: left; padding: 9px 10px; border-radius: var(--radius-md); border: 1px solid transparent; background: transparent; color: var(--color-viewer-text); cursor: pointer; font-size: var(--text-sm); }
+  .row:hover, .row.hover { background: var(--color-viewer-raised); }
+  .row[aria-pressed="true"] { background: var(--color-viewer-raised); border-color: var(--color-viewer-accent); }
+  .row .sw { width: 12px; height: 12px; border-radius: 3px; border: 2px solid; }
+  .row .sw.dash { border-style: dashed; }
+  .row .t { font-weight: 500; }
+  .row .c { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .row .meta { grid-column: 2 / 4; display: flex; gap: 8px; align-items: center; font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .row.dim { opacity: .55; }
+  .st { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); padding: 1px 8px; border-radius: 99px; border: 1px solid var(--color-viewer-border); color: var(--color-viewer-muted); }
+  .st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .st.validated { color: #4ADE80; border-color: rgba(74, 222, 128, .35); }
+  .st.corrected { color: #7DD3FC; border-color: rgba(125, 211, 252, .35); }
+  .st.added { color: var(--color-viewer-accent); border-color: rgba(34, 211, 238, .35); }
+  .st.pending { color: #FBBF24; border-color: rgba(251, 191, 36, .35); }
+  details.below summary { cursor: pointer; font-size: var(--text-xs); color: var(--color-viewer-muted); padding: var(--space-3) var(--space-2) 4px; }
+
+  .detail { border-top: 1px solid var(--color-viewer-border); padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); background: var(--color-viewer-bg); max-height: 44%; overflow-y: auto; }
+  .detail .kv { grid-template-columns: auto 1fr auto 1fr; }
+  .detail h3 { font-size: var(--text-base); display: flex; gap: 8px; align-items: center; }
+  .detail .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: var(--text-sm); }
+  .detail .kv dt { color: var(--color-viewer-muted); }
+  .detail .kv dd { margin: 0; }
+  .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+  .actions .vbtn { min-height: 40px; border-color: var(--color-viewer-border); }
+  .vfield { display: grid; gap: 4px; font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .vinput { width: 100%; background: var(--color-viewer-panel); color: var(--color-viewer-text); border: 1px solid var(--color-viewer-border); border-radius: var(--radius-md); min-height: 38px; padding: 6px 10px; font-size: var(--text-sm); }
+  .vinput:focus { outline: none; border-color: var(--color-viewer-accent); box-shadow: 0 0 0 2px rgba(34, 211, 238, .3); }
+  textarea.vinput { min-height: 64px; resize: vertical; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .note-ro { font-size: var(--text-xs); color: var(--color-viewer-muted); display: flex; gap: 6px; align-items: flex-start; }
+  .note-ro svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+  .inline-confirm { border: 1px solid rgba(252, 165, 165, .4); background: rgba(185, 28, 28, .12); border-radius: var(--radius-md); padding: var(--space-3); font-size: var(--text-sm); display: grid; gap: var(--space-2); }
+  .empty-sel { color: var(--color-viewer-muted); font-size: var(--text-sm); display: flex; gap: 8px; }
+  .empty-sel svg { width: 18px; height: 18px; flex: none; }
+  .add-bar { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-viewer-border); }
+  .add-bar .vbtn { width: 100%; min-height: 40px; }
+
+  /* Assistant */
+  .chat-ctx { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-viewer-border); font-size: var(--text-xs); color: var(--color-viewer-muted); display: grid; gap: 4px; }
+  .chat-ctx b { color: var(--color-viewer-text); font-weight: 500; }
+  .chat { flex: 1; overflow-y: auto; padding: var(--space-4); display: grid; gap: var(--space-4); align-content: start; }
+  .msg { display: grid; gap: 6px; font-size: var(--text-sm); line-height: 1.55; }
+  .msg.user { justify-items: end; }
+  .msg.user .bubble { background: var(--color-primary); color: #fff; border-radius: 14px 14px 4px 14px; padding: 9px 13px; max-width: 88%; }
+  .msg.bot .body { background: #fff; color: var(--color-ink); border: 1px solid var(--color-primary); border-radius: 4px 14px 14px 14px; padding: 12px 14px; }
+  .msg.bot .body .src { background: var(--color-bg); border-color: var(--color-border); border-left: 3px solid var(--color-primary); }
+  .msg.bot .body .src b { color: var(--color-ink); }
+  .msg.bot .body .src q, .msg.bot .body .src .origin, .msg.bot .body .reminder, .msg.bot .body .fb { color: var(--color-muted); }
+  .msg.bot .body .cite { color: var(--color-primary); }
+  .msg.bot .body .vbtn { color: var(--color-ink); }
+  .msg.bot .body .vbtn:hover { background: var(--color-subtle); }
+  .msg.bot .body .vbtn[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-ink); }
+  .msg.bot.refusal .body p:first-child { color: var(--color-ink); }
+  .chat-head { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: var(--text-sm); color: var(--color-viewer-text); }
+  .chat-head img { width: 28px; height: 28px; }
+  .msg.bot .who { font-size: var(--text-xs); color: var(--color-viewer-muted); display: flex; gap: 6px; align-items: center; }
+  .msg.bot .who svg { width: 14px; height: 14px; color: var(--color-viewer-accent); }
+  .msg.bot .body { display: grid; gap: 8px; }
+  .msg.bot.refusal .body p:first-child { border-left: 3px solid #FBBF24; padding-left: 10px; }
+  .cite { font-family: var(--font-mono); font-size: 11px; color: var(--color-viewer-accent); vertical-align: super; border: 0; background: none; cursor: pointer; padding: 0 1px; }
+  .srcs { display: grid; gap: 6px; }
+  .src { border: 1px solid var(--color-viewer-border); border-radius: var(--radius-md); padding: 8px 10px; font-size: var(--text-xs); background: var(--color-viewer-bg); }
+  .src.flash { border-color: var(--color-viewer-accent); }
+  .src b { display: block; font-size: var(--text-xs); color: var(--color-viewer-text); font-weight: 600; margin-bottom: 2px; }
+  .src q { color: var(--color-viewer-muted); font-style: italic; }
+  .src .origin { color: var(--color-viewer-muted); margin-top: 3px; display: block; }
+  .reminder { font-size: var(--text-xs); color: var(--color-viewer-muted); display: flex; gap: 6px; align-items: center; }
+  .reminder svg { width: 13px; height: 13px; }
+  .fb { display: flex; gap: 4px; align-items: center; font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .fb .vbtn { min-height: 30px; min-width: 30px; }
+  .typing { display: inline-flex; gap: 4px; align-items: center; color: var(--color-viewer-muted); font-size: var(--text-xs); }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-viewer-muted); animation: blink 1s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes blink { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  .chat-err { border: 1px solid rgba(252, 165, 165, .4); background: rgba(185, 28, 28, .12); border-radius: var(--radius-md); padding: var(--space-3); font-size: var(--text-sm); display: grid; gap: 8px; }
+  .sugg { display: flex; gap: 6px; flex-wrap: wrap; padding: var(--space-3) var(--space-4) 0; }
+  .sugg button { border: 1px solid var(--color-viewer-border); background: transparent; color: var(--color-viewer-text); border-radius: 99px; padding: 6px 12px; font-size: var(--text-xs); cursor: pointer; text-align: left; }
+  .sugg button:hover { border-color: var(--color-viewer-accent); }
+  .composer { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4) var(--space-4); }
+  .composer .vinput { flex: 1; }
+  .composer-note { font-size: 11px; color: var(--color-viewer-muted); padding: 0 var(--space-4) var(--space-3); }
+
+  .reopen-panel { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: none; z-index: 6; writing-mode: vertical-rl; background: var(--color-viewer-raised); border: 1px solid var(--color-viewer-border); color: var(--color-viewer-text); border-radius: var(--radius-md) 0 0 var(--radius-md); padding: 12px 8px; font-size: var(--text-xs); cursor: pointer; }
+  .grid.panel-closed .reopen-panel { display: block; }
+
+  .toast { position: fixed; right: var(--space-6); bottom: var(--space-6); z-index: 90; background: var(--color-ink); color: #fff; padding: 10px 14px; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); font-size: var(--text-sm); display: none; gap: 12px; align-items: center; }
+  .toast[data-show="true"] { display: flex; }
+  .toast button { background: none; border: 0; color: #A5F3FC; font-weight: 600; cursor: pointer; text-decoration: underline; }
+
+  /* Outil de maquette : états */
+  .maq-states { position: fixed; right: var(--space-4); bottom: 4px; z-index: 80; }
+  .maq-states > button { background: var(--color-subtle); color: var(--color-muted); border: 1px dashed var(--color-border-strong); border-radius: 99px; padding: 6px 12px; font-size: var(--text-xs); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+  .maq-states > button svg { width: 14px; height: 14px; }
+  .maq-states .menu { position: absolute; bottom: calc(100% + 6px); right: 0; background: var(--color-surface); color: var(--color-ink); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: var(--space-2); width: 260px; display: none; }
+  .maq-states .menu[data-open="true"] { display: grid; }
+  .maq-states .menu p { font-size: var(--text-xs); color: var(--color-muted); padding: 4px 8px; }
+  .maq-states .menu button, .maq-states .menu a { text-align: left; background: none; border: 0; padding: 8px; border-radius: var(--radius-sm); font-size: var(--text-sm); cursor: pointer; color: var(--color-ink); text-decoration: none; }
+  .maq-states .menu button:hover, .maq-states .menu a:hover { background: var(--color-subtle); }
+
+  .overlay-state { position: absolute; inset: 0; display: none; place-items: center; z-index: 7; background: var(--color-viewer-bg); }
+  .overlay-state[data-show="true"] { display: grid; }
+  .vskel { background: linear-gradient(90deg, var(--color-viewer-panel), var(--color-viewer-raised), var(--color-viewer-panel)); background-size: 200% 100%; animation: skel 1.4s ease-in-out infinite; border-radius: var(--radius-sm); }
+
+  /* Grand écran : espace de lecture verrouillé à la fenêtre (comme une application) */
+  @media (min-width: 1181px) and (min-height: 900px) { .app { min-height: 0; } .main, .sidebar { height: calc(100vh - 34px); } .ws { overflow: hidden; } }
+  /* Fenêtre plus basse : la page défile normalement, le panneau reste épinglé à droite */
+  @media (min-width: 1181px) and (max-height: 899px) {
+    .ws { overflow: visible; }
+    .stage { flex: none; height: clamp(340px, 56vh, 600px); min-height: 0; }
+    .panel { position: sticky; top: 0; height: calc(100vh - 34px); align-self: start; }
+  }
+  /* L'outil de maquette ne recouvre plus les icônes du rail */
+  @media (max-width: 1180px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .grid.panel-closed { grid-template-columns: minmax(0, 1fr); }
+    .viewer-col { border-right: 0; }
+    .stage { min-height: 300px; aspect-ratio: 2 / 1; flex: none; }
+    .panel { border-top: 1px solid var(--color-viewer-border); min-height: 640px; }
+    .detail { max-height: none; }
+    .reopen-panel { display: none !important; }
+    #panelToggle { display: none; }
+    .strip .trace { margin-left: 0; width: 100%; flex-basis: 100%; text-align: left; }
+  }
+  @media (max-width: 700px) {
+    .head-actions { width: 100%; flex-direction: column; }
+    .demo-switch { display: none; }
+    .strip { gap: 8px 12px; padding-block: 6px; }
+    .strip .progress { width: 90px; }
+    .head-meta .badge:nth-child(2) { display: none; }
+    .head-actions .btn { width: 100%; }
+    .strip .trace, .minimap-note, .legend .ln:last-child { display: none; }
+    .vbtn, .chip, .tab, .tcell { min-height: 44px; }
+    .maq-states { bottom: 12px; right: 12px; }
+    .maq-states > button { font-size: 0; gap: 0; padding: 10px; }
+    .maq-states > button svg { width: 18px; height: 18px; }
+    .arch { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+    .arch .mid { border-left: 1px solid var(--color-viewer-border); }
+    .toolbar .hide-sm { display: none; }
+    .stage { min-height: 200px; }
+    .head-actions .btn { flex: 1; }
+  }
+</style>
+</head>
+<body data-page="historique" data-allow="admin praticien lecteur">
+<div class="app">
+  <aside class="sidebar rail" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <p class="crumbs"><a href="historique.html">Historique</a> › Analyse</p>
+        <h1>Analyse n° 0042</h1>
+        <div class="head-meta">
+          <span class="badge mono">ID anonyme 7F3A</span>
+          <span class="badge" id="dateBadge"></span>
+          <span class="badge badge-info badge-dot" id="statusBadge">Relecture en cours</span>
+          <span class="badge badge-warning" data-roles="lecteur admin"><i data-icon="eye"></i>Lecture seule</span>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="head-actions">
+        <a class="btn btn-secondary btn-sm" href="compte-rendu.html" id="reportBtn"><i data-icon="file"></i>Générer le compte rendu</a>
+        <button class="btn btn-primary btn-sm" id="closeBtn" data-roles="praticien" data-open-modal="closeModal"><i data-icon="lock"></i>Clôturer l'analyse</button>
+      </div>
+    </header>
+
+    <section class="ws" aria-label="Espace de lecture">
+      <div class="strip" id="strip"></div>
+      <div class="grid" id="grid">
+        <div class="viewer-col">
+          <div class="toolbar" role="toolbar" aria-label="Outils de la visionneuse">
+            <button class="vbtn" id="zoomOut" aria-label="Dézoomer"><i data-icon="zoomout"></i></button>
+            <span class="zoom-val" id="zoomVal" aria-live="polite">100 %</span>
+            <button class="vbtn" id="zoomIn" aria-label="Zoomer"><i data-icon="zoomin"></i></button>
+            <button class="vbtn outline" id="fit">Ajuster</button>
+            <span class="vsep"></span>
+            <button class="vbtn" id="toolPan" aria-pressed="true" title="Déplacer l'image (glisser)"><i data-icon="hand"></i><span class="hide-sm">Déplacer</span></button>
+            <span class="adjust">
+              <button class="vbtn" id="adjBtn" aria-expanded="false" aria-controls="adjPop"><i data-icon="sun"></i><span class="hide-sm">Luminosité / contraste</span></button>
+              <div class="pop" id="adjPop">
+                <label for="bright"><span>Luminosité <output id="brightV">100 %</output></span><input type="range" id="bright" min="50" max="160" value="100"></label>
+                <label for="contrast"><span>Contraste <output id="contrastV">100 %</output></span><input type="range" id="contrast" min="50" max="200" value="100"></label>
+                <label style="display:flex;gap:8px;align-items:center;color:var(--color-viewer-text);font-size:var(--text-sm)"><input type="checkbox" id="invert"> Inverser les niveaux de gris</label>
+                <button class="vbtn outline" id="adjReset">Réinitialiser</button>
+              </div>
+            </span>
+            <button class="vbtn" id="fullBtn" aria-label="Plein écran"><i data-icon="maximize"></i></button>
+            <span class="vsep"></span>
+            <span id="layerChips" style="display:flex;gap:6px;flex-wrap:wrap" role="group" aria-label="Afficher ou masquer les calques"></span>
+            <span style="flex:1"></span>
+            <button class="vbtn" id="panelToggle" aria-label="Replier le panneau latéral" title="Replier le panneau"><i data-icon="panel"></i></button>
+          </div>
+          <div class="stage" id="stage" aria-label="Radiographie panoramique simulée avec les détections superposées">
+            <div class="layer" id="layer">
+              <svg id="img" aria-hidden="true"></svg>
+              <svg id="ov" viewBox="0 0 1200 600" role="group" aria-label="Cadres des détections"></svg>
+            </div>
+            <div class="stage-hint" id="hint" role="status"></div>
+            <span class="minimap-note">Molette : zoom · Glisser : déplacer · Image simulée</span>
+            <div class="overlay-state" id="ovLoading"><div style="width:70%;display:grid;gap:12px"><div class="vskel" style="height:260px"></div><div class="vskel" style="height:14px;width:40%"></div><p style="color:var(--color-viewer-muted);font-size:var(--text-sm)">Chargement de l'analyse…</p></div></div>
+            <div class="overlay-state" id="ovError"><div style="max-width:420px;text-align:center;display:grid;gap:12px;justify-items:center;padding:var(--space-6)"><i data-icon="alert"></i><h2 style="font-size:var(--text-xl)">L'analyse n'a pas pu être chargée</h2><p style="color:var(--color-viewer-muted);font-size:var(--text-sm)">Le serveur d'images ne répond pas. Vos relectures enregistrées ne sont pas perdues.</p><p class="mono" style="color:var(--color-viewer-muted);font-size:var(--text-xs)">Incident INC-2611-07 (fictif)</p><button class="vbtn accent" data-state="normal">Réessayer</button></div></div>
+          </div>
+          <div class="legend" aria-label="Légende des traits">
+            <span class="ln"><svg viewBox="0 0 28 10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5" stroke="#E2E8F0" stroke-width="2.5"/></svg>Trait plein : détection de l'IA</span>
+            <span class="ln"><svg viewBox="0 0 28 10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5" stroke="#E2E8F0" stroke-width="2.5" stroke-dasharray="5 4"/></svg>Pointillé : ajoutée ou corrigée par le praticien</span>
+            <span class="ln">Droite du patient à gauche de l'image (D / G)</span>
+          </div>
+          <div class="odonto">
+            <div class="odonto-head"><h3>Schéma dentaire (FDI)</h3><p>Cliquez sur une dent pour la retrouver sur l'image et dans la liste.</p></div>
+            <div class="arch" id="archUp" aria-label="Arcade supérieure"></div>
+            <div class="arch" id="archLo" aria-label="Arcade inférieure"></div>
+          </div>
+        </div>
+
+        <aside class="panel" aria-label="Détections et assistant">
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" id="tabDet" aria-selected="true" aria-controls="paneDet"><i data-icon="layers"></i>Détections <span class="count" id="detCount">9</span></button>
+            <button class="tab" role="tab" id="tabChat" aria-selected="false" aria-controls="paneChat"><i data-icon="message"></i>Assistant</button>
+          </div>
+
+          <div class="tabpane" id="paneDet" role="tabpanel" aria-labelledby="tabDet" data-active="true">
+            <div class="thr">
+              <div class="thr-top"><label for="thr">Seuil de confiance</label><output id="thrV" for="thr">50 %</output></div>
+              <input type="range" id="thr" min="0" max="100" step="1" value="50" aria-describedby="thrHelp">
+              <small id="thrHelp"></small>
+            </div>
+            <div class="list-tools">
+              <label for="sort">Trier</label>
+              <select id="sort"><option value="tooth">par dent</option><option value="conf">par confiance</option><option value="status">par statut</option></select>
+              <label><input type="checkbox" id="onlyPending"> Non revues seulement</label>
+              <button class="vbtn" id="clearTooth" style="display:none;min-height:28px;font-size:var(--text-xs)"></button>
+            </div>
+            <div class="list" id="list" role="list"></div>
+            <div class="detail" id="detail" aria-live="polite"></div>
+            <div class="add-bar" data-roles="praticien"><button class="vbtn outline" id="addBtn"><i data-icon="plus"></i>Ajouter une détection</button></div>
+          </div>
+
+          <div class="tabpane" id="paneChat" role="tabpanel" aria-labelledby="tabChat">
+            <div class="chat-ctx"><div class="chat-head"><img src="brand/Icone.svg" alt="">Assistant PanoraDent</div><div id="chatCtx" style="display:grid;gap:4px"></div></div>
+            <div class="chat" id="chat" aria-live="polite"></div>
+            <div class="sugg" id="sugg" aria-label="Suggestions de questions"></div>
+            <form class="composer" id="composer">
+              <label for="ask" class="sr-only">Votre question</label>
+              <input class="vinput" id="ask" autocomplete="off" placeholder="Posez une question sur cette analyse…">
+              <button class="vbtn accent" aria-label="Envoyer"><i data-icon="send"></i></button>
+            </form>
+            <p class="composer-note">L'assistant explique, cite ses sources et ne pose jamais de diagnostic. Il n'a accès qu'aux détections de cette analyse, jamais à l'image hors du serveur.</p>
+          </div>
+        </aside>
+        <button class="reopen-panel" id="reopenPanel">Détections et assistant</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Clôturer -->
+<div class="modal-backdrop" id="closeModal" role="dialog" aria-modal="true" aria-labelledby="closeTitle">
+  <div class="modal">
+    <h2 id="closeTitle">Clôturer l'analyse n° 0042 ?</h2>
+    <div class="alert alert-warning" id="closeWarn"><i data-icon="alert"></i><div><strong>3 détections ne sont pas revues.</strong>Elles seront exclues du compte rendu. Vous pouvez aussi les relire d'abord.</div></div>
+    <p class="muted" style="font-size:var(--text-sm)">La clôture verrouille les résultats : plus aucune détection ne peut être modifiée. Une réouverture reste possible, avec un motif inscrit au journal d'audit.</p>
+    <div class="modal-actions"><button class="btn btn-secondary" data-close-modal>Continuer la relecture</button><button class="btn btn-primary" id="confirmClose">Clôturer l'analyse</button></div>
+  </div>
+</div>
+<!-- Rouvrir -->
+<div class="modal-backdrop" id="reopenModal" role="dialog" aria-modal="true" aria-labelledby="reopenTitle">
+  <div class="modal">
+    <h2 id="reopenTitle">Rouvrir l'analyse n° 0042 ?</h2>
+    <p class="muted" style="font-size:var(--text-sm)">Les détections redeviennent modifiables. Le compte rendu déjà généré devra être régénéré.</p>
+    <div class="field"><label class="label" for="reopenWhy">Motif de la réouverture (obligatoire)</label><textarea class="textarea" id="reopenWhy" placeholder="Ex. : compléter la relecture de la dent 24"></textarea><span class="hint">Le motif est inscrit au journal d'audit.</span></div>
+    <div class="modal-actions"><button class="btn btn-secondary" data-close-modal>Annuler</button><button class="btn btn-primary" id="confirmReopen" disabled>Rouvrir l'analyse</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMsg"></span><button id="toastUndo" style="display:none">Annuler</button></div>
+
+<div class="maq-states">
+  <button id="maqBtn" aria-expanded="false"><i data-icon="grid"></i>États de la maquette</button>
+  <div class="menu" id="maqMenu">
+    <p>Outil de la maquette, absent du produit.</p>
+    <button data-state="normal">Relecture en cours (par défaut)</button>
+    <button data-state="closed">Analyse clôturée (verrouillée)</button>
+    <button data-state="loading">Chargement de l'analyse</button>
+    <button data-state="error">Échec du chargement</button>
+    <button data-state="chat-loading">Assistant : réponse en cours</button>
+    <button data-state="chat-error">Assistant : indisponible</button>
+    <a href="analyse.html?role=lecteur">Vue du lecteur (lecture seule)</a>
+    <a href="analyse.html?role=praticien">Vue du praticien</a>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const D = DEMO, T = D.TYPES, ic = PD.icon;
+  const NB = " ";
+  const pct = (n) => n == null ? "—" : n + NB + "%";
+  const canReview = PD.role === "praticien";
+  const $ = (id) => document.getElementById(id);
+
+  const S = {
+    dets: D.detections.map((d) => ({ ...d, box: Pano.boxFor(d.fdi, d.type) })),
+    sel: "d2", hover: null, threshold: 50, sort: "tooth", onlyPending: false, tooth: null,
+    show: { tooth: true, caries: true, deep: true, periapical: true, impacted: true },
+    mode: null, draft: null, confirmDel: false, closed: false,
+    zoom: 1, tx: 0, ty: 0, base: 800, bright: 100, contrast: 100, invert: false,
+    autoNext: true
+  };
+  // la correction de la 17 a légèrement réduit son cadre
+  const d6 = S.dets.find((d) => d.id === "d6"); d6.box = { ...d6.box, h: d6.box.h * 0.8, y: d6.box.y + d6.box.h * 0.2 };
+
+  $("dateBadge").textContent = D.analysis.date;
+
+  /* ---------- Visionneuse ---------- */
+  const stage = $("stage"), layer = $("layer"), img = $("img"), ov = $("ov");
+  Pano.draw(img);
+
+  function layout(reset) {
+    const r = stage.getBoundingClientRect();
+    S.base = Math.max(200, Math.min(r.width, r.height * 2));
+    layer.style.width = S.base + "px"; layer.style.height = S.base / 2 + "px";
+    if (reset) { S.zoom = 1; S.tx = (r.width - S.base) / 2; S.ty = (r.height - S.base / 2) / 2; }
+    apply();
+  }
+  function apply() {
+    layer.style.transform = `translate(${S.tx}px, ${S.ty}px) scale(${S.zoom})`;
+    $("zoomVal").textContent = Math.round(S.zoom * 100) + NB + "%";
+    img.style.filter = `brightness(${S.bright / 100}) contrast(${S.contrast / 100})${S.invert ? " invert(1)" : ""}`;
+    renderOverlay();
+  }
+  function zoomAt(f, px, py) {
+    const r = stage.getBoundingClientRect();
+    if (px == null) { px = r.width / 2; py = r.height / 2; }
+    const nz = Math.min(8, Math.max(0.5, S.zoom * f));
+    S.tx = px - (px - S.tx) * (nz / S.zoom); S.ty = py - (py - S.ty) * (nz / S.zoom); S.zoom = nz; apply();
+  }
+  function toImg(e) {
+    const r = stage.getBoundingClientRect();
+    const k = 1200 / S.base;
+    return { x: ((e.clientX - r.left - S.tx) / S.zoom) * k, y: ((e.clientY - r.top - S.ty) / S.zoom) * k };
+  }
+  function centerOn(b) {
+    const r = stage.getBoundingClientRect(), k = S.base / 1200;
+    S.tx = r.width / 2 - (b.x + b.w / 2) * k * S.zoom; S.ty = r.height / 2 - (b.y + b.h / 2) * k * S.zoom; apply();
+  }
+  $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = () => layout(true);
+  stage.addEventListener("wheel", (e) => { e.preventDefault(); const r = stage.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+
+  let drag = null;
+  stage.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const hit = e.target.closest("[data-det]"), handle = e.target.closest("[data-handle]");
+    const p = toImg(e);
+    if (S.mode === "draw") { drag = { kind: "draw", x0: p.x, y0: p.y }; S.draft = { x: p.x, y: p.y, w: 0, h: 0 }; stage.setPointerCapture(e.pointerId); return; }
+    if (S.mode === "correct" && (handle || (hit && hit.dataset.det === S.sel))) {
+      const d = cur(); drag = { kind: handle ? "resize" : "move", p0: p, b0: { ...d.box } }; stage.setPointerCapture(e.pointerId); return;
+    }
+    if (hit) { select(hit.dataset.det); return; }
+    drag = { kind: "pan", x: e.clientX, y: e.clientY, tx: S.tx, ty: S.ty }; stage.classList.add("panning"); stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!drag) {
+      const h = e.target.closest("[data-det]"); const id = h ? h.dataset.det : null;
+      if (id !== S.hover) { S.hover = id; renderOverlay(); markHover(); }
+      return;
+    }
+    const p = toImg(e);
+    if (drag.kind === "pan") { S.tx = drag.tx + e.clientX - drag.x; S.ty = drag.ty + e.clientY - drag.y; apply(); }
+    else if (drag.kind === "draw") { S.draft = { x: Math.min(p.x, drag.x0), y: Math.min(p.y, drag.y0), w: Math.abs(p.x - drag.x0), h: Math.abs(p.y - drag.y0) }; renderOverlay(); }
+    else { const d = cur(), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
+      d.box = drag.kind === "move" ? { ...drag.b0, x: drag.b0.x + dx, y: drag.b0.y + dy } : { ...drag.b0, w: Math.max(14, drag.b0.w + dx), h: Math.max(14, drag.b0.h + dy) };
+      renderOverlay(); }
+  });
+  stage.addEventListener("pointerup", () => {
+    if (drag && drag.kind === "draw") {
+      if (S.draft && S.draft.w > 10 && S.draft.h > 10) { S.mode = "drawn"; stage.classList.remove("drawing"); hint(""); renderDetail(); }
+      else S.draft = null;
+      renderOverlay();
+    }
+    drag = null; stage.classList.remove("panning");
+  });
+
+  // Luminosité / contraste
+  $("adjBtn").onclick = () => { const o = $("adjPop").dataset.open === "true"; $("adjPop").dataset.open = !o; $("adjBtn").setAttribute("aria-expanded", !o); };
+  $("bright").oninput = (e) => { S.bright = +e.target.value; $("brightV").textContent = pct(S.bright); apply(); };
+  $("contrast").oninput = (e) => { S.contrast = +e.target.value; $("contrastV").textContent = pct(S.contrast); apply(); };
+  $("invert").onchange = (e) => { S.invert = e.target.checked; apply(); };
+  $("adjReset").onclick = () => { S.bright = 100; S.contrast = 100; S.invert = false; $("bright").value = 100; $("contrast").value = 100; $("invert").checked = false; $("brightV").textContent = pct(100); $("contrastV").textContent = pct(100); apply(); };
+  $("fullBtn").onclick = () => { const w = document.querySelector(".ws"); if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen(); };
+  document.addEventListener("fullscreenchange", () => setTimeout(() => layout(true), 60));
+
+  // Calques
+  function renderChips() {
+    const order = ["tooth", "caries", "deep", "periapical", "impacted"];
+    $("layerChips").innerHTML = order.map((k) => {
+      const n = k === "tooth" ? D.analysis.teethCount : S.dets.filter((d) => d.type === k).length;
+      const label = k === "tooth" ? "Dents" : T[k].short;
+      return `<button class="chip" data-layer="${k}" aria-pressed="${S.show[k]}" title="${S.show[k] ? "Masquer" : "Afficher"} : ${label}"><span class="det-swatch ${T[k].cls}"></span>${label} <span class="n">${n}</span></button>`;
+    }).join("");
+  }
+  $("layerChips").addEventListener("click", (e) => { const b = e.target.closest("[data-layer]"); if (!b) return; S.show[b.dataset.layer] = !S.show[b.dataset.layer]; renderChips(); renderOverlay(); renderList(); });
+
+  /* ---------- Rendu des cadres ---------- */
+  const visible = (d) => S.show[d.type] && (d.conf == null || d.conf >= S.threshold);
+  const dashed = (d) => d.source === "user" || d.status === "corrected";
+  const cur = () => S.dets.find((d) => d.id === S.sel);
+
+  function svgEl(n, a, p) { return Pano.el(n, a, p); }
+  function renderOverlay() {
+    ov.innerHTML = "";
+    const fs = 17 / Math.pow(S.zoom, 0.75);
+    const placed = [];
+    const focusTooth = S.tooth || (cur() && cur().fdi);
+    if (S.show.tooth) {
+      const g = svgEl("g", {}, ov);
+      Object.values(Pano.teeth).forEach((t) => {
+        const on = focusTooth === t.fdi;
+        svgEl("rect", { x: t.box.x, y: t.box.y, width: t.box.w, height: t.box.h, rx: 6, fill: "none", stroke: "#56B4E9", "stroke-width": on ? 2.2 / S.zoom * 1.4 : 1 / S.zoom * 1.2, opacity: on ? 1 : 0.45 }, g);
+        const ly = t.upper ? t.box.y - 6 : t.box.y + t.box.h + fs + 2;
+        const tx = svgEl("text", { x: t.cx, y: ly, "text-anchor": "middle", fill: "#56B4E9", "font-size": fs * 0.95, "font-family": "JetBrains Mono, monospace", "font-weight": on ? 700 : 500, opacity: on ? 1 : 0.8 }, g);
+        tx.textContent = t.fdi;
+      });
+    }
+    const dets = S.dets.filter(visible).sort((a, b) => (a.id === S.sel) - (b.id === S.sel));
+    dets.forEach((d) => {
+      const b = d.box, col = T[d.type].color, sel = d.id === S.sel, hov = d.id === S.hover;
+      const dim = S.sel && !sel && !hov ? 0.55 : 1;
+      const g = svgEl("g", { "data-det": d.id, style: "cursor:pointer", opacity: dim }, ov);
+      g.setAttribute("aria-label", `Dent ${d.fdi}, ${T[d.type].label}, confiance ${pct(d.conf)}`);
+      if (sel) svgEl("rect", { x: b.x - 5, y: b.y - 5, width: b.w + 10, height: b.h + 10, rx: 8, fill: "none", stroke: "#22D3EE", "stroke-width": 1.5 / S.zoom * 1.3, "stroke-dasharray": "2 3" }, g);
+      // Cadre fin à la couleur du type (plein = IA, pointillé = praticien) + coins cyan de la marque
+      svgEl("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 6, fill: col, "fill-opacity": sel || hov ? 0.14 : 0.05, stroke: col, "stroke-width": (sel || hov ? 2 : 1.4) / Math.pow(S.zoom, 0.6), "stroke-dasharray": dashed(d) ? "7 5" : "none" }, g);
+      const cl = Math.min(b.w, b.h) * 0.32, cw = (sel || hov ? 4.2 : 3.2) / Math.pow(S.zoom, 0.6), o = cw / 2;
+      svgEl("path", { d: `M${b.x - o} ${b.y + cl} V${b.y - o} H${b.x + cl} M${b.x + b.w - cl} ${b.y - o} H${b.x + b.w + o} V${b.y + cl} M${b.x + b.w + o} ${b.y + b.h - cl} V${b.y + b.h + o} H${b.x + b.w - cl} M${b.x + cl} ${b.y + b.h + o} H${b.x - o} V${b.y + b.h - cl}`, fill: "none", stroke: "#22D3EE", "stroke-width": cw, "stroke-linecap": "square" }, g);
+      // étiquette : nom + confiance (jamais la couleur seule)
+      const text = `${d.fdi} · ${d.conf == null ? "ajoutée" : pct(d.conf)} · ${T[d.type].short}`;
+      const tw = text.length * fs * 0.62 + fs * 1.6, th = fs * 1.55;
+      let lx = b.x, lyy = b.y - th - 3;
+      if (lyy < 2) lyy = b.y + b.h + 3;
+      if (lx + tw > 1198) lx = 1198 - tw;
+      // Évitement des chevauchements : au-dessus, sinon en dessous, sinon on décale
+      const hit = (y) => placed.some((p) => lx < p.x + p.w && lx + tw > p.x && y < p.y + p.h && y + th > p.y);
+      if (hit(lyy)) { const below = b.y + b.h + 3; lyy = hit(below) ? lyy : below; }
+      let guard = 0; while (hit(lyy) && guard++ < 8) lyy += th + 2;
+      placed.push({ x: lx, y: lyy, w: tw, h: th });
+      svgEl("rect", { x: lx, y: lyy, width: tw, height: th, rx: th * 0.3, fill: "#0E7490", stroke: sel ? "#22D3EE" : "none", "stroke-width": 1.5 / S.zoom }, g);
+      svgEl("rect", { x: lx + fs * 0.4, y: lyy + th / 2 - fs * 0.3, width: fs * 0.6, height: fs * 0.6, rx: 1.5, fill: col }, g);
+      const t = svgEl("text", { x: lx + fs * 1.25, y: lyy + th * 0.7, fill: "#E2E8F0", "font-size": fs, "font-family": "JetBrains Mono, monospace", "font-weight": 500 }, g);
+      t.setAttribute("fill", "#FFFFFF");
+      t.textContent = text;
+      if (sel && S.mode === "correct") {
+        svgEl("circle", { cx: b.x + b.w, cy: b.y + b.h, r: 7 / S.zoom * 1.3, fill: "#22D3EE", stroke: "#0B1220", "stroke-width": 2 / S.zoom, "data-handle": "br", style: "cursor:nwse-resize" }, g);
+      }
+    });
+    if (S.draft) {
+      const b = S.draft;
+      svgEl("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 5, fill: "#22D3EE", "fill-opacity": .1, stroke: "#22D3EE", "stroke-width": 2.4 / S.zoom, "stroke-dasharray": "8 5" }, ov);
+    }
+  }
+
+  /* ---------- Liste des détections ---------- */
+  const STL = { pending: "Non revue", validated: "Validée", corrected: "Corrigée", added: "Ajoutée par le praticien" };
+  function rowHTML(d) {
+    const hidden = !S.show[d.type];
+    return `<button class="row${d.id === S.hover ? " hover" : ""}" role="listitem" data-id="${d.id}" aria-pressed="${d.id === S.sel}">
+      <span class="sw${dashed(d) ? " dash" : ""}" style="border-color:${T[d.type].color};background:${T[d.type].color}33"></span>
+      <span class="t">${T[d.type].label}</span>
+      <span class="c">${d.conf == null ? "—" : pct(d.conf)}</span>
+      <span class="meta"><span class="st ${d.status}">${STL[d.status]}</span>${hidden ? `<span title="Calque masqué sur l'image">${ic("eyeoff")}</span>` : ""}${d.source === "user" ? "<span>par Dr Rakoto</span>" : "<span>IA</span>"}</span>
+    </button>`;
+  }
+  function sorted(arr) {
+    const a = [...arr];
+    if (S.sort === "conf") a.sort((x, y) => (y.conf ?? 101) - (x.conf ?? 101));
+    else if (S.sort === "status") { const o = { pending: 0, corrected: 1, added: 2, validated: 3 }; a.sort((x, y) => o[x.status] - o[y.status] || x.fdi - y.fdi); }
+    else a.sort((x, y) => x.fdi - y.fdi || (y.conf ?? 0) - (x.conf ?? 0));
+    return a;
+  }
+  function renderList() {
+    let pool = S.dets.filter((d) => (!S.onlyPending || d.status === "pending") && (!S.tooth || d.fdi === S.tooth));
+    const above = sorted(pool.filter((d) => d.conf == null || d.conf >= S.threshold));
+    const below = sorted(pool.filter((d) => d.conf != null && d.conf < S.threshold));
+    let html = "";
+    if (S.sort === "tooth") {
+      let last = null;
+      above.forEach((d) => { if (d.fdi !== last) { html += `<div class="grp"><span>Dent <b>${d.fdi}</b></span><span>${d.fdi >= 30 ? "mandibule" : "maxillaire"}</span></div>`; last = d.fdi; } html += rowHTML(d); });
+    } else html = above.map(rowHTML).join("");
+    if (!above.length) html = `<p class="empty-sel" style="padding:var(--space-4)">${ic("info")}<span>Aucune détection ${S.tooth ? "sur la dent " + S.tooth + " " : ""}au-dessus du seuil${S.onlyPending ? " parmi les non revues" : ""}.</span></p>`;
+    if (below.length) html += `<details class="below"><summary>Sous le seuil de ${pct(S.threshold)} (${below.length}) — masquées sur l'image</summary>${below.map((d) => rowHTML(d).replace('class="row', 'class="row dim')).join("")}</details>`;
+    $("list").innerHTML = html;
+    const all = S.dets.length, shown = S.dets.filter((d) => d.conf == null || d.conf >= S.threshold).length;
+    $("thrHelp").textContent = `${shown} affichée${shown > 1 ? "s" : ""} · ${all - shown} sous le seuil. Un seuil bas montre plus de propositions, et plus de fausses alertes.`;
+    $("detCount").textContent = all;
+    const ct = $("clearTooth");
+    if (S.tooth) { ct.style.display = "inline-flex"; ct.innerHTML = `Dent ${S.tooth} ${ic("x")}`; ct.setAttribute("aria-label", "Retirer le filtre de la dent " + S.tooth); } else ct.style.display = "none";
+  }
+  $("list").addEventListener("click", (e) => { const r = e.target.closest(".row"); if (r) select(r.dataset.id, true); });
+  $("list").addEventListener("mouseover", (e) => { const r = e.target.closest(".row"); const id = r ? r.dataset.id : null; if (id !== S.hover) { S.hover = id; renderOverlay(); } });
+  $("list").addEventListener("mouseleave", () => { S.hover = null; renderOverlay(); });
+  function markHover() { document.querySelectorAll(".row").forEach((r) => r.classList.toggle("hover", r.dataset.id === S.hover)); }
+  $("thr").oninput = (e) => { S.threshold = +e.target.value; $("thrV").textContent = pct(S.threshold); renderAll(); };
+  $("sort").onchange = (e) => { S.sort = e.target.value; renderList(); };
+  $("onlyPending").onchange = (e) => { S.onlyPending = e.target.checked; renderList(); };
+  $("clearTooth").onclick = () => { S.tooth = null; renderAll(); };
+
+  function select(id, fromList) {
+    if (S.mode === "correct") cancelCorrect();
+    S.sel = id; S.tooth = null; S.mode = null; S.confirmDel = false;
+    const d = cur();
+    if (d && fromList && S.zoom > 1.2) centerOn(d.box);
+    renderAll();
+  }
+
+  /* ---------- Détail et actions de revue ---------- */
+  const fdiOptions = (v) => Object.keys(Pano.teeth).map(Number).sort((a, b) => a - b).map((n) => `<option value="${n}"${n === v ? " selected" : ""}>${n}</option>`).join("");
+  const typeOptions = (v) => ["caries", "deep", "periapical", "impacted"].map((k) => `<option value="${k}"${k === v ? " selected" : ""}>${T[k].label}</option>`).join("");
+  function renderDetail() {
+    const box = $("detail");
+    if (S.mode === "drawn") {
+      const near = nearestTooth(S.draft);
+      box.innerHTML = `<h3>${ic("plus")} Nouvelle détection</h3>
+        <p class="note-ro">${ic("info")}<span>Cadre tracé. Choisissez le type et vérifiez le numéro de la dent (proposé d'après la position).</span></p>
+        <div class="two"><label class="vfield">Type d'anomalie<select class="vinput" id="nType">${typeOptions("caries")}</select></label>
+        <label class="vfield">Dent (FDI)<select class="vinput" id="nFdi">${fdiOptions(near)}</select></label></div>
+        <label class="vfield">Commentaire (facultatif)<textarea class="vinput" id="nCom" placeholder="Ex. : image radio-claire distale"></textarea></label>
+        <div class="two"><button class="vbtn outline" id="nCancel">Annuler</button><button class="vbtn accent" id="nSave">Enregistrer la détection</button></div>`;
+      $("nCancel").onclick = () => { S.mode = null; S.draft = null; renderAll(); };
+      $("nSave").onclick = () => {
+        const id = "u" + Date.now();
+        S.dets.push({ id, fdi: +$("nFdi").value, type: $("nType").value, conf: null, status: "added", source: "user", note: $("nCom").value.trim(), box: { ...S.draft } });
+        S.mode = null; S.draft = null; S.sel = id; renderAll(); toast("Détection ajoutée sur la dent " + $("nFdi").value + ".");
+      };
+      return;
+    }
+    const d = cur();
+    if (!d) { box.innerHTML = `<p class="empty-sel">${ic("info")}<span>Sélectionnez une détection dans la liste, sur l'image ou sur le schéma dentaire.</span></p>`; return; }
+    const locked = S.closed || !canReview;
+    let html = `<h3><span class="sw" style="display:inline-block;width:14px;height:14px;border-radius:3px;border:2px ${dashed(d) ? "dashed" : "solid"} ${T[d.type].color}"></span>Dent ${d.fdi} · ${T[d.type].label}</h3>
+      <dl class="kv"><dt>Confiance</dt><dd class="mono">${d.conf == null ? "— (ajout manuel)" : pct(d.conf)}</dd>
+      <dt>Origine</dt><dd>${d.source === "user" ? "Ajoutée par Dr Rakoto" : "Détection de l'IA · modèle " + D.analysis.modelShort}</dd>
+      <dt>Statut</dt><dd><span class="st ${d.status}">${STL[d.status]}</span></dd>
+      ${d.was ? `<dt>Avant</dt><dd>${T[d.was].label} (proposition de l'IA)</dd>` : ""}</dl>`;
+    if (S.mode === "correct") {
+      html += `<p class="note-ro">${ic("move")}<span>Faites glisser le cadre pour le déplacer, la poignée en bas à droite pour le redimensionner.</span></p>
+        <div class="two"><label class="vfield">Type d'anomalie<select class="vinput" id="cType">${typeOptions(d.type)}</select></label>
+        <label class="vfield">Dent (FDI)<select class="vinput" id="cFdi">${fdiOptions(d.fdi)}</select></label></div>
+        <div class="two"><button class="vbtn outline" id="cCancel">Annuler</button><button class="vbtn accent" id="cSave">Enregistrer la correction</button></div>`;
+    } else if (S.confirmDel) {
+      html += `<div class="inline-confirm"><strong>Supprimer cette détection ?</strong><span style="color:var(--color-viewer-muted)">Elle disparaît de l'image et du compte rendu. La suppression est tracée au journal d'audit.</span>
+        <div class="two"><button class="vbtn outline" id="dNo">Garder</button><button class="vbtn danger outline" id="dYes">${ic("trash")}Supprimer</button></div></div>`;
+    } else if (!locked) {
+      html += `<div class="actions">
+          <button class="vbtn ${d.status === "pending" ? "accent" : ""}" id="aVal">${ic("check")}${d.status === "validated" ? "Validée" : "Valider"}</button>
+          <button class="vbtn" id="aCor">${ic("edit")}Corriger</button>
+          <button class="vbtn danger" id="aDel">${ic("trash")}Supprimer</button>
+        </div>
+        <label class="note-ro" style="cursor:pointer;align-items:center"><input type="checkbox" id="autoNext" ${S.autoNext ? "checked" : ""}> Passer ensuite à la prochaine détection non revue</label>`;
+    } else {
+      html += `<p class="note-ro">${ic("lock")}<span>${S.closed ? "Analyse clôturée : résultats verrouillés." : "Lecture seule : votre rôle ne permet pas de modifier les détections."}</span></p>`;
+    }
+    html += `<label class="vfield">Commentaire du praticien<textarea class="vinput" id="aCom" ${locked ? "readonly" : ""} placeholder="${locked ? "Aucun commentaire" : "Ajouter une observation (reprise dans le compte rendu)"}">${d.note || ""}</textarea></label>
+      <button class="vbtn outline" id="aAsk" style="justify-self:start">${ic("message")}Demander à l'assistant</button>`;
+    box.innerHTML = html;
+    const on = (id, f) => { const e = $(id); if (e) e.onclick = f; };
+    on("aVal", () => { d.status = d.status === "validated" ? "pending" : (d.status === "pending" ? "validated" : d.status === "corrected" || d.status === "added" ? d.status : "validated"); if (d.status === "validated") { toast(`Détection validée : dent ${d.fdi}, ${T[d.type].label.toLowerCase()}.`); next(); } else renderAll(); });
+    on("aCor", () => { S.mode = "correct"; S.backup = { box: { ...d.box }, type: d.type, fdi: d.fdi }; hint("Correction : déplacez ou redimensionnez le cadre"); renderAll(); });
+    on("aDel", () => { S.confirmDel = true; renderDetail(); });
+    on("dNo", () => { S.confirmDel = false; renderDetail(); });
+    on("dYes", () => { const i = S.dets.indexOf(d); S.dets.splice(i, 1); S.confirmDel = false; S.sel = null; renderAll(); toast(`Détection supprimée (dent ${d.fdi}).`, () => { S.dets.splice(i, 0, d); S.sel = d.id; renderAll(); }); });
+    on("cCancel", cancelCorrect);
+    on("cSave", () => { const nt = $("cType").value; if (nt !== d.type && !d.was && d.source === "ai") d.was = d.type; d.type = nt; d.fdi = +$("cFdi").value; if (d.source === "ai") d.status = "corrected"; S.mode = null; hint(""); renderAll(); toast("Correction enregistrée : le cadre passe en pointillé."); });
+    const ac = $("aNext"); const an = $("autoNext"); if (an) an.onchange = (e) => (S.autoNext = e.target.checked);
+    const com = $("aCom"); if (com && !locked) com.onchange = () => { d.note = com.value; toast("Commentaire enregistré."); };
+    on("aAsk", () => { showTab("chat"); ask(`Pourquoi la dent ${d.fdi} est-elle signalée ?`); });
+  }
+  function cancelCorrect() { const d = cur(); if (d && S.backup) { d.box = S.backup.box; d.type = S.backup.type; d.fdi = S.backup.fdi; } S.mode = null; S.backup = null; hint(""); renderAll(); }
+  function next() {
+    if (!S.autoNext) return renderAll();
+    const order = sorted(S.dets.filter((x) => x.status === "pending" && (x.conf == null || x.conf >= S.threshold)));
+    S.sel = order.length ? order[0].id : S.sel; renderAll();
+  }
+  function nearestTooth(b) {
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2; let best = null, bd = 1e9;
+    Object.values(Pano.teeth).forEach((t) => { const dd = Math.hypot(t.cx - cx, t.box.y + t.box.h / 2 - cy); if (dd < bd) { bd = dd; best = t.fdi; } });
+    return best;
+  }
+  function hint(t) { $("hint").textContent = t; $("hint").dataset.show = !!t; }
+  $("addBtn") && ($("addBtn").onclick = () => {
+    if (S.closed) return;
+    S.mode = "draw"; S.sel = null; S.draft = null; stage.classList.add("drawing"); hint("Tracez un cadre sur l'image (glisser), puis choisissez le type");
+    renderAll();
+  });
+
+  /* ---------- Bandeau de revue ---------- */
+  function renderStrip() {
+    const total = S.dets.length, done = S.dets.filter((d) => d.status !== "pending").length, left = total - done;
+    const trace = `<span class="trace">Modèle <span class="mono">${D.analysis.model}</span> · seuil ${pct(S.threshold)} · analysée le ${D.analysis.date} à 09:14 · 31 dents numérotées</span>`;
+    if (S.closed) {
+      $("strip").innerHTML = `<span class="locked">${ic("lock")}Analyse clôturée le ${D.analysis.date} par Dr Rakoto — résultats verrouillés</span>
+        <span style="color:var(--color-viewer-muted)">${done} détection${done > 1 ? "s" : ""} retenue${done > 1 ? "s" : ""} · ${left} non revue${left > 1 ? "s" : ""} exclue${left > 1 ? "s" : ""}</span>
+        ${canReview ? `<button class="vbtn outline" data-open-modal="reopenModal">${ic("unlock")}Rouvrir l'analyse</button>` : ""}${trace}`;
+    } else {
+      $("strip").innerHTML = `<strong style="font-weight:600"><span class="mono">${done}</span> sur <span class="mono">${total}</span> détections relues</strong>
+        <span class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="Avancement de la relecture"><span style="width:${(done / total) * 100}%"></span></span>
+        ${left ? `<span style="color:#FBBF24">${left} non revue${left > 1 ? "s" : ""}</span><button class="vbtn outline" id="goNext">Aller à la suivante ${ic("chevron")}</button>` : `<span style="color:#4ADE80">Tout est relu</span>`}
+        ${trace}`;
+      const g = $("goNext"); if (g) g.onclick = () => { const o = sorted(S.dets.filter((x) => x.status === "pending")); if (o.length) { if (o[0].conf != null && o[0].conf < S.threshold) { S.threshold = Math.max(0, o[0].conf - 1); $("thr").value = S.threshold; $("thrV").textContent = pct(S.threshold); } select(o[0].id, true); } };
+    }
+    const cw = $("closeWarn");
+    if (cw) { cw.style.display = left ? "flex" : "none"; cw.querySelector("strong").textContent = `${left} détection${left > 1 ? "s ne sont" : " n'est"} pas revue${left > 1 ? "s" : ""}.`; }
+    $("statusBadge").className = S.closed ? "badge badge-success badge-dot" : "badge badge-info badge-dot";
+    $("statusBadge").textContent = S.closed ? "Clôturée" : "Relecture en cours";
+    const cb = $("closeBtn"); if (cb) cb.style.display = S.closed ? "none" : "";
+    const rb = $("reportBtn"); rb.classList.toggle("btn-primary", S.closed); rb.classList.toggle("btn-secondary", !S.closed); rb.classList.toggle("discret", !S.closed);
+    const ab = $("addBtn"); if (ab) ab.disabled = S.closed;
+  }
+  const cc = $("confirmClose"); if (cc) cc.onclick = () => { S.closed = true; S.mode = null; document.getElementById("closeModal").dataset.open = "false"; renderAll(); toast("Analyse clôturée. Le compte rendu peut être généré."); };
+  $("reopenWhy").oninput = (e) => { $("confirmReopen").disabled = e.target.value.trim().length < 5; };
+  $("confirmReopen").onclick = () => { S.closed = false; document.getElementById("reopenModal").dataset.open = "false"; $("reopenWhy").value = ""; $("confirmReopen").disabled = true; renderAll(); toast("Analyse rouverte. Motif inscrit au journal d'audit."); };
+
+  /* ---------- Odontogramme ---------- */
+  function glyph(k, upper) {
+    const molar = k >= 6, w = molar ? 14 : k >= 4 ? 11 : 9;
+    const crown = `<rect x="${8 - w / 2}" y="${upper ? 10 : 1}" width="${w}" height="7" rx="2" fill="currentColor" opacity=".9"/>`;
+    const roots = molar ? `<path d="M${8 - w / 2 + 2} ${upper ? 10 : 8} L${5} ${upper ? 1 : 17} M${8 + w / 2 - 2} ${upper ? 10 : 8} L${11} ${upper ? 1 : 17}" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>` : `<path d="M8 ${upper ? 10 : 8} L8 ${upper ? 1 : 17}" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>`;
+    return `<svg viewBox="0 0 16 18" aria-hidden="true" style="color:#94A3B8">${roots}${crown}</svg>`;
+  }
+  const ABBR = { caries: "C", deep: "CP", periapical: "LPA", impacted: "DI" };
+  function cell(fdi, mid) {
+    const t = Pano.teeth[fdi], k = fdi % 10, upper = fdi < 30;
+    if (!t) return `<div class="tcell absent${mid ? " mid" : ""}" aria-label="Dent ${fdi} : non détectée"><span class="num">${fdi}</span>${glyph(k, upper).replace("#94A3B8", "#334155")}<span style="font-size:9px;color:var(--color-viewer-muted)">absente</span></div>`;
+    const ds = S.dets.filter((d) => d.fdi === fdi);
+    const marks = ds.map((d) => `<span class="mk" style="background:${T[d.type].color};${dashed(d) ? "outline:1px dashed #E2E8F0;outline-offset:1px" : ""}" title="${T[d.type].label}">${ABBR[d.type]}</span>`).join("");
+    const allOk = ds.length && ds.every((d) => d.status !== "pending");
+    const pressed = S.tooth === fdi || (cur() && cur().fdi === fdi);
+    const lbl = `Dent ${fdi}${ds.length ? " : " + ds.map((d) => T[d.type].label + " (" + STL[d.status].toLowerCase() + ")").join(", ") : " : aucune anomalie proposée"}`;
+    return `<button class="tcell${mid ? " mid" : ""}" data-fdi="${fdi}" aria-pressed="${pressed}" aria-label="${lbl}" title="${lbl}">${allOk ? `<svg class="ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg>` : ""}${upper ? `<span class="num">${fdi}</span>${glyph(k, true)}` : `${glyph(k, false)}<span class="num">${fdi}</span>`}<span class="marks">${marks}</span></button>`;
+  }
+  function renderOdonto() {
+    const up = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
+    const lo = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+    $("archUp").innerHTML = up.map((f, i) => cell(f, i === 8)).join("");
+    $("archLo").innerHTML = lo.map((f, i) => cell(f, i === 8)).join("");
+  }
+  document.querySelector(".odonto").addEventListener("click", (e) => {
+    const c = e.target.closest("[data-fdi]"); if (!c) return;
+    const f = +c.dataset.fdi; S.tooth = S.tooth === f ? null : f;
+    const first = sorted(S.dets.filter((d) => d.fdi === f))[0];
+    S.sel = first ? first.id : null; S.mode = null;
+    if (S.zoom > 1.2) centerOn(Pano.teeth[f].box);
+    renderAll(); showTab("det");
+  });
+
+  /* ---------- Onglets et panneau ---------- */
+  function showTab(w) {
+    const det = w === "det";
+    $("tabDet").setAttribute("aria-selected", det); $("tabChat").setAttribute("aria-selected", !det);
+    $("paneDet").dataset.active = det; $("paneChat").dataset.active = !det;
+    if (!det) { renderCtx(); const c = $("chat"); c.scrollTop = c.scrollHeight; }
+  }
+  $("tabDet").onclick = () => showTab("det"); $("tabChat").onclick = () => showTab("chat");
+  $("panelToggle").onclick = () => { $("grid").classList.add("panel-closed"); setTimeout(() => layout(true), 30); };
+  $("reopenPanel").onclick = () => { $("grid").classList.remove("panel-closed"); setTimeout(() => layout(true), 30); };
+
+  /* ---------- Assistant (réponses simulées, sources de démonstration fictives) ---------- */
+  const SRC = {
+    lpa: { t: "Lésions péri-apicales : signes radiologiques", o: "Base documentaire de démonstration · fiche 12", q: "…zone radio-claire centrée sur l'apex, de taille et de contours variables ; l'image seule ne permet pas d'en préciser la nature." },
+    pano: { t: "Lire une radiographie panoramique", o: "Base documentaire de démonstration · chapitre 4", q: "…examen de première intention ; une image suspecte se confirme par un cliché complémentaire et l'examen clinique." },
+    conf: { t: "Comprendre l'indice de confiance", o: "Documentation PanoraDent · section 3", q: "…le score exprime la certitude du modèle sur sa propre proposition, pas une probabilité clinique." },
+    det36: { t: "Détections de l'analyse n° 0042", o: "Données de cette analyse", q: "Dent 36 : carie profonde, 91 %, validée ; lésion péri-apicale, 58 %, validée." },
+    classes: { t: "Classes d'anomalies du jeu DENTEX", o: "Résumé de démonstration de la documentation du jeu de données", q: "…quatre classes : carie, carie profonde, lésion péri-apicale, dent incluse." },
+    seuil: { t: "Régler le seuil de confiance", o: "Documentation PanoraDent · section 4", q: "…abaisser le seuil réduit les oublis mais augmente les fausses alertes." }
+  };
+  const A = {
+    lpa: { html: "Une lésion péri-apicale est une modification de l'os autour de l'extrémité de la racine (l'apex). Sur une panoramique, elle apparaît le plus souvent comme une zone plus sombre, dite radio-claire, autour de l'apex<button class=cite data-s=0>[1]</button>. Elle accompagne souvent une atteinte de la pulpe, mais d'autres causes existent : l'examen clinique et, si besoin, un cliché complémentaire permettent de conclure<button class=cite data-s=1>[2]</button>.", src: ["lpa", "pano"] },
+    d36: { html: "Sur la 36, le modèle a proposé deux détections<button class=cite data-s=0>[1]</button> : une <b>carie profonde</b> (confiance 91&nbsp;%), zone radio-claire étendue de la couronne qui se rapproche de la chambre pulpaire, et une <b>lésion péri-apicale</b> (58&nbsp;%) à l'extrémité de la racine mésiale. Vous avez validé les deux. L'indice de confiance mesure la certitude du modèle sur sa proposition ; ce n'est pas une probabilité clinique<button class=cite data-s=1>[2]</button>.", src: ["det36", "conf"] },
+    diff: { html: "Dans le jeu DENTEX, la <b>carie</b> désigne une atteinte limitée (émail, dentine superficielle) et la <b>carie profonde</b> une atteinte qui s'étend vers la pulpe<button class=cite data-s=0>[1]</button>. La frontière entre les deux reste une appréciation : c'est pour cela que vous pouvez corriger le type, comme vous l'avez fait sur la 17.", src: ["classes"] },
+    conf: { html: "Pour chaque cadre, le modèle donne un score de 0 à 100&nbsp;% : sa certitude qu'une anomalie est présente et qu'elle appartient à cette classe<button class=cite data-s=0>[1]</button>. Seuls les cadres au-dessus du seuil réglé s'affichent (50&nbsp;% ici). Baisser le seuil montre plus de propositions, au prix de fausses alertes plus nombreuses<button class=cite data-s=1>[2]</button>.", src: ["conf", "seuil"] },
+    d46: { html: "Sur la 46, le modèle a proposé une <b>lésion péri-apicale</b> (confiance 78&nbsp;%), non revue pour l'instant : une zone radio-claire autour de l'apex de la racine mésiale<button class=cite data-s=0>[1]</button>. Comparez avec l'aspect de la 36, où une image comparable a été validée.", src: ["lpa"] }
+  };
+  const msgs = [
+    { who: "user", text: "Que signifie une lésion péri-apicale ?" },
+    { who: "bot", key: "lpa", fb: "up" },
+    { who: "user", text: "Faut-il dévitaliser la 46 ?" },
+    { who: "bot", refusal: "diag" }
+  ];
+  function srcHTML(keys, mid) {
+    return `<div class="srcs">${keys.map((k, i) => `<div class="src" id="s${mid}-${i}"><b>[${i + 1}] ${SRC[k].t}</b><q>${SRC[k].q}</q><span class="origin">${SRC[k].o} (document fictif)</span></div>`).join("")}</div>`;
+  }
+  const REM = `<p class="reminder">${ic("info")}Aide à la décision : cette explication ne constitue pas un diagnostic.</p>`;
+  function botHTML(m, i) {
+    let body;
+    if (m.refusal === "diag") body = `<p>Je ne peux pas poser de diagnostic ni recommander un traitement : la décision clinique vous revient.</p><p>Je peux en revanche vous expliquer ce que le modèle a détecté sur la dent concernée et ce que décrit la base documentaire. Par exemple : « Pourquoi la dent 46 est-elle signalée ? »</p>`;
+    else if (m.refusal === "off") body = `<p>Je réponds uniquement aux questions sur cette analyse et sur la lecture des radiographies panoramiques.</p><p>Essayez par exemple : « Comment est calculé l'indice de confiance ? »</p>`;
+    else if (m.refusal === "nosrc") body = `<p>Je n'ai pas trouvé de passage assez pertinent dans la base documentaire pour vous répondre en citant une source. Je préfère ne pas répondre sans source.</p><p>Reformulez votre question, ou choisissez une suggestion ci-dessous.</p>`;
+    else body = `<p>${A[m.key].html}</p>${srcHTML(A[m.key].src, i)}`;
+    return `<div class="msg bot${m.refusal ? " refusal" : ""}"><span class="who"><img src="brand/Icone.svg" alt="" style="width:16px;height:16px">Assistant PanoraDent</span><div class="body">${body}${REM}
+      <div class="fb"><span>Cette réponse vous aide-t-elle ?</span><button class="vbtn" data-fb="up" data-i="${i}" aria-label="Utile" aria-pressed="${m.fb === "up"}">${ic("thumbup")}</button><button class="vbtn" data-fb="down" data-i="${i}" aria-label="Pas utile" aria-pressed="${m.fb === "down"}">${ic("thumbdown")}</button>${m.fb ? `<span>${m.fb === "up" ? "Merci, retour enregistré." : "Merci : la réponse sera revue."}</span>` : ""}</div></div></div>`;
+  }
+  let chatState = "idle";
+  function renderChat() {
+    let h = msgs.map((m, i) => m.who === "user" ? `<div class="msg user"><div class="bubble">${m.text.replace(/</g, "&lt;")}</div></div>` : botHTML(m, i)).join("");
+    if (chatState === "loading") h += `<div class="msg bot"><span class="who">${ic("sparkle")}Assistant PanoraDent</span><span class="typing"><i></i><i></i><i></i> Recherche dans la base documentaire…</span></div>`;
+    if (chatState === "error") h += `<div class="chat-err"><strong>L'assistant est indisponible pour le moment.</strong><span style="color:var(--color-viewer-muted)">Vos détections et votre relecture ne sont pas affectées.</span><button class="vbtn outline" id="chatRetry" style="justify-self:start">${ic("refresh")}Réessayer</button></div>`;
+    $("chat").innerHTML = h;
+    $("chat").scrollTop = $("chat").scrollHeight;
+    const r = $("chatRetry"); if (r) r.onclick = () => { chatState = "idle"; const last = [...msgs].reverse().find((m) => m.who === "user"); if (last) { msgs.splice(msgs.lastIndexOf(last), 1); ask(last.text); } else renderChat(); };
+  }
+  $("chat").addEventListener("click", (e) => {
+    const f = e.target.closest("[data-fb]"); if (f) { msgs[+f.dataset.i].fb = f.dataset.fb; renderChat(); return; }
+    const c = e.target.closest(".cite"); if (c) { const body = c.closest(".body"); const s = body.querySelectorAll(".src")[+c.dataset.s]; if (s) { s.classList.add("flash"); s.scrollIntoView({ block: "nearest" }); setTimeout(() => s.classList.remove("flash"), 1200); } }
+  });
+  function route(q) {
+    const s = q.toLowerCase();
+    if (/diagnos|traitement|dévital|devital|extraire|extraction|faut-il|prescri|soigner|opérer/.test(s)) return { refusal: "diag" };
+    if (/36/.test(s)) return { key: "d36" };
+    if (/46/.test(s)) return { key: "d46" };
+    if (/péri-apic|peri-apic|périapic|apex/.test(s)) return { key: "lpa" };
+    if (/différence|difference|profonde/.test(s)) return { key: "diff" };
+    if (/confiance|seuil|score|calcul/.test(s)) return { key: "conf" };
+    if (/dent|carie|lésion|lesion|inclus|fdi|radio|pano|racine|détection|detection|modèle|modele|os\b/.test(s)) return { refusal: "nosrc" };
+    return { refusal: "off" };
+  }
+  function ask(q) {
+    if (!q.trim() || chatState === "loading") return;
+    msgs.push({ who: "user", text: q.trim() }); chatState = "loading"; renderChat();
+    setTimeout(() => { chatState = "idle"; msgs.push({ who: "bot", ...route(q) }); renderChat(); }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 200 : 1100);
+  }
+  $("composer").onsubmit = (e) => { e.preventDefault(); ask($("ask").value); $("ask").value = ""; };
+  function renderSugg() {
+    const d = cur();
+    const list = ["Que signifie une lésion péri-apicale ?", d ? `Pourquoi la dent ${d.fdi} est-elle signalée ?` : "Pourquoi la dent 36 est-elle signalée ?", "Quelle différence entre carie et carie profonde ?", "Comment est calculé l'indice de confiance ?"];
+    $("sugg").innerHTML = list.map((q) => `<button type="button">${q}</button>`).join("");
+  }
+  $("sugg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) ask(b.textContent); });
+  function renderCtx() {
+    const d = cur();
+    $("chatCtx").innerHTML = `<span>Conversation liée à l'<b>analyse n° 0042</b> · ${msgs.filter((m) => m.who === "user").length} questions</span><span>Détection sélectionnée : <b>${d ? `dent ${d.fdi}, ${T[d.type].label.toLowerCase()} (${d.conf == null ? "ajoutée" : pct(d.conf)})` : "aucune"}</b></span>`;
+    renderSugg();
+  }
+
+  /* ---------- Toast ---------- */
+  let tt;
+  function toast(m, undo) {
+    $("toastMsg").textContent = m; $("toast").dataset.show = "true";
+    const u = $("toastUndo"); u.style.display = undo ? "" : "none"; u.onclick = () => { undo && undo(); $("toast").dataset.show = "false"; };
+    clearTimeout(tt); tt = setTimeout(() => ($("toast").dataset.show = "false"), undo ? 6000 : 3000);
+  }
+
+  /* ---------- États de maquette ---------- */
+  $("maqBtn").onclick = () => { const o = $("maqMenu").dataset.open === "true"; $("maqMenu").dataset.open = !o; $("maqBtn").setAttribute("aria-expanded", !o); };
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-state]"); if (!b) return;
+    const s = b.dataset.state; $("maqMenu").dataset.open = "false";
+    $("ovLoading").dataset.show = s === "loading"; $("ovError").dataset.show = s === "error";
+    if (s === "closed") { S.closed = true; S.mode = null; renderAll(); }
+    if (s === "normal") { S.closed = false; renderAll(); }
+    if (s === "chat-loading") { showTab("chat"); chatState = "loading"; renderChat(); }
+    if (s === "chat-error") { showTab("chat"); chatState = "error"; renderChat(); }
+  });
+  const st = new URLSearchParams(location.search).get("etat");
+
+  function renderAll() { renderChips(); renderOverlay(); renderList(); renderDetail(); renderStrip(); renderOdonto(); renderCtx(); }
+  renderAll(); renderChat();
+  layout(true);
+  new ResizeObserver(() => layout(S.zoom === 1)).observe(stage);
+  if (st === "cloturee") { S.closed = true; renderAll(); }
+  if (st === "assistant") showTab("chat");
+});
+</script>
+</body>
+</html>

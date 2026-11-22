@@ -1,123 +1,114 @@
-"use client"
+import Link from "next/link";
 
-import * as React from "react"
+import { cx, initials } from "../lib/cx";
+import { Icon } from "./icon";
 
-import { cn } from "@/shared/lib/utils"
+/** Puce d'identifiant (police à chasse fixe). */
+export function IdChip({ children }) {
+  return <span className="id-chip">{children}</span>;
+}
 
-function Table({
-  className,
-  ...props
-}) {
+/** Numéro discret (n° d'analyse). */
+export function NumChip({ children }) {
+  return <span className="num-chip">{children}</span>;
+}
+
+/** Personne en ligne : initiales + nom. */
+export function WhoChip({ name }) {
+  if (!name) return <span className="muted">—</span>;
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props} />
+    <span className="who-chip">
+      <span className="av" aria-hidden="true">
+        {initials(name)}
+      </span>
+      {name}
+    </span>
+  );
+}
+
+/** Personne en bloc : initiales, nom en gras, ligne secondaire. */
+export function Person({ name, sub }) {
+  return (
+    <div className="person">
+      <span className="av" aria-hidden="true">
+        {initials(name)}
+      </span>
+      <div>
+        <strong>{name}</strong>
+        {sub ? <span className="sub">{sub}</span> : null}
+      </div>
     </div>
   );
 }
 
-function TableHeader({
-  className,
-  ...props
-}) {
+/** Cellule date : jour, puis heure en petit. */
+export function DateCell({ date, time }) {
   return (
-    <thead
-      data-slot="table-header"
-      className={cn("[&_tr]:border-b", className)}
-      {...props} />
+    <span className="dt">
+      <span className="d">{date}</span>
+      {time ? <span className="t">{time}</span> : null}
+    </span>
   );
 }
 
-function TableBody({
-  className,
-  ...props
-}) {
+/**
+ * Action d'une ligne, en icône. `href` → lien ; sinon bouton. `label` est le
+ * nom accessible (obligatoire : l'icône seule ne dit rien).
+ */
+export function IconAction({ icon, label, title, href, danger, disabled, className, ...rest }) {
+  const classes = cx("icon-act", danger && "danger", className);
+  if (href && !disabled) {
+    return (
+      <Link className={classes} href={href} aria-label={label} title={title ?? label} {...rest}>
+        <Icon name={icon} />
+      </Link>
+    );
+  }
   return (
-    <tbody
-      data-slot="table-body"
-      className={cn("[&_tr:last-child]:border-0", className)}
-      {...props} />
+    <button
+      className={classes}
+      type="button"
+      aria-label={label}
+      title={title ?? label}
+      disabled={disabled}
+      aria-disabled={disabled ? "true" : undefined}
+      {...rest}
+    >
+      <Icon name={icon} />
+    </button>
   );
 }
 
-function TableFooter({
-  className,
-  ...props
-}) {
+/** Pagination numérotée. */
+export function Pager({ page, pageCount, onChange }) {
+  if (pageCount <= 1) return null;
+  const pages = Array.from({ length: pageCount }, (_, i) => i + 1);
   return (
-    <tfoot
-      data-slot="table-footer"
-      className={cn("border-t bg-muted/50 font-medium [&>tr]:last:border-b-0", className)}
-      {...props} />
+    <nav className="pager" aria-label="Pagination">
+      <button className="page-btn" type="button" disabled={page <= 1} aria-label="Page précédente" onClick={() => onChange(page - 1)}>
+        <Icon name="chevronleft" />
+      </button>
+      {pages.map((p) => (
+        <button
+          key={p}
+          className="page-btn"
+          type="button"
+          aria-current={p === page ? "page" : undefined}
+          aria-label={`Page ${p}`}
+          onClick={() => onChange(p)}
+        >
+          {p}
+        </button>
+      ))}
+      <button className="page-btn" type="button" disabled={page >= pageCount} aria-label="Page suivante" onClick={() => onChange(page + 1)}>
+        <Icon name="chevron" />
+      </button>
+    </nav>
   );
 }
 
-function TableRow({
-  className,
-  ...props
-}) {
-  return (
-    <tr
-      data-slot="table-row"
-      className={cn(
-        "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
-        className
-      )}
-      {...props} />
-  );
-}
-
-function TableHead({
-  className,
-  ...props
-}) {
-  return (
-    <th
-      data-slot="table-head"
-      className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
-        className
-      )}
-      {...props} />
-  );
-}
-
-function TableCell({
-  className,
-  ...props
-}) {
-  return (
-    <td
-      data-slot="table-cell"
-      className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
-        className
-      )}
-      {...props} />
-  );
-}
-
-function TableCaption({
-  className,
-  ...props
-}) {
-  return (
-    <caption
-      data-slot="table-caption"
-      className={cn("mt-4 text-sm text-muted-foreground", className)}
-      {...props} />
-  );
-}
-
-export {
-  Table,
-  TableHeader,
-  TableBody,
-  TableFooter,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableCaption,
+/** Découpe une liste en pages : `{ items, pageCount }`. */
+export function paginate(list, page, size) {
+  const pageCount = Math.max(1, Math.ceil(list.length / size));
+  return { items: list.slice((page - 1) * size, page * size), pageCount };
 }

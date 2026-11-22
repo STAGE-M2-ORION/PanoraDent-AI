@@ -13,6 +13,11 @@ DISCLAIMER = (
 )
 
 
+def _conf(d: dict) -> str:
+    """Confiance du modèle, ou mention d'un ajout du praticien."""
+    return "ajout praticien" if d.get("confidence") is None else f'conf {d["confidence"]:.2f}'
+
+
 def _annotate(image: Image.Image, detections: list[dict]) -> Image.Image:
     img = image.convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -20,7 +25,7 @@ def _annotate(image: Image.Image, detections: list[dict]) -> Image.Image:
         x, y, w, h = d["x"], d["y"], d["w"], d["h"]
         color = (16, 118, 110) if d["label"] == "tooth" else (192, 57, 43)
         draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
-        tag = f'{d["label"]} {d.get("fdi") or ""} {d["confidence"]:.2f}'
+        tag = f'{d["label"]} {d.get("fdi") or ""} {_conf(d)}'
         draw.text((x, max(0, y - 10)), tag.strip(), fill=color)
     return img
 
@@ -54,7 +59,7 @@ def build(image: Image.Image, detections: list[dict], analysis_id: str,
     c.setFont("Helvetica", 8)
     y -= 6 * mm
     for d in detections:
-        line = f'- {d["label"]}  FDI {d.get("fdi") or "-"}  conf {d["confidence"]:.2f}'
+        line = f'- {d["label"]}  FDI {d.get("fdi") or "-"}  {_conf(d)}'
         c.drawString(22 * mm, y, line)
         y -= 4.5 * mm
         if y < 25 * mm:

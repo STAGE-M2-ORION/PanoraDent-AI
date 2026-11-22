@@ -1,0 +1,54 @@
+/* Écran « profil » : onglets Informations / Préférences / Sécurité. Confiné sous .v-profil. */
+
+.v-profil {
+  /* Repris de la maquette */
+  .stack { display: grid; gap: var(--space-6); max-width: 760px; }
+  .card h3 { font-size: var(--text-lg); }
+  .card-head { display: grid; gap: var(--space-1); margin-bottom: var(--space-4); }
+  .form { display: grid; gap: var(--space-4); }
+  .ro { background: var(--color-subtle); }
+  .btn-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .sec-list { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-6); overflow-x: auto; }
+  .tab {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    padding: 10px 14px; margin-bottom: -1px; border-bottom: 2px solid transparent;
+    font: inherit; font-weight: 500; color: var(--color-muted); white-space: nowrap;
+  }
+  .tab:hover { color: var(--color-ink); }
+  .tab[aria-selected="true"] { color: var(--color-ink); border-bottom-color: var(--color-primary); }
+  .tab:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+  .tab-panel:focus-visible { outline: none; }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Aperçu de la signature du compte rendu */
+  .signature { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: var(--space-4); background: var(--color-subtle); display: grid; gap: 2px; }
+  .signature .nom { font-weight: 600; }
+  .signature .ligne { color: var(--color-muted); font-size: var(--text-sm); }
+
+  /* Choix du thème : trois boutons radio en tuiles */
+  .choices { display: flex; flex-wrap: wrap; gap: var(--space-2); border: 0; padding: 0; margin: 0; }
+  .choices legend { font-size: var(--text-sm); font-weight: 500; margin-bottom: 6px; padding: 0; }
+  .choice { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); cursor: pointer; }
+  .choice:has(input:checked) { border-color: var(--color-primary); background: var(--color-primary-soft); }
+  .choice:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+  .choice input { accent-color: var(--color-primary); margin: 0; }
+  .range-row { display: flex; align-items: center; gap: var(--space-3); }
+  .range-row input[type="range"] { flex: 1; accent-color: var(--color-primary); }
+  .range-row output { font-family: var(--font-mono); min-width: 4ch; text-align: right; }
+  .check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--color-primary); margin: 0; }
+
+  /* Modes de connexion et sessions */
+  .rows { list-style: none; margin: 0; padding: 0; display: grid; }
+  .rows > li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border); flex-wrap: wrap; }
+  .rows > li:first-child { border-top: 0; }
+  .rows .ico { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--color-subtle); color: var(--color-ink); }
+  .rows .ico svg { width: 18px; height: 18px; }
+  .rows .txt { flex: 1; min-width: 200px; }
+  .rows .txt strong { display: block; }
+  .rows .txt .muted { font-size: var(--text-sm); }
+}

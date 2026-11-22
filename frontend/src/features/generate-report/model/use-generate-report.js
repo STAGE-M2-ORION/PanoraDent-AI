@@ -18,6 +18,7 @@ export function useGenerateReport(analysisId) {
   const generate = useCallback(async () => {
     const url = await run(analysisId);
     if (url) setReportUrl(url);
+    return url;
   }, [run, analysisId]);
 
   return { generate, reportUrl, isPending, error };

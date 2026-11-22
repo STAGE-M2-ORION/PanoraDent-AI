@@ -3,4 +3,4 @@
  * autorisée pour `entities/analysis`, qui compose des détections dans son
  * propre modèle. Les autres slices passent par `entities/detection`.
  */
-export { normalizeDetection } from "../model/detection";
+export { normalizeDetection, toFractionBox } from "../model/detection";
