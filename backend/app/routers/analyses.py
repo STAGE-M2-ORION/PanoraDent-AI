@@ -11,6 +11,10 @@
 3. `GET /analyses/{id}/statut` : suivi (relu toutes les deux secondes) ;
    `POST /analyses/{id}/lancer` : relance après échec, sans jamais créer de
    seconde tâche pour une analyse déjà en file ou en cours.
+4. `POST /analyses/{id}/rejouer` : nouvelle analyse du même cliché avec le
+   modèle actif, liée à l'originale, qui n'est pas touchée (elle peut être
+   clôturée) ; `GET /analyses/{id}/comparaison` : propositions des deux
+   modèles, classe par classe.
 
 Le fichier reçu n'est jamais écrit sur le disque : il est lu en mémoire.
 Les clés de stockage sont tirées au hasard, jamais dérivées du nom du fichier
@@ -38,7 +42,7 @@ from ..models import Analysis, EtatDetection, StatutAnalyse
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_CREATE, ANALYSIS_DELETE, ANALYSIS_READ, REPORT_GENERATE
 from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, StatutOut, ZoneOut, _nom, analyse_out
 from ..services import anonymize as anon
-from ..services import registre_modeles, report as report_svc, revue, storage
+from ..services import comparaison, registre_modeles, report as report_svc, revue, storage
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -273,6 +277,92 @@ def lancer(
     db.commit()
     return StatutOut(id=a.id, statut=a.statut, erreur=a.erreur or "", tentatives=a.tentatives or 0,
                      duree_ms=a.duree_ms, position=_position(db, a))
+
+
+@router.post("/{analysis_id}/rejouer", response_model=AnalysisOut, status_code=status.HTTP_201_CREATED)
+def rejouer(
+    analysis_id: str,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_CREATE)),
+    db: Session = Depends(get_db),
+):
+    """Rejoue le cliché avec le modèle actif, pour comparer.
+
+    L'analyse d'origine garde ses détections et ses verdicts (une proposition
+    du modèle n'est jamais écrasée) : on crée une NOUVELLE analyse, avec sa
+    propre copie de l'image — supprimer l'une ne doit pas vider l'autre."""
+    origine = _ou_404(db, analysis_id)
+    if origine.statut != StatutAnalyse.TERMINEE:
+        raise ApiError(409, "non_terminee", "Seule une analyse terminée peut être rejouée.")
+    active = registre_modeles.version_active(db)
+    if active is None:
+        raise ApiError(409, "aucun_modele_actif", "Aucune version de modèle n'est active.")
+    if origine.model_version == active.version:
+        raise ApiError(409, "meme_modele",
+                       f"Cette analyse a déjà été faite avec le modèle actif ({active.version}).")
+
+    base = f"images/{uuid.uuid4()}"
+    copies = {origine.image_key: f"{base}.png"}
+    if origine.image_affichage_key:
+        copies[origine.image_affichage_key] = f"{base}_affichage.png"
+    for source, cible in copies.items():
+        storage.put(cible, storage.get(source), "image/png")
+
+    rejeu = Analysis(
+        utilisateur_id=utilisateur.id, date_examen=origine.date_examen, note=origine.note,
+        image_key=copies[origine.image_key],
+        image_affichage_key=copies.get(origine.image_affichage_key),
+        width=origine.width, height=origine.height, masques=origine.masques,
+        statut=StatutAnalyse.EN_FILE, lance_le=datetime.utcnow(), origine_id=origine.id,
+        version_demandee=active.version,
+    )
+    for tentative in range(3):
+        rejeu.reference = _prochaine_reference(db)
+        db.add(rejeu)
+        journal.inscrire(
+            db, "rejeu_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+            cible=f"analyse:{rejeu.id}",
+            details={"origine": origine.reference, "reference": rejeu.reference,
+                     "de": origine.model_version, "vers": active.version},
+            commit=False,
+        )
+        try:
+            db.commit()
+            break
+        except IntegrityError:
+            db.rollback()
+            if tentative == 2:
+                for cle in copies.values():
+                    storage.delete(cle)
+                raise
+    db.refresh(rejeu)
+    return analyse_out(rejeu)
+
+
+@router.get("/{analysis_id}/comparaison")
+def comparer(
+    analysis_id: str,
+    seuil: float = 0.25,
+    db: Session = Depends(get_db),
+    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+):
+    """Rejeu face à son analyse d'origine : propositions des deux modèles."""
+    rejeu = _ou_404(db, analysis_id)
+    origine = db.get(Analysis, rejeu.origine_id) if rejeu.origine_id else None
+    if origine is None:
+        raise ApiError(404, "sans_origine", "Cette analyse n'est pas le rejeu d'une autre analyse.")
+
+    def propositions(a: Analysis) -> list:
+        return [(d.label, (d.x, d.y, d.w, d.h), d.confidence) for d in a.detections if d.source == "model"]
+
+    termine = rejeu.statut == StatutAnalyse.TERMINEE
+    return {
+        "seuil": seuil,
+        "origine": {"id": origine.id, "reference": origine.reference, "model_version": origine.model_version},
+        "rejeu": {"id": rejeu.id, "reference": rejeu.reference, "statut": rejeu.statut,
+                  "model_version": rejeu.model_version or rejeu.version_demandee},
+        "par_classe": comparaison.comparer(propositions(origine), propositions(rejeu), seuil) if termine else None,
+    }
 
 
 @router.get("/{analysis_id}/image")

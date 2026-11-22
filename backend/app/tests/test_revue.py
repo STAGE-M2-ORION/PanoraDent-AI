@@ -226,6 +226,7 @@ HORS_VERROU = {
     ("POST", "/api/v1/analyses/{analysis_id}/report"),     # le compte rendu se génère APRÈS la clôture
     ("POST", "/api/v1/analyses/{analysis_id}/rouvrir"),    # c'est elle qui lève le verrou
     ("POST", "/api/v1/analyses/{analysis_id}/lancer"),     # seulement une analyse échouée, jamais clôturée
+    ("POST", "/api/v1/analyses/{analysis_id}/rejouer"),    # crée une autre analyse ; l'origine n'est pas touchée
     ("DELETE", "/api/v1/analyses/{analysis_id}"),          # suppression : déposant ou administrateur
 }
 
