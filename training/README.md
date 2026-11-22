@@ -208,6 +208,21 @@ Le modèle se choisit sur ce tableau ; **seul** le modèle retenu passe ensuite
 le test, une fois, avec un `--forcer` qui en donne la raison (le test a déjà
 servi au modèle précédent). Sur Colab : cellules 8 à 8 ter du carnet.
 
+### 5 ter. Seuils d'exploitation par classe (validation)
+
+```powershell
+training\.venv\Scripts\python training\seuils_exploitation.py --weights runs\anomalies-v1\weights\best.pt --data data\yolo\anomalies\data.yaml --cible 0.70
+```
+
+Pour chaque anomalie, le plus haut seuil de confiance qui atteint la
+sensibilité visée (`--cible`, ou `--cible-classe periapical_lesion=0.8`),
+entre `--plancher` (0,10, celui du service d'inférence) et `--plafond`
+(0,25, l'ancien seuil global). Sortie : `runs/<run>/seuils_exploitation.json`
+et le tableau du compromis (sensibilité, précision, fausses alertes par
+cliché). Le test est refusé. `publish_model.py` publie ces seuils avec la
+paire ; l'application n'exige alors de verdict que sur les anomalies
+au-dessus du seuil de leur classe (DOCUMENTATION §10.8).
+
 ### 6. Publier la paire
 
 ```powershell

@@ -865,6 +865,59 @@ liste. Filtres par quadrant, par type et par dent (depuis le schéma).
 numérotation et la version `dentex-2026.11b` (rangs-v1 + anomalies-v1)
 compléteront cette section.
 
+### 10.8 Détection des anomalies : diagnostic et seuils d'exploitation
+
+**Diagnostic de `anomalies-v1`** (validation seulement ; le test n'a pas servi).
+L'hypothèse « petites lésions trop réduites » est **réfutée** : aucune lésion
+annotée ne mesure moins de 32 px à 1 024 px (les boîtes DENTEX sont grandes),
+et les caries de plus de 64 px ne sont trouvées qu'à 41 %. Le cadre n'est pas
+en cause non plus (recouvrement exigé 0,3 au lieu de 0,5 : presque aucun
+gain). Le modèle **voit** la plupart des lésions, mais avec une confiance
+basse, au niveau de ses fausses alertes :
+
+| Classe | Rappel à 0,25 | à 0,10 | à 0,01 |
+|---|---|---|---|
+| Carie | 39 % | 60 % | 89 % |
+| Lésion péri-apicale | 36 % | 60 % | 88 % |
+| Carie profonde | 44 % | 49 % | 58 % (le reste pris pour une carie) |
+| Dent incluse | 94 % | 96 % | 98 % |
+
+Il manque de pouvoir de discrimination plus que de résolution : les essais
+« anomalies v2 » (carnet Colab, cellules 8 à 8 ter) portent d'abord sur la
+capacité du modèle (YOLO11m) et le rééquilibrage des classes rares
+(`--reequilibrage`, méthode LVIS) ; le modèle se choisit sur la validation
+(`comparer_essais.py`), seul le retenu passe le test, une fois. Un score de
+0,99 n'est pas un objectif atteignable sur panoramique : l'accord entre
+experts y est lui-même modéré pour les caries et les lésions débutantes.
+
+**Seuils d'exploitation par classe.** Un seuil unique (0,25) ne convient pas
+à toutes les classes. [`seuils_exploitation.py`](../training/seuils_exploitation.py)
+retient, sur la validation, le plus haut seuil qui atteint la sensibilité
+visée, entre le plancher du service d'inférence (0,10 : en dessous, rien
+n'est conservé) et l'ancien seuil global (0,25 : aucune classe ne perd en
+sensibilité). Choix retenu pour `anomalies-v1`, cible 70 % :
+
+| Classe | Seuil | Sensibilité | Précision | Fausses alertes / cliché |
+|---|---|---|---|---|
+| Carie | 0,10 | 60 % | 37 % | 3,65 |
+| Carie profonde | 0,10 | 49 % | 44 % | 0,44 |
+| Lésion péri-apicale | 0,10 | 60 % | 35 % | 0,25 |
+| Dent incluse | 0,25 | 94 % | 72 % | 0,27 |
+
+Environ 4,6 fausses alertes par cliché à rejeter, contre 1,9 au seuil
+unique de 0,25, pour une sensibilité des caries et des lésions
+péri-apicales qui passe de 36–39 % à 60 %. Le plancher de 0,05 (71–72 %,
+environ 6,9 fausses alertes) a été écarté.
+
+Les seuils sont **publiés avec la version** (`publish_model.py`, refusés s'ils
+ont été calculés pour d'autres poids ou hors validation) et **recopiés sur
+chaque analyse** au traitement (migration 0012). Une anomalie est *proposée*
+si sa confiance atteint le seuil de sa classe : elle attend un verdict avant
+la clôture. Sous le seuil, elle reste visible (« Facultative »), peut recevoir
+un verdict, mais ne l'exige pas et n'entre pas au compte rendu sans verdict.
+À l'écran, chaque classe suit son seuil ; le curseur les remplace pour
+regarder au-delà. Versions sans seuils : comportement antérieur.
+
 ## 11. Sécurité, confidentialité et conformité réglementaire
 
 > **Le point réglementaire à ne pas ignorer.** Un « logiciel d'aide au
