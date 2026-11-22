@@ -7,9 +7,11 @@ export {
   fetchAnalysis,
   fetchAnalysisImageUrl,
   fetchAnalysisStatus,
+  fetchComparison,
   launchAnalysis,
   postVerdict,
   previewAnalysis,
+  replayAnalysis,
   reopenAnalysis,
   saveConclusion,
   undoVerdict,
@@ -28,4 +30,5 @@ export {
   normalizeProcessing,
   withNumbers,
 } from "./model/analysis";
+export { canReplay, normalizeComparison } from "./model/comparison";
 export { POLL_MS, useAnalysisProgress } from "./model/use-analysis-progress";

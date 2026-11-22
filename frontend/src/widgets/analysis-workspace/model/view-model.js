@@ -86,6 +86,9 @@ export function realViewModel(analysis, { imageUrl, number }) {
     date: formatDate(analysis.createdAt),
     time: formatTime(analysis.createdAt),
     modelVersion: analysis.modelVersion,
+    // Registre : rejeu d'une autre analyse (comparaison), version demandée.
+    originId: analysis.originId ?? null,
+    requestedVersion: analysis.requestedVersion ?? null,
     mockInference: analysis.inferenceMode === "mock",
     processing: analysis.processing,
     error: analysis.error,
