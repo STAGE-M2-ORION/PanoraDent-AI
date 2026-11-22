@@ -38,7 +38,7 @@ from ..models import Analysis, EtatDetection, StatutAnalyse
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_CREATE, ANALYSIS_DELETE, ANALYSIS_READ, REPORT_GENERATE
 from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, StatutOut, ZoneOut, _nom, analyse_out
 from ..services import anonymize as anon
-from ..services import report as report_svc, revue, storage
+from ..services import registre_modeles, report as report_svc, revue, storage
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -168,6 +168,7 @@ async def create_analysis(
             "manuelles": [z.en_dict() for z in resultat.zones_manuelles],
         },
     )
+    registre_modeles.epingler(db, analyse)
     for tentative in range(3):  # deux imports simultanés peuvent viser la même référence
         analyse.reference = _prochaine_reference(db)
         db.add(analyse)
@@ -252,7 +253,8 @@ def lancer(
     db: Session = Depends(get_db),
 ):
     """(Re)met l'analyse en file après un échec. Déjà en file ou en cours :
-    rien ne change (jamais deux tâches pour la même analyse). Terminée : 409."""
+    rien ne change (jamais deux tâches pour la même analyse). Terminée : 409.
+    Une relance est une nouvelle mise en file : elle prend la version active."""
     a = db.scalar(select(Analysis).where(Analysis.id == analysis_id).with_for_update(of=Analysis))
     if a is None:
         raise ApiError(404, "introuvable", "Analyse introuvable.")
@@ -262,6 +264,7 @@ def lancer(
         a.statut = StatutAnalyse.EN_FILE
         a.erreur = ""
         a.lance_le = datetime.utcnow()
+        registre_modeles.epingler(db, a)
         journal.inscrire(
             db, "relance_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
             cible=f"analyse:{a.id}", details={"reference": a.reference, "tentatives": a.tentatives},

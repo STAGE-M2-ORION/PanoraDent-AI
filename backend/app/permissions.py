@@ -15,6 +15,7 @@ DETECTION_REVIEW = "detection:review"
 ANALYSIS_REOPEN = "analysis:reopen"
 REPORT_GENERATE = "report:generate"
 MODEL_READ = "model:read"
+MODEL_MANAGE = "model:manage"
 USER_MANAGE = "user:manage"
 ROLE_MANAGE = "role:manage"
 
@@ -27,6 +28,7 @@ PERMISSIONS: dict[str, str] = {
     ANALYSIS_REOPEN: "Rouvrir une analyse clôturée",
     REPORT_GENERATE: "Générer le rapport PDF d'une analyse",
     MODEL_READ: "Consulter les versions de modèle et leurs métriques",
+    MODEL_MANAGE: "Activer une version de modèle (bascule)",
     USER_MANAGE: "Gérer les comptes utilisateurs",
     ROLE_MANAGE: "Gérer les rôles et leurs permissions",
 }

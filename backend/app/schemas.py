@@ -93,6 +93,9 @@ class AnalysisOut(BaseModel):
     report_key: str | None
     model_version: str
     inference_mode: str
+    # Registre (sprint 6) : version épinglée à la mise en file, analyse d'origine d'un rejeu.
+    version_demandee: str | None = None
+    origine_id: str | None = None
     width: int
     height: int
     detections: list[DetectionOut] = []
@@ -131,7 +134,7 @@ def analyse_out(a) -> AnalysisOut:
     return AnalysisOut.model_validate({
         **{c: getattr(a, c) for c in (
             "id", "created_at", "reference", "date_examen", "note", "image_key", "report_key",
-            "model_version", "inference_mode", "width", "height",
+            "model_version", "inference_mode", "version_demandee", "origine_id", "width", "height",
             "statut", "erreur", "tentatives", "lance_le", "termine_le", "duree_ms",
         )},
         "detections": [detection_out(d) for d in a.detections],

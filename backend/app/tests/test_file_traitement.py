@@ -27,9 +27,10 @@ def reponse(detections=None, mode="real", version="dentex-1.2"):
 @pytest.fixture()
 def modele(monkeypatch):
     """Service d'inférence simulé ; `etat["panne"] = True` l'arrête."""
-    etat = {"panne": False, "appels": 0, "reponse": reponse()}
+    etat = {"panne": False, "appels": 0, "reponse": reponse(), "demandes": []}
 
-    def infer_sync(png, nom="image.png"):
+    def infer_sync(png, nom="image.png", **demande):
+        etat["demandes"].append(demande)
         etat["appels"] += 1
         if etat["panne"]:
             raise ConnectionError("service d'inférence arrêté")
