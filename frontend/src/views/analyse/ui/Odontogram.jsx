@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { detectionType } from "@/entities/detection";
+import { ANOMALY_LABELS, TypeMark, detectionType, markPath, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
 import { ToothState, VIEWBOX, nextTooth, toothKind, toothLabel } from "../model/odontogram";
@@ -45,9 +45,7 @@ function Tooth({ s, selected, focusable, choosing, onActivate, onKey, setRef }) 
         {s.fdi}
       </text>
       {s.anomalies.slice(0, 3).map((d, i) => (
-        <g key={d.id} className="mark">
-          <circle cx={s.cx - 9 + i * 9} cy={upper ? 80 : 98} r={4} fill={detectionType(d.label).color} />
-        </g>
+        <path key={d.id} className="mark" d={markPath(d.label, s.cx - 9 + i * 9, upper ? 80 : 98, 4)} fill={detectionType(d.label).color} />
       ))}
       {s.reviewed ? <path className="ok" d={`M${s.cx + 10} ${upper ? 8 : 150} l3 3 l6 -6`} /> : null}
     </g>
@@ -148,6 +146,13 @@ export function Odontogram({ states, positions, selectedTooth, onPick, choosing,
         <li>
           <span className="lg lg-doubtful" aria-hidden="true" /> numéro à vérifier
         </li>
+      </ul>
+      <ul className="odonto-legend odonto-types" aria-label="Marques des anomalies">
+        {ANOMALY_LABELS.map((label) => (
+          <li key={label} title={typeTooltip(label)}>
+            <TypeMark label={label} /> {detectionType(label).label}
+          </li>
+        ))}
       </ul>
     </div>
   );

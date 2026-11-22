@@ -1,4 +1,4 @@
-import { REVIEW_STATUS, detectionType } from "@/entities/detection";
+import { REVIEW_STATUS, TypeMark, detectionType, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
 import { ToothState, toothKind } from "../model/odontogram";
@@ -90,8 +90,8 @@ export function ToothCard({ s, absentInfo, canEdit, onRenumber, onRejectTooth, o
           <ul className="tc-anomalies">
             {s.anomalies.map((d) => (
               <li key={d.id}>
-                <button type="button" className="linkish" onClick={() => onSelectAnomaly(d.id)}>
-                  <span className="dot" style={{ background: detectionType(d.label).color }} aria-hidden="true" />
+                <button type="button" className="linkish" onClick={() => onSelectAnomaly(d.id)} title={typeTooltip(d.label)}>
+                  <TypeMark label={d.label} />
                   {detectionType(d.label).label}
                   {d.confidence != null ? ` · ${d.confidence} %` : ""} · {REVIEW_STATUS[d.status]?.label ?? d.status}
                 </button>

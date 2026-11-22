@@ -76,13 +76,13 @@ describe("export", () => {
   it("produit un SVG autonome des trente-deux dents, et un nom anonyme", () => {
     const svg = toSvgString(toothStates({ teeth: [tooth(36)], dets: [anomaly(36, "caries")], absentTeeth: [18] }), {
       title: "Analyse PDX-2026-0003 <test>",
-      typeColor: () => "#F0E442",
     });
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(svg.match(/<g><rect /g)).toHaveLength(32);
     expect(svg).toContain("&lt;test&gt;"); // titre échappé
     expect(svg).toContain('stroke-dasharray="3 2"'); // la 18 déclarée absente
     expect(svg).toContain('fill="#F0E442"'); // la carie de la 36
+    expect(svg).toContain("CP = Carie profonde"); // légende des marques, lisible en gris
     expect(odontogramFileName("PDX-2026-0003")).toBe("odontogramme-PDX-2026-0003.png");
     expect(odontogramFileName("../a b")).toBe("odontogramme-___a_b.png");
   });

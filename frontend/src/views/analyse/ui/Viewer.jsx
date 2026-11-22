@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 
-import { DETECTION_TYPES, SimulatedPanoImage, detectionType } from "@/entities/detection";
+import { DETECTION_TYPES, SimulatedPanoImage, detectionType, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
 import { boxFromPoints, isDashed, moveBox, pct, renderAnnotatedPng, resizeBox, screenToImage, zoomAround } from "@/widgets/analysis-workspace";
@@ -230,7 +230,7 @@ export const Viewer = forwardRef(function Viewer(
             const n = k === "tooth" ? vm?.teeth.length ?? 0 : dets.filter((d) => d.label === k).length;
             const label = k === "tooth" ? "Dents" : DETECTION_TYPES[k].short;
             return (
-              <button key={k} type="button" className="chip" aria-pressed={show[k]} title={`${show[k] ? "Masquer" : "Afficher"} : ${label}`} onClick={() => onToggleLayer(k)}>
+              <button key={k} type="button" className="chip" aria-pressed={show[k]} title={`${show[k] ? "Masquer" : "Afficher"} : ${typeTooltip(k)}`} onClick={() => onToggleLayer(k)}>
                 <span className={`det-swatch ${DETECTION_TYPES[k].cls}`} />
                 {label} <span className="n">{n}</span>
               </button>

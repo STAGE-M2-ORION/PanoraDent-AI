@@ -261,7 +261,7 @@ export function AnalysePage() {
   const exportOdontogram = async () => {
     if (!vm) return;
     try {
-      const svg = toSvgString(states, { title: `Schéma dentaire (FDI) · ${vm.ref || "démonstration"}`, typeColor: (l) => detectionType(l).color });
+      const svg = toSvgString(states, { title: `Schéma dentaire (FDI) · ${vm.ref || "démonstration"}` });
       const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
       const img = new Image();
       await new Promise((ok, ko) => {

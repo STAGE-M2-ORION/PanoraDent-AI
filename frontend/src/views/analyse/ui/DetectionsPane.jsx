@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ANOMALY_LABELS, DETECTION_TYPES, detectionType } from "@/entities/detection";
+import { ANOMALY_LABELS, DETECTION_TYPES, anomalyTypology, detectionType, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
 import { STATUS_LABEL, isDashed, pct, sortDetections } from "@/widgets/analysis-workspace";
@@ -22,7 +22,9 @@ function Row({ d, selected, hovered, hiddenLayer, dim, onSelect, onHover, review
       onMouseEnter={() => onHover(d.id)}
     >
       <span className={`sw${isDashed(d) ? " dash" : ""}`} style={{ borderColor: t.color, background: `${t.color}33` }} />
-      <span className="t">{t.label}</span>
+      <span className="t" title={typeTooltip(d.label)}>
+        {t.label}
+      </span>
       <span className="c">{d.confidence == null ? "—" : pct(d.confidence)}</span>
       <span className="meta">
         <span className={`st ${d.status}`}>{STATUS_LABEL[d.status]}</span>
@@ -157,6 +159,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
     );
   } else {
     const t = detectionType(current.label);
+    const typology = anomalyTypology(current.label);
     detail = (
       <>
         <h3>
@@ -164,6 +167,17 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           Dent {current.fdi} · {t.label}
         </h3>
         <dl className="kv">
+          {typology ? (
+            <>
+              <dt>Définition</dt>
+              <dd className="def">{typology.definition}</dd>
+              <dt>Urgence</dt>
+              <dd>
+                <span className={`urg urg-${typology.urgency}`}>{typology.urgencyText}</span>
+                <span className="muted-sm"> · indicative, l&apos;examen clinique décide</span>
+              </dd>
+            </>
+          ) : null}
           <dt>Confiance</dt>
           <dd className="mono">{current.confidence == null ? "— (ajout manuel)" : pct(current.confidence)}</dd>
           <dt>Origine</dt>

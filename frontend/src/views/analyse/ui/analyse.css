@@ -87,7 +87,16 @@
   .tooth .crown { fill: var(--color-viewer-bg); stroke: var(--color-det-tooth); stroke-width: 1.6; }
   .tooth .root { stroke: var(--color-det-tooth); stroke-width: 2.2; stroke-linecap: round; opacity: .75; }
   .tooth .num { font-family: var(--font-mono); font-size: 11px; font-weight: 500; fill: var(--color-viewer-text); }
-  .tooth .mark circle { stroke: #0B1220; stroke-width: 1; }
+  .tooth .mark { stroke: #0B1220; stroke-width: 1; }
+  .type-mark { display: inline-block; vertical-align: -1px; flex: none; }
+  .odonto-types { margin-top: var(--space-1); }
+  .odonto-types li { cursor: help; }
+  .detail .kv .def { font-size: var(--text-xs); line-height: 1.45; color: var(--color-viewer-text); }
+  /* Urgence indicative : le mot porte l'information, la couleur la souligne. */
+  .urg { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; border: 1px solid currentColor; }
+  .urg-high { color: #FCA5A5; }
+  .urg-medium { color: #FCD34D; }
+  .urg-low { color: #93C5FD; }
   .tooth .ok { fill: none; stroke: #4ADE80; stroke-width: 2; }
   .tooth.t-anomaly .crown { stroke-width: 2.2; }
   .tooth.t-undetected { opacity: .4; }
@@ -126,7 +135,7 @@
   .tooth-card .tc-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .tooth-card .tc-sub { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-viewer-muted); }
   .tooth-card .tc-anomalies { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-  .tooth-card .tc-anomalies .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .tooth-card .tc-anomalies .type-mark { margin-right: 6px; }
 
   /* Panneau droit */
   .panel { display: flex; flex-direction: column; min-height: 0; background: var(--color-viewer-panel); }
