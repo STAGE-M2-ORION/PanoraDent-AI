@@ -137,7 +137,8 @@ Compose. Principes :
    détecté par l'extension `.dcm` **ou** la signature `DICM` à l'offset 128.
    DICOM : tags identifiants écrasés, puis seul le `pixel_array` est conservé
    (normalisé 0–255, niveaux de gris). JPG/PNG : niveaux de gris et ré-encodage
-   PNG, ce qui supprime l'EXIF.
+   PNG, ce qui supprime l'EXIF. Inscriptions incrustées masquées par le
+   détecteur de texte (voir ci-dessous).
 3. **Stockage** — PNG anonymisé dans MinIO sous `images/<uuid>.png`. L'original
    n'est **jamais** écrit sur disque.
 4. **Mise en file** — la ligne `analyses` est créée au statut `en_file` ; la
@@ -842,10 +843,19 @@ le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko
   ([anonymize.py](backend/app/services/anonymize.py)). Type lu dans les premiers
   octets, 20 Mo au plus. Seuls les pixels sont conservés : en-têtes DICOM (nom,
   identifiant, date de naissance…), EXIF et métadonnées disparaissent, l'image est
-  ré-encodée en PNG. Les **inscriptions incrustées** (bandes du haut et du bas)
-  sont repérées par seuillage et composantes connexes, sans OCR, et masquées en
-  noir plein ; le praticien vérifie l'aperçu avant / après et peut ajouter des
-  masques à la main (il ne peut pas retirer un masque automatique).
+  ré-encodée en PNG. Les **inscriptions incrustées** sont repérées par un
+  détecteur de texte ([detecteur_texte.py](backend/app/services/detecteur_texte.py) :
+  modèle DB PP-OCRv3 du zoo OpenCV, lu par `cv2.dnn`, sans PyTorch ni OCR)
+  sur le **pourtour** du cliché — bandes du haut et du bas (14 %) et bandes
+  latérales (8 %), où les appareils impriment parfois à la verticale — puis
+  masquées en noir plein. Le centre n'est jamais masqué automatiquement : un
+  faux positif y cacherait des dents. Une détection trapue et épaisse (tache
+  anatomique, condyle) est écartée. Si le modèle est absent ou altéré
+  (empreinte sha256 vérifiée), l'heuristique du sprint 3 prend le relais
+  (seuillage et composantes connexes, bandes du haut et du bas) et l'aperçu
+  le signale. La méthode employée est conservée avec les masques. Le praticien
+  vérifie l'aperçu avant / après et peut ajouter des masques à la main (il ne
+  peut pas retirer un masque automatique).
 - **Rien n'est stocké avant confirmation**, et **le fichier reçu n'est jamais
   écrit sur le disque**, même temporairement : il reste en mémoire (Starlette
   configuré pour ne pas le déverser jusqu'à 21 Mo, envois plus gros refusés avant
@@ -859,11 +869,15 @@ le poste de lecture complet) ; vitrine 123 ko, catalogue `/design-system` 126 ko
   présignée à durée limitée (1 h, signature v4).
 - **Mention légale** imprimée en pied de chaque PDF.
 
-> ⚠️ **Masquage des inscriptions : à valider sur de vrais clichés.** La détection
-> est éprouvée sur des panoramiques fabriquées (texte clair sur bordure noire, en
-> haut et en bas). Un texte posé ailleurs, ou sombre sur fond clair, peut lui
-> échapper : c'est pourquoi le praticien vérifie l'aperçu et peut tracer un masque
-> avant de confirmer.
+> ⚠️ **Masquage des inscriptions : à confirmer sur les clichés du cabinet.** Le
+> détecteur est éprouvé sur des panoramiques fabriquées et sur 20 vrais
+> panoramiques DENTEX où des inscriptions ont été incrustées (blanc sur noir,
+> gris sur gris, verticales) : toutes masquées, centre jamais touché, quand
+> l'heuristique du sprint 3 n'en trouvait aucune. Les lettres isolées de
+> latéralité (« R », « L ») ne sont pas toujours masquées, ce qui n'identifie
+> personne. Un texte posé au centre du cliché n'est jamais masqué
+> automatiquement : c'est pourquoi le praticien vérifie l'aperçu et peut tracer
+> un masque avant de confirmer.
 
 ### Avant toute mise en production
 
@@ -1028,3 +1042,10 @@ docker compose down -v                             # = make clean (DONNÉES PERD
 
 Prototype de recherche. Non certifié dispositif médical, non conforme MDR, non
 destiné à un usage clinique ou à la prise en charge de patients réels.
+
+**Composants tiers embarqués.** Détecteur de texte
+`backend/app/modeles_texte/text_detection_en_ppocrv3_2023may.onnx` (PP-OCRv3,
+zoo OpenCV, © PaddlePaddle Authors) : licence **Apache 2.0**, texte joint dans
+[backend/app/modeles_texte/LICENSE](backend/app/modeles_texte/LICENSE).
+**Données d'entraînement** DENTEX : CC BY-NC-SA 4.0, usage académique et non
+commercial ; les poids entraînés sur ce jeu héritent de cette restriction.
