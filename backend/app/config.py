@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # que le navigateur ne sait pas résoudre en Docker.
     s3_public_url: str = ""
     inference_url: str = "http://inference:8001"
+    # Fuseau du cabinet : heures affichées sur le compte rendu (la base est en UTC).
+    fuseau_horaire: str = "Indian/Antananarivo"
 
     # --- Session -----------------------------------------------------------
     # `development` tolère le secret par défaut ; `production` le refuse.
