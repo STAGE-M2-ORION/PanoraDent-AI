@@ -2,7 +2,7 @@
 
 Chaque insertion vérifie d'abord l'existence de la ligne :
 
-- les huit permissions (le libellé est resynchronisé) ;
+- les permissions du catalogue (`permissions.py` ; le libellé est resynchronisé) ;
 - les trois rôles système, toujours resynchronisés (permissions et
   description) : ils ne sont pas modifiables depuis l'application, c'est donc
   ce fichier qui fait foi ;

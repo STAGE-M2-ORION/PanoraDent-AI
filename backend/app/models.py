@@ -196,6 +196,27 @@ class Detection(Base):
         return valeurs
 
 
+class ParametresCabinet(Base):
+    """Paramètres du cabinet (sprint 8) : une seule ligne (id = 1), reprise en
+    en-tête de chaque compte rendu. Le logo est stocké comme les images, dans
+    le stockage objet ; seule sa clé est ici."""
+    __tablename__ = "parametres_cabinet"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    nom: Mapped[str] = mapped_column(String(120), default="")
+    adresse: Mapped[str] = mapped_column(Text, default="")
+    # Mentions propres au cabinet, ajoutées au pied du compte rendu (la mention
+    # « prototype non certifié » est fixée par le code, jamais retirable).
+    mentions: Mapped[str] = mapped_column(Text, default="")
+    logo_cle: Mapped[str | None] = mapped_column(String, nullable=True)
+    maj_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    maj_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+
+    maj_par = relationship("Utilisateur", foreign_keys=[maj_par_id])
+
+
 class DentAbsente(Base):
     """Dent déclarée absente par le praticien (sprint 7) : auteur et date."""
     __tablename__ = "dents_absentes"

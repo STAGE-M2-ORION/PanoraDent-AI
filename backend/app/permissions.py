@@ -18,6 +18,7 @@ MODEL_READ = "model:read"
 MODEL_MANAGE = "model:manage"
 USER_MANAGE = "user:manage"
 ROLE_MANAGE = "role:manage"
+CABINET_MANAGE = "cabinet:manage"
 
 # code -> libellé affiché dans l'interface d'administration.
 PERMISSIONS: dict[str, str] = {
@@ -31,6 +32,7 @@ PERMISSIONS: dict[str, str] = {
     MODEL_MANAGE: "Activer une version de modèle (bascule)",
     USER_MANAGE: "Gérer les comptes utilisateurs",
     ROLE_MANAGE: "Gérer les rôles et leurs permissions",
+    CABINET_MANAGE: "Modifier les paramètres du cabinet (en-tête des comptes rendus)",
 }
 
 # Libellés des trois rôles système (colonne `role.libelle`).
