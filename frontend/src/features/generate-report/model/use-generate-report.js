@@ -1,25 +1,75 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAsyncAction } from "@/shared/lib";
+import { toAppError } from "@/shared/api";
 
-import { requestReport } from "../api/report-api";
+import { fetchReportDownload, fetchReportPreview } from "../api/report-api";
 
-/** Génération du rapport PDF d'une analyse, et URL du dernier rapport produit. */
-export function useGenerateReport(analysisId) {
-  const [reportUrl, setReportUrl] = useState(null);
-  const { run, reset, isPending, error } = useAsyncAction(requestReport);
+const DELAI_APERCU_MS = 350; // regroupe les clics successifs sur les options
 
-  // Changer d'analyse invalide le rapport affiché.
+/**
+ * Aperçu du compte rendu, demandé au serveur, régénéré quand les options
+ * changent. `url` est une URL locale (blob:) du PDF, libérée au remplacement
+ * et au démontage. `enabled` : ne rien demander (lecteur, analyse non terminée).
+ */
+export function useReportPreview(analysisId, options, { draft = false, enabled = true } = {}) {
+  const [state, setState] = useState({ url: null, isPending: false, error: null });
+  const urlRef = useRef(null);
+  const key = JSON.stringify(options);
+
+  const release = () => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+  };
+
   useEffect(() => {
-    setReportUrl(null);
-    reset();
-  }, [analysisId, reset]);
+    if (!analysisId || !enabled) return undefined;
+    let cancelled = false;
+    setState((s) => ({ ...s, isPending: true, error: null }));
+    const timer = setTimeout(async () => {
+      try {
+        const { blob } = await fetchReportPreview(analysisId, JSON.parse(key), { draft });
+        if (cancelled) return;
+        release();
+        urlRef.current = URL.createObjectURL(blob);
+        setState({ url: urlRef.current, isPending: false, error: null });
+      } catch (cause) {
+        if (!cancelled) setState({ url: null, isPending: false, error: toAppError(cause) });
+      }
+    }, DELAI_APERCU_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [analysisId, key, draft, enabled]);
 
-  const generate = useCallback(async () => {
-    const url = await run(analysisId);
-    if (url) setReportUrl(url);
-    return url;
-  }, [run, analysisId]);
+  useEffect(() => release, []);
+  return state;
+}
 
-  return { generate, reportUrl, isPending, error };
+/** Téléchargement du compte rendu définitif : le fichier, sous le nom donné par le serveur. */
+export function useReportDownload(analysisId) {
+  const [state, setState] = useState({ isPending: false, error: null });
+  const download = useCallback(
+    async (options) => {
+      setState({ isPending: true, error: null });
+      try {
+        const { blob, fileName } = await fetchReportDownload(analysisId, options);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setState({ isPending: false, error: null });
+        return fileName;
+      } catch (cause) {
+        setState({ isPending: false, error: toAppError(cause) });
+        return null;
+      }
+    },
+    [analysisId],
+  );
+  return { download, ...state };
 }
