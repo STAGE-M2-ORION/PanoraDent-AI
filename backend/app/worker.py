@@ -30,6 +30,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from . import auth_models  # noqa: F401  (enregistre les tables liées : utilisateur)
+from . import journal
 from .config import settings
 from .database import SessionLocal
 from .models import Analysis, Detection, StatutAnalyse
@@ -181,6 +182,15 @@ def traiter(db: Session, analyse: Analysis) -> None:
         analyse.erreur = "Erreur inattendue pendant l'analyse. Relancez ; si cela persiste, prévenez l'administrateur."
     analyse.termine_le = datetime.utcnow()
     analyse.duree_ms = int((time.monotonic() - debut) * 1000)
+    # Fiche d'historique (sprint 8) : le traitement, réussi ou non, est au journal.
+    termine = analyse.statut == StatutAnalyse.TERMINEE
+    journal.inscrire(
+        db, "analyse_traitee" if termine else "analyse_echouee", journal.SUCCES if termine else journal.ECHEC,
+        cible=f"analyse:{analyse.id}", commit=False,
+        details={"reference": analyse.reference, "tentative": analyse.tentatives, "duree_ms": analyse.duree_ms,
+                 **({"modele": analyse.model_version, "detections": len(analyse.detections)} if termine
+                    else {"erreur": analyse.erreur})},
+    )
     db.commit()
 
 

@@ -64,7 +64,7 @@ def test_compte_rendu_definitif_journalise_affichage_et_telechargement(connecte,
 
     entrees = db.scalars(select(Journal).where(Journal.action.like("compte_rendu_%")).order_by(Journal.horodatage)).all()
     assert [e.action for e in entrees] == ["compte_rendu_genere", "compte_rendu_telecharge"]
-    assert entrees[1].cible == analyse["id"] and entrees[1].utilisateur_id is not None
+    assert entrees[1].cible == f"analyse:{analyse['id']}" and entrees[1].utilisateur_id is not None
     assert entrees[1].details == {"reference": "PDX-2026-0001", "brouillon": False, "image": False,
                                   "rejetees": False, "commentaires": True}
     assert not any(k.startswith("reports/") for k in objets)      # rien n'est stocké

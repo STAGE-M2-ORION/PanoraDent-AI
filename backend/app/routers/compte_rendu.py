@@ -76,7 +76,7 @@ def compte_rendu_pdf(
 
     journal.inscrire(
         db, "compte_rendu_telecharge" if telecharger else "compte_rendu_genere", journal.SUCCES, request=request,
-        utilisateur_id=utilisateur.id, cible=a.id,
+        utilisateur_id=utilisateur.id, cible=f"analyse:{a.id}",
         details={"reference": a.reference, "brouillon": brouillon, "image": image, "rejetees": rejetees,
                  "commentaires": commentaires},
     )
