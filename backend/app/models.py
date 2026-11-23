@@ -59,7 +59,8 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Indexé : l'historique trie et pagine par (date, id) (sprint 8, migration 0014).
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     # Référence lisible et anonyme, attribuée à l'import.
     reference: Mapped[str] = mapped_column(String(20), unique=True)
     # Déposant : lui seul (et l'administrateur) peut supprimer l'analyse.

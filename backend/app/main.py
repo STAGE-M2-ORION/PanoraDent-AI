@@ -6,7 +6,7 @@ from starlette.formparsers import MultiPartParser
 from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
 from .auth_deps import publique
 from .config import settings
-from .routers import analyses, auth, boite_courriels, cabinet, compte_rendu, essais_modeles, fake_idp, health, model, moi, photos, revue, roles, stockage, users
+from .routers import analyses, auth, boite_courriels, cabinet, compte_rendu, historique, essais_modeles, fake_idp, health, model, moi, photos, revue, roles, stockage, users
 from .services.anonymize import TAILLE_MAX
 
 API_V1 = "/api/v1"
@@ -51,7 +51,7 @@ app.add_middleware(
 
 errors.install(app)
 
-for module in (health, analyses, revue, model, users, roles, photos, moi, stockage, cabinet, compte_rendu):
+for module in (health, analyses, revue, model, users, roles, photos, moi, stockage, cabinet, compte_rendu, historique):
     app.include_router(module.router, prefix=API_V1)
 app.include_router(auth.router, prefix=API_V1)
 app.include_router(auth.router_moi, prefix=API_V1)
