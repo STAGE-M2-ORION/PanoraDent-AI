@@ -159,6 +159,9 @@ async def create_analysis(
 
     largeur, hauteur = resultat.taille
     analyse = Analysis(
+        # Identifiant fixé dès maintenant : le journal de l'import le cite
+        # avant l'écriture en base (il valait « analyse:None » auparavant).
+        id=str(uuid.uuid4()),
         utilisateur_id=utilisateur.id,
         date_examen=date_examen,
         note=note.strip(),
@@ -208,18 +211,24 @@ def list_analyses(
     if mine:
         q = q.where(Analysis.utilisateur_id == utilisateur.id)
     rows = db.execute(q).unique().scalars().all()
-    return [
-        AnalysisSummary(
-            id=a.id, created_at=a.created_at, reference=a.reference, date_examen=a.date_examen,
-            deposant_id=a.utilisateur_id, deposant_nom=_nom(a.deposant),
-            model_version=a.model_version, inference_mode=a.inference_mode,
-            n_detections=len(a.detections), statut=a.statut,
-            labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
-            # Compte rendu disponible : il se reconstruit à la demande dès la clôture (sprint 8).
-            has_report=a.cloturee,
-            cloturee=a.cloturee, a_revoir=len(revue.a_revoir(a)), revues=revue.avancement(a)["revues"],
-        ) for a in rows
-    ]
+    return [resume_analyse(a) for a in rows]
+
+
+def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
+    """Ligne de liste d'une analyse (liste du cabinet, historique paginé)."""
+    return AnalysisSummary(
+        id=a.id, created_at=a.created_at, reference=a.reference, date_examen=a.date_examen,
+        deposant_id=a.utilisateur_id, deposant_nom=_nom(a.deposant),
+        model_version=a.model_version, inference_mode=a.inference_mode,
+        n_detections=len(a.detections), statut=a.statut,
+        labels=sorted({d.label for d in a.detections if d.label != "tooth"}),
+        # Compte rendu disponible : il se reconstruit à la demande dès la clôture (sprint 8).
+        has_report=a.cloturee,
+        cloturee=a.cloturee, a_revoir=len(revue.a_revoir(a)), revues=revue.avancement(a)["revues"],
+        numero=numero,
+        anomalies_retenues=sum(1 for d in a.detections if d.label != "tooth" and revue.au_compte_rendu(a, d)),
+        cloturee_le=a.cloturee_le,
+    )
 
 
 @router.get("/{analysis_id}", response_model=AnalysisOut)
