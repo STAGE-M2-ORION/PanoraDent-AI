@@ -18,6 +18,7 @@ export const NAVIGATION = [
   { href: "/admin/roles", admin: true, page: "admin-roles", label: "Rôles et permissions", icon: "key", permission: Permission.ROLE_MANAGE },
   { href: "/admin/audit", admin: true, page: "admin-audit", label: "Journal d'audit", icon: "list", permission: Permission.USER_MANAGE },
   { href: "/admin/modeles", admin: true, page: "admin-modeles", label: "Modèles", icon: "cpu", permission: Permission.MODEL_MANAGE },
+  { href: "/admin/cabinet", admin: true, page: "admin-cabinet", label: "Cabinet", icon: "file", permission: Permission.CABINET_MANAGE },
   { href: "/admin/supervision", admin: true, page: "admin-supervision", label: "Supervision", icon: "activity", permission: Permission.USER_MANAGE },
 ];
 

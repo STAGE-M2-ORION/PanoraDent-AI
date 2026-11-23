@@ -13,7 +13,7 @@ describe("résumé en clair d'un rôle", () => {
     const s = summarizeRole(["analysis:read", "model:read"]);
     expect(s.can).toBe("Peut consulter les analyses et consulter la performance du modèle.");
     expect(s.cannot).toMatch(/^Ne peut pas importer et lancer des analyses, /);
-    expect(s.cannot).toMatch(/modifier les rôles et leurs permissions\.$/);
+    expect(s.cannot).toMatch(/modifier les rôles et leurs permissions et modifier l’en-tête des comptes rendus du cabinet\.$/);
     expect(s.admin).toBe(false);
   });
 
@@ -26,7 +26,7 @@ describe("résumé en clair d'un rôle", () => {
   });
 
   it("tout accordé : rien à refuser", () => {
-    const all = ["analysis:read", "analysis:create", "analysis:delete", "detection:review", "analysis:reopen", "report:generate", "model:read", "model:manage", "user:manage", "role:manage"];
+    const all = ["analysis:read", "analysis:create", "analysis:delete", "detection:review", "analysis:reopen", "report:generate", "model:read", "model:manage", "user:manage", "role:manage", "cabinet:manage"];
     expect(summarizeRole(all).cannot).toBe("");
   });
 });

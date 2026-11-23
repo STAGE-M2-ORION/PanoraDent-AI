@@ -33,6 +33,7 @@ export const Permission = {
   MODEL_MANAGE: "model:manage",
   USER_MANAGE: "user:manage",
   ROLE_MANAGE: "role:manage",
+  CABINET_MANAGE: "cabinet:manage",
 };
 
 /**

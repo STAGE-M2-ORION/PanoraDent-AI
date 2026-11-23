@@ -1,0 +1,23 @@
+/* Écran « admin-cabinet » — styles propres, confinés sous .v-admin-cabinet. */
+
+.v-admin-cabinet {
+  .cab-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
+  .cab-wide { grid-column: 1 / -1; }
+  .cab-grid form { display: grid; gap: var(--space-4); }
+  .cab-grid .card-head { margin-bottom: var(--space-2); }
+  .cab-logo { display: grid; place-items: center; min-height: 120px; margin: var(--space-3) 0; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-2, var(--color-surface)); color: var(--color-ink-muted, #64748b); font-size: var(--text-sm); }
+  .cab-logo img { max-width: 100%; max-height: 120px; object-fit: contain; }
+
+  /* Aperçu imprimé : fond blanc, comme le PDF, quel que soit le thème. */
+  .cab-preview { background: #fff; color: #0f172a; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); display: grid; gap: var(--space-6, 32px); max-width: 720px; }
+  .cab-preview-head { display: flex; gap: var(--space-4); align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: var(--space-3); }
+  .cab-preview-head div { display: grid; gap: 2px; font-size: var(--text-sm); }
+  .cab-preview-head strong { font-size: var(--text-lg); }
+  .cab-preview-logo { max-height: 56px; max-width: 180px; object-fit: contain; }
+  .cab-preview-nologo { font-size: var(--text-xs); color: #64748b; border: 1px dashed #cbd5e1; padding: 8px 12px; border-radius: 6px; }
+  .cab-preview-foot { display: grid; gap: 2px; font-size: var(--text-xs); color: #475569; border-top: 1px solid #cbd5e1; padding-top: var(--space-2); }
+
+  @media (max-width: 900px) {
+    .cab-grid { grid-template-columns: 1fr; }
+  }
+}
