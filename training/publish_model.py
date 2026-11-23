@@ -9,7 +9,10 @@ service d'inférence reçoivent ensemble :
 - l'empreinte du découpage (identique pour les deux modèles, sinon refus :
   un modèle mesuré sur des clichés que l'autre a appris fausserait tout) ;
 - les mesures : celles du test interne de chaque modèle, et le test externe
-  s'il a été évalué. Un résumé à plat (`map50`, `precision`, `recall`,
+  s'il a été évalué ;
+- les seuils d'exploitation par classe (`seuils_exploitation.json` du run des
+  anomalies, choisis sur la validation) : ils doivent avoir été calculés pour
+  CES poids. Sans eux, toute anomalie enregistrée attend un verdict. Un résumé à plat (`map50`, `precision`, `recall`,
   `test_images`, ceux du modèle anomalies) alimente l'écran de performance.
 
 Une version publiée ne change plus : publier deux fois le même nom est
@@ -85,6 +88,20 @@ def lire_run(run_dir: Path, partition: str, admises=(CLASSES,)) -> dict:
             "externe": json.loads(externe.read_text(encoding="utf-8")) if externe else None}
 
 
+def lire_seuils(run_dir: Path, sha_anomalies: str) -> dict | None:
+    """Seuils d'exploitation du run des anomalies, vérifiés : calculés sur la
+    validation, pour ces poids-là. None s'ils n'ont pas été calculés."""
+    chemin = run_dir / "seuils_exploitation.json"
+    if not chemin.is_file():
+        return None
+    s = json.loads(chemin.read_text(encoding="utf-8"))
+    if s.get("poids_sha256") != sha_anomalies:
+        raise PublicationRefusee(f"{chemin} a été calculé pour d'autres poids : relancer seuils_exploitation.py.")
+    if s.get("split") != "val":
+        raise PublicationRefusee(f"{chemin} : seuils choisis sur « {s.get('split')} », la validation est exigée.")
+    return s
+
+
 def resume(metrics_anomalies: dict) -> dict:
     g = metrics_anomalies["detection"]["global"]
     return {"map50": g["mAP50"], "precision": g["precision"], "recall": g["rappel"],
@@ -103,16 +120,20 @@ def preparer(args) -> dict:
         raise PublicationRefusee(
             f"Les deux modèles n'ont pas été entraînés sur le même découpage : {empreintes}.")
     sha = {role: sha256_de(r["poids"]) for role, r in runs.items()}
+    detail_seuils = lire_seuils(args.anomalies, sha["anomalies"])
+    seuils = ({nom: c["seuil"] for nom, c in detail_seuils["par_classe"].items()}
+              if detail_seuils else None)
     metrics = {
         **resume(runs["anomalies"]["metrics"]),
         "partition": args.partition,
         "dents": runs["dents"]["metrics"],
         "anomalies": runs["anomalies"]["metrics"],
         "externe": runs["anomalies"]["externe"],
+        "seuils_exploitation": detail_seuils,
         "runs": {role: {"dossier": str(getattr(args, role)), "git_commit": r["run"].get("git_commit"),
                         "hyperparametres": r["run"].get("hyperparametres")} for role, r in runs.items()},
     }
-    return {"runs": runs, "sha": sha, "empreinte": empreintes["dents"], "metrics": metrics}
+    return {"runs": runs, "sha": sha, "empreinte": empreintes["dents"], "metrics": metrics, "seuils": seuils}
 
 
 def deposer_poids(args, prep: dict) -> dict:
@@ -150,14 +171,16 @@ def ecrire_registre(args, prep: dict, chemins: dict) -> None:
             return
         cx.execute(text(
             "INSERT INTO model_versions (id, version, created_at, dataset, metrics_json, notes, "
-            "poids_dents, poids_anomalies, sha256_dents, sha256_anomalies, empreinte_decoupage, actif) "
-            "VALUES (:id, :version, :created_at, :dataset, :metrics, :notes, :pd, :pa, :sd, :sa, :emp, :actif)"), {
+            "poids_dents, poids_anomalies, sha256_dents, sha256_anomalies, empreinte_decoupage, actif, seuils) "
+            "VALUES (:id, :version, :created_at, :dataset, :metrics, :notes, :pd, :pa, :sd, :sa, :emp, :actif, "
+            ":seuils)"), {
             "id": str(uuid.uuid4()), "version": args.version,
             "created_at": datetime.now(timezone.utc).replace(tzinfo=None),
             "dataset": args.dataset, "metrics": json.dumps(prep["metrics"], ensure_ascii=False),
             "notes": args.notes, "pd": chemins["dents"], "pa": chemins["anomalies"],
             "sd": prep["sha"]["dents"], "sa": prep["sha"]["anomalies"],
             "emp": prep["empreinte"], "actif": False,
+            "seuils": json.dumps(prep["seuils"]) if prep["seuils"] else None,
         })
     print(f"[base] model_versions <- {args.version} (non active)")
 
@@ -174,6 +197,12 @@ def main(argv=None):
     r = prep["metrics"]
     print(f"\nModèle anomalies, {args.partition} : mAP@0,50 {r['map50']} · précision {r['precision']} "
           f"· rappel {r['recall']} · {r['test_images']} clichés")
+    if prep["seuils"]:
+        print("Seuils d'exploitation (validation) : "
+              + ", ".join(f"{k} {v:.2f}" for k, v in prep["seuils"].items()))
+    else:
+        print("Aucun seuil d'exploitation (seuils_exploitation.py non lancé) : "
+              "toute anomalie enregistrée attendra un verdict.")
     print("\nÉtape suivante : Administration › Modèles › Activer (motif obligatoire).")
 
 

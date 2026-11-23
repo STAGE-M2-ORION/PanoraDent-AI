@@ -21,6 +21,12 @@ export function ClosureModal({ open, number, summary, conclusion, onConclusionCh
           La clôture exige un verdict sur chaque détection : validez, corrigez ou rejetez {s.pending > 1 ? "les" : "la"} d&apos;abord.
         </Alert>
       ) : null}
+      {s.optional ? (
+        <Alert tone="info" icon="info" title={`${s.optional} détection${s.optional > 1 ? "s" : ""} sous le seuil, sans verdict`}>
+          Sous le seuil d&apos;exploitation de leur classe, elles n&apos;exigent pas de verdict : elles restent dans l&apos;analyse,
+          mais n&apos;iront pas au compte rendu.
+        </Alert>
+      ) : null}
       <dl className="closure-recap" aria-label="Récapitulatif de la relecture">
         {lines.map(([label, n]) => (
           <div key={label}>

@@ -44,6 +44,7 @@ export function demoViewModel() {
     dets,
     incoherences: [],
     absentTeeth: [],
+    thresholds: null,
   };
 }
 
@@ -59,6 +60,7 @@ export function toViewDetection(d) {
     fdi: d.fdi,
     label: d.label,
     confidence: d.confidence,
+    score: d.score ?? null,
     status: d.status,
     source: d.source,
     note: d.comment ?? "",
@@ -120,6 +122,8 @@ export function realViewModel(analysis, { imageUrl, number }) {
     dets,
     incoherences: analysis.incoherences ?? [],
     absentTeeth: analysis.absentTeeth ?? [],
+    // Seuils d'exploitation par classe (fractions, comme le serveur), ou null : version sans seuils.
+    thresholds: analysis.thresholds ?? null,
   };
 }
 
@@ -148,7 +152,42 @@ export const pct = (n) => (n == null ? "—" : `${n} %`);
  * ajout du praticien, sans confiance, est toujours affiché). Filtrage local,
  * sans aucun appel au serveur.
  */
-export const isVisible = (d, { show, threshold }) => Boolean(show[d.label]) && (d.confidence == null || d.confidence >= threshold);
+export const isVisible = (d, ui) => Boolean(ui.show[d.label]) && aboveThreshold(d, ui);
+
+/** Confiance exacte (fraction) : celle du serveur, sinon déduite du pourcentage affiché. */
+const scoreOf = (d) => d.score ?? (d.confidence == null ? null : d.confidence / 100);
+
+/**
+ * PROPOSÉE par le modèle : attend un verdict avant la clôture. Même règle, et
+ * même comparaison exacte, que le serveur (`services/revue.proposee`) : sans
+ * seuils (version antérieure), toute détection l'est ; sous le seuil de sa
+ * classe, une détection reste visible, sans exiger de verdict.
+ */
+export const isProposed = (d, thresholds) => {
+  const score = scoreOf(d);
+  const seuil = thresholds?.[d.label];
+  return score == null || !thresholds || seuil == null || score >= seuil - 1e-9;
+};
+
+/**
+ * Seuil affiché pour une classe (en %) : celui du curseur s'il est réglé
+ * (`threshold`), sinon le seuil d'exploitation de la classe, sinon 0.
+ */
+export const thresholdFor = (label, { threshold = null, thresholds = null } = {}) =>
+  threshold ?? (thresholds?.[label] != null ? Math.round(thresholds[label] * 100) : 0);
+
+/**
+ * Au-dessus du seuil affiché : celui du curseur s'il est réglé, sinon les
+ * seuils du modèle (comparaison exacte) ; un ajout du praticien l'est toujours.
+ */
+export const aboveThreshold = (d, { threshold = null, thresholds = null } = {}) =>
+  threshold != null ? d.confidence == null || d.confidence >= threshold : isProposed(d, thresholds);
+
+/** À verdict exigé et encore sans verdict. */
+export const awaitsVerdict = (d, thresholds) => d.status === "pending" && isProposed(d, thresholds);
+
+/** Retenue au compte rendu : ni rejetée, ni restée sous le seuil sans verdict. */
+export const forReport = (d, thresholds) => d.status !== "rejected" && (d.status !== "pending" || isProposed(d, thresholds));
 
 /** Identifiant de la détection suivante (`dir` = 1) ou précédente (−1) parmi `list`, en boucle. */
 export function stepDetection(list, selId, dir, sort) {

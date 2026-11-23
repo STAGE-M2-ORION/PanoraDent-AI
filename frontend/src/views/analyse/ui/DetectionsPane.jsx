@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ANOMALY_LABELS, DETECTION_TYPES, anomalyTypology, detectionType, typeTooltip } from "@/entities/detection";
 import { Icon } from "@/shared/ui";
 
-import { STATUS_LABEL, isDashed, pct, sortDetections } from "@/widgets/analysis-workspace";
+import { STATUS_LABEL, aboveThreshold, isDashed, isProposed, pct, sortDetections, thresholdFor } from "@/widgets/analysis-workspace";
 
 import { QUADRANTS, anomalySummary, filtersText, matchesFilters } from "../model/summary";
 import { AnomalySummary } from "./AnomalySummary";
@@ -13,7 +13,7 @@ const ACTION_LABEL = { valider: "Validée", corriger: "Corrigée", rejeter: "Rej
 /** Date et heure courtes (« 21/11/2026 10:42 »), depuis une date ISO UTC du serveur. */
 const when = (iso) => (iso ? new Date(`${String(iso).replace(/Z?$/, "Z")}`).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 
-function Row({ d, selected, hovered, hiddenLayer, dim, onSelect, onHover, reviewerName }) {
+function Row({ d, selected, hovered, hiddenLayer, dim, optional, onSelect, onHover, reviewerName }) {
   const t = detectionType(d.label);
   return (
     <button
@@ -30,7 +30,9 @@ function Row({ d, selected, hovered, hiddenLayer, dim, onSelect, onHover, review
       </span>
       <span className="c">{d.confidence == null ? "—" : pct(d.confidence)}</span>
       <span className="meta">
-        <span className={`st ${d.status}`}>{STATUS_LABEL[d.status]}</span>
+        <span className={`st ${d.status}${optional ? " optional" : ""}`} title={optional ? "Sous le seuil de sa classe : verdict non exigé" : undefined}>
+          {optional ? "Facultative" : STATUS_LABEL[d.status]}
+        </span>
         {hiddenLayer ? (
           <span title="Calque masqué sur l'image">
             <Icon name="eyeoff" />
@@ -107,9 +109,12 @@ function NewDetection({ near, teeth, onCancel, onSave, busy }) {
  * détail de la détection sélectionnée et actions de revue.
  */
 export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) {
-  const { dets, sel, hover, threshold, sort, onlyPending, tooth, quadrant, type, show, mode, closed, autoNext, draft, busy } = state;
+  const { dets, sel, hover, threshold, thresholds, sort, onlyPending, tooth, quadrant, type, show, mode, closed, autoNext, draft, busy } = state;
   const filters = { tooth, quadrant, type };
-  const summary = anomalySummary(dets, { threshold });
+  const seuil = { threshold, thresholds };
+  // Seuils du modèle suivis (curseur non réglé) : affichage par classe.
+  const parClasse = threshold == null && Boolean(thresholds);
+  const summary = anomalySummary(dets, seuil);
   const activeFilters = filtersText(filters, (l) => detectionType(l).label);
   const current = dets.find((d) => d.id === sel);
   const locked = closed || !canReview;
@@ -124,15 +129,16 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
   }, [mode, current?.id]);
 
   const pool = dets.filter((d) => (!onlyPending || d.status === "pending") && matchesFilters(d, filters));
-  const above = sortDetections(pool.filter((d) => d.confidence == null || d.confidence >= threshold), sort);
-  const below = sortDetections(pool.filter((d) => d.confidence != null && d.confidence < threshold), sort);
-  const shown = dets.filter((d) => d.confidence == null || d.confidence >= threshold).length;
+  const above = sortDetections(pool.filter((d) => aboveThreshold(d, seuil)), sort);
+  const below = sortDetections(pool.filter((d) => !aboveThreshold(d, seuil)), sort);
+  const shown = dets.filter((d) => aboveThreshold(d, seuil)).length;
 
   const rowProps = (d) => ({
     d,
     selected: d.id === sel,
     hovered: d.id === hover,
     hiddenLayer: !show[d.label],
+    optional: d.status === "pending" && !isProposed(d, thresholds),
     onSelect: actions.select,
     onHover: actions.hover,
     reviewerName,
@@ -197,6 +203,12 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
           <dt>Statut</dt>
           <dd>
             <span className={`st ${current.status}`}>{STATUS_LABEL[current.status]}</span>
+            {current.status === "pending" && !isProposed(current, thresholds) ? (
+              <span className="muted-sm" data-testid="verdict-facultatif">
+                {" "}
+                · sous le seuil de sa classe ({thresholdFor(current.label, { thresholds })} %) : verdict facultatif, exclue du compte rendu sans verdict
+              </span>
+            ) : null}
             {current.reviewedBy && current.status !== "pending" ? (
               <span className="muted-sm">
                 {" "}
@@ -325,11 +337,41 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
       <div className="thr">
         <div className="thr-top">
           <label htmlFor="thr">Seuil de confiance</label>
-          <output htmlFor="thr">{pct(threshold)}</output>
+          <output htmlFor="thr">{parClasse ? "par classe" : pct(threshold)}</output>
         </div>
-        <input type="range" id="thr" min="0" max="100" step="1" value={threshold} aria-describedby="thrHelp" onChange={(e) => actions.setThreshold(Number(e.target.value))} />
+        <input
+          type="range"
+          id="thr"
+          min="0"
+          max="100"
+          step="1"
+          value={threshold ?? Math.min(...Object.values(thresholds ?? { x: 0.5 }).map((v) => Math.round(v * 100)))}
+          aria-describedby="thrHelp"
+          aria-valuetext={parClasse ? "seuils du modèle, par classe" : undefined}
+          onChange={(e) => actions.setThreshold(Number(e.target.value))}
+        />
+        {thresholds ? (
+          <p className="thr-model" data-testid="seuils-modele">
+            {parClasse ? "Seuils du modèle, choisis sur la validation : " : "Seuils du modèle : "}
+            {ANOMALY_LABELS.filter((k) => thresholds[k] != null).map((k, i) => (
+              <span key={k}>
+                {i ? " · " : ""}
+                {DETECTION_TYPES[k].short} {thresholdFor(k, { thresholds })} %
+              </span>
+            ))}
+            {parClasse ? null : (
+              <>
+                {" "}
+                <button type="button" className="linkish" onClick={() => actions.setThreshold(null)}>
+                  Revenir aux seuils du modèle
+                </button>
+              </>
+            )}
+          </p>
+        ) : null}
         <small id="thrHelp">
           {shown} affichée{shown > 1 ? "s" : ""} · {dets.length - shown} sous le seuil. Un seuil bas montre plus de propositions, et plus de fausses alertes.
+          {thresholds ? " Sous le seuil de sa classe, une détection n'exige pas de verdict." : ""}
         </small>
       </div>
       {summary.total ? <AnomalySummary summary={summary} filters={filters} onFilter={actions.setFilters} /> : null}
@@ -385,7 +427,7 @@ export function DetectionsPane({ vm, state, actions, canReview, reviewerName }) 
         {below.length ? (
           <details className="below">
             <summary>
-              Sous le seuil de {pct(threshold)} ({below.length}) — masquées sur l&apos;image
+              Sous le seuil{parClasse ? " de leur classe" : ` de ${pct(threshold)}`} ({below.length}) — masquées sur l&apos;image
             </summary>
             {below.map((d) => (
               <Row key={d.id} {...rowProps(d)} dim />

@@ -518,6 +518,12 @@ Alembic ([`0001_initial`](backend/alembic/versions/0001_initial.py)).
   sur les valeurs retenues, renvoyées avec l'analyse et les dents marquées `douteux` :
   signalées, jamais corrigées d'office. Corriger le numéro d'une dent passe par un
   verdict, comme pour une anomalie : la proposition reste intacte.
+- **Seuils d'exploitation** (migration `0012_seuils_exploitation`) :
+  `model_versions.seuils` ({classe: seuil}, choisis sur la validation et publiés
+  avec la paire) est recopié dans `analyses.seuils` au traitement. Seules les
+  anomalies au-dessus du seuil de leur classe attendent un verdict avant la
+  clôture ; les autres restent visibles (« Facultative ») et n'entrent au compte
+  rendu qu'avec un verdict. `NULL` : comportement antérieur (DOCUMENTATION §10.8).
 - **`model_versions`** (registre, migration `0010_registre_modeles`) — une
   version est une **paire** : `poids_dents` / `poids_anomalies` (chemins sous le
   dossier des poids), `sha256_dents` / `sha256_anomalies`,

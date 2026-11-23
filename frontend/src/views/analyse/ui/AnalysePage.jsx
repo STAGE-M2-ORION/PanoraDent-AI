@@ -10,9 +10,12 @@ import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
 import {
+  aboveThreshold,
+  awaitsVerdict,
   buildAnnotations,
   downloadBlob,
   exportFileName,
+  isProposed,
   isVisible,
   keyBelongsToField,
   nearestTooth,
@@ -56,6 +59,8 @@ export function AnalysePage() {
     sel: null,
     hover: null,
     threshold: 50,
+    // Seuils d'exploitation par classe (fractions) de l'analyse ; `threshold` null : on les suit.
+    thresholds: null,
     sort: "tooth",
     onlyPending: false,
     tooth: null,
@@ -91,10 +96,19 @@ export function AnalysePage() {
     setClosure({ closedAt: vm.closedAt, closedBy: vm.closedBy, conclusion: vm.conclusion ?? "" });
     // Reprise d'une relecture interrompue : la détection où l'on s'était arrêté.
     const saved = readResume(vm.id);
-    const firstPending = sortDetections(vm.dets.filter((d) => d.status === "pending"), "tooth")[0];
+    const firstPending = sortDetections(vm.dets.filter((d) => awaitsVerdict(d, vm.thresholds)), "tooth")[0];
     const sel = vm.demo ? "d2" : vm.dets.some((d) => d.id === saved) ? saved : firstPending?.id ?? vm.dets[0]?.id ?? null;
     setUi((u) => ({ ...u, closed: vm.closed, sel }));
   }, [vm]);
+
+  // Seuils d'exploitation de l'analyse : à l'ouverture, le seuil affiché est
+  // celui de chaque classe (curseur libre, `threshold` à null) ; une version
+  // sans seuils garde l'ancien seuil d'affichage de 50 %. Une seule fois par
+  // analyse : un rechargement après un verdict ne remet pas le curseur.
+  useEffect(() => {
+    if (vm) setUi((u) => ({ ...u, thresholds: vm.thresholds ?? null, threshold: vm.thresholds ? null : 50 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vm?.id]);
 
   useEffect(() => writeResume(vm?.id, ui.sel), [vm?.id, ui.sel]);
 
@@ -124,7 +138,7 @@ export function AnalysePage() {
 
   const goNextPending = (list) => {
     if (!ui.autoNext) return;
-    const order = sortDetections(list.filter((x) => x.status === "pending" && (x.confidence == null || x.confidence >= ui.threshold)), ui.sort);
+    const order = sortDetections(list.filter((x) => awaitsVerdict(x, ui.thresholds) && aboveThreshold(x, ui)), ui.sort);
     if (order.length) patch({ sel: order[0].id });
   };
 
@@ -230,10 +244,13 @@ export function AnalysePage() {
   };
 
   // --- Numérotation (sprint 7) ------------------------------------------------
-  const states = useMemo(
-    () => (vm ? toothStates({ teeth: vm.teeth, dets, absentTeeth: vm.absentTeeth, incoherences: vm.incoherences }) : {}),
-    [vm, dets],
-  );
+  // Le schéma montre ce que montre l'image : les anomalies au-dessus du seuil
+  // affiché (curseur, ou seuils du modèle par classe).
+  const states = useMemo(() => {
+    if (!vm) return {};
+    const shown = dets.filter((d) => aboveThreshold(d, { threshold: ui.threshold, thresholds: ui.thresholds }));
+    return toothStates({ teeth: vm.teeth, dets: shown, absentTeeth: vm.absentTeeth, incoherences: vm.incoherences });
+  }, [vm, dets, ui.threshold, ui.thresholds]);
 
   /** Action sur les dents : le serveur recalcule numéros et incohérences, on relit l'analyse. */
   const runToothAction = async (call, success, after) => {
@@ -343,21 +360,25 @@ export function AnalysePage() {
   }, []);
 
   const canEdit = canReview && !ui.closed && !ui.busy;
-  const total = dets.length;
+  // Avancement : détections proposées (verdict exigé), plus celles sous le
+  // seuil qui ont reçu un verdict — même décompte que le serveur.
+  const total = dets.filter((d) => isProposed(d, ui.thresholds) || d.status !== "pending").length;
   const done = dets.filter((d) => d.status !== "pending").length;
   const left = total - done;
+  const recap = reviewSummary(dets, ui.thresholds);
   const number = vm?.number ?? "…";
 
   const goNext = () => {
-    const order = sortDetections(dets.filter((x) => x.status === "pending"), ui.sort);
+    const order = sortDetections(dets.filter((x) => awaitsVerdict(x, ui.thresholds)), ui.sort);
     if (!order.length) return;
-    if (order[0].confidence != null && order[0].confidence < ui.threshold) patch({ threshold: Math.max(0, order[0].confidence - 1) });
+    // Masquée par le curseur : retour aux seuils du modèle (ou curseur abaissé, sans seuils).
+    if (!aboveThreshold(order[0], ui)) patch({ threshold: ui.thresholds ? null : Math.max(0, order[0].confidence - 1) });
     select(order[0].id, true);
   };
 
   const trace = vm ? (
     <span className="trace">
-      Modèle <span className="mono">{vm.modelVersion}</span> · seuil {pct(ui.threshold)} · analysée le {vm.date} à {vm.time}
+      Modèle <span className="mono">{vm.modelVersion}</span> · seuil {ui.threshold == null && ui.thresholds ? "par classe (modèle)" : pct(ui.threshold)} · analysée le {vm.date} à {vm.time}
       {vm.durationMs != null ? ` en ${formatDuration(vm.durationMs)}` : ""} · {vm.teeth.length} dents numérotées
       {vm.demo ? " · données fictives" : " · chaque verdict est enregistré avec son auteur"}
     </span>
@@ -425,7 +446,7 @@ export function AnalysePage() {
           <ClosureModal
             open={modal === "close"}
             number={number}
-            summary={reviewSummary(dets)}
+            summary={recap}
             conclusion={closure.conclusion}
             onConclusionChange={(conclusion) => setClosure((c) => ({ ...c, conclusion }))}
             onConclusionBlur={() => review.saveConclusion(closure.conclusion).catch(() => {})}
@@ -512,7 +533,7 @@ export function AnalysePage() {
                 {closure.closedBy ? `par ${closure.closedBy}` : ""}
                 {closure.closedAt ? ` le ${new Date(`${String(closure.closedAt).replace(/Z?$/, "Z")}`).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}` : ""}
                 {" · "}
-                {total - reviewSummary(dets).rejected} détection{total - reviewSummary(dets).rejected > 1 ? "s" : ""} retenue{total - reviewSummary(dets).rejected > 1 ? "s" : ""}
+                {recap.retained} détection{recap.retained > 1 ? "s" : ""} retenue{recap.retained > 1 ? "s" : ""}
               </span>
               {canReopen ? (
                 <button type="button" className="vbtn outline" onClick={() => setModal("reopen")}>
@@ -601,7 +622,7 @@ export function AnalysePage() {
             <div className="tabs" role="tablist">
               <button type="button" className="tab" role="tab" aria-selected={ui.tab === "det"} aria-controls="paneDet" onClick={() => patch({ tab: "det" })}>
                 <Icon name="layers" />
-                Détections <span className="count">{total}</span>
+                Détections <span className="count">{dets.length}</span>
               </button>
               <button type="button" className="tab" role="tab" aria-selected={ui.tab === "chat"} aria-controls="paneChat" onClick={() => patch({ tab: "chat" })}>
                 <Icon name="message" />

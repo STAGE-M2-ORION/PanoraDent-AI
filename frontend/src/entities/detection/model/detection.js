@@ -164,6 +164,9 @@ export function normalizeDetection(dto, { imageWidth = 1, imageHeight = 1 } = {}
     fdi: dto.fdi ?? null,
     // Confiance en pourcentage entier ; null pour un ajout du praticien.
     confidence: fromUser ? null : Math.round((dto.confidence ?? 0) * 100),
+    // Confiance exacte (fraction), pour les seuils d'exploitation : l'arrondi au
+    // pourcent ferait passer 0,245 au-dessus d'un seuil de 0,25.
+    score: fromUser ? null : dto.confidence ?? 0,
     x: dto.x * imageWidth,
     y: dto.y * imageHeight,
     width: dto.w * imageWidth,

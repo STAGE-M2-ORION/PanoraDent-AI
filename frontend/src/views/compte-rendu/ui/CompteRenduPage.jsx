@@ -8,7 +8,7 @@ import { useGenerateReport } from "@/features/generate-report";
 import { formatDate } from "@/shared/lib";
 import { Alert, Button, Icon, Logo } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
-import { isDashed, useAnalysisViewModel } from "@/widgets/analysis-workspace";
+import { forReport, isDashed, useAnalysisViewModel } from "@/widgets/analysis-workspace";
 
 /** Image annotée de la feuille : détections retenues, étiquettes lisibles à l'impression. */
 function SheetImage({ vm, retained }) {
@@ -54,10 +54,10 @@ export function CompteRenduPage() {
   const canCustomize = can(Permission.DETECTION_REVIEW);
   const canGenerate = can(Permission.REPORT_GENERATE);
 
-  // Démonstration : les non revues sont exclues. Réel : la relecture n'est pas
-  // encore enregistrée côté serveur, le PDF reprend toutes les détections.
-  const retained = vm ? [...(vm.demo ? vm.dets.filter((d) => d.status !== "pending") : vm.dets.filter((d) => d.status !== "rejected"))].sort((a, b) => (a.fdi ?? 0) - (b.fdi ?? 0) || String(a.id).localeCompare(String(b.id))) : [];
-  const pendingN = vm?.demo ? vm.dets.filter((d) => d.status === "pending").length : 0;
+  // Démonstration : les non revues sont exclues. Réel : même règle que le PDF
+  // du serveur — ni rejetées, ni restées sous le seuil de leur classe sans verdict.
+  const retained = vm ? [...(vm.demo ? vm.dets.filter((d) => d.status !== "pending") : vm.dets.filter((d) => forReport(d, vm.thresholds)))].sort((a, b) => (a.fdi ?? 0) - (b.fdi ?? 0) || String(a.id).localeCompare(String(b.id))) : [];
+  const pendingN = vm ? vm.dets.filter((d) => d.status === "pending" && !retained.includes(d)).length : 0;
   const today = formatDate(new Date());
   const reviewer = vm?.demo ? "Dr Rakoto" : displayName(user);
   const sheetState = loading || isPending ? "loading" : error || reportError ? "error" : "closed";

@@ -3,6 +3,7 @@
  * (sprint 7) : logique pure, testée par vitest.
  */
 import { ANOMALY_LABELS, URGENCY, anomalyTypology } from "@/entities/detection";
+import { aboveThreshold } from "@/widgets/analysis-workspace";
 
 /**
  * Quadrants FDI, nommés du côté du PATIENT (sa droite apparaît à gauche de
@@ -21,8 +22,8 @@ export function quadrantOf(fdi) {
   return q >= 1 && q <= 4 ? q : null;
 }
 
-/** Retenue : non rejetée et au-dessus du seuil (un ajout du praticien l'est toujours). */
-const retained = (d, threshold) => d.status !== "rejected" && (d.confidence == null || d.confidence >= threshold);
+/** Retenue : non rejetée et au-dessus du seuil affiché (curseur, ou seuils du modèle). */
+const retained = (d, seuil) => d.status !== "rejected" && aboveThreshold(d, seuil);
 
 /** Types dans l'ordre d'urgence (prioritaires d'abord), puis dans l'ordre de la maquette. */
 export const TYPES_BY_URGENCY = [...ANOMALY_LABELS].sort((a, b) => URGENCY[anomalyTypology(a).urgency].rank - URGENCY[anomalyTypology(b).urgency].rank);
@@ -31,8 +32,8 @@ export const TYPES_BY_URGENCY = [...ANOMALY_LABELS].sort((a, b) => URGENCY[anoma
  * Tableau type × quadrant des anomalies retenues. `unnumbered` compte celles
  * sans numéro de dent valide (rattachement impossible).
  */
-export function anomalySummary(dets, { threshold = 0 } = {}) {
-  const kept = dets.filter((d) => ANOMALY_LABELS.includes(d.label) && retained(d, threshold));
+export function anomalySummary(dets, { threshold = null, thresholds = null } = {}) {
+  const kept = dets.filter((d) => ANOMALY_LABELS.includes(d.label) && retained(d, { threshold, thresholds }));
   const empty = () => ({ 1: 0, 2: 0, 3: 0, 4: 0 });
   const byQuadrant = empty();
   const rows = TYPES_BY_URGENCY.map((label) => ({ label, counts: empty(), unnumbered: 0, total: 0 }));

@@ -153,6 +153,7 @@
   .thr-top { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--text-sm); }
   .thr-top output { font-family: var(--font-mono); font-weight: 500; color: var(--color-viewer-accent); }
   .thr small { font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .thr .thr-model { font-size: var(--text-xs); color: var(--color-viewer-text); line-height: 1.5; }
   .list-tools { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-4); font-size: var(--text-xs); color: var(--color-viewer-muted); border-bottom: 1px solid var(--color-viewer-border); flex-wrap: wrap; }
   .list-tools select { background: var(--color-viewer-bg); border: 1px solid var(--color-viewer-border); color: var(--color-viewer-text); border-radius: var(--radius-sm); min-height: 30px; font-size: var(--text-xs); }
   .list-tools label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
@@ -192,6 +193,8 @@
   .st.added { color: var(--color-viewer-accent); border-color: rgba(34, 211, 238, .35); }
   .st.pending { color: #FBBF24; border-color: rgba(251, 191, 36, .35); }
   .st.rejected { color: #FCA5A5; border-color: rgba(252, 165, 165, .35); text-decoration: line-through; }
+  /* Sous le seuil de sa classe, sans verdict : non exigé (seuils d'exploitation). */
+  .st.pending.optional { color: var(--color-viewer-muted); border-color: var(--color-viewer-border); border-style: dashed; }
   .row.rejected .t, .row.rejected .c { opacity: .55; text-decoration: line-through; }
   .muted-sm { color: var(--color-viewer-muted); font-size: var(--text-xs); }
   .kbd-hint { margin: 0; color: var(--color-viewer-muted); font-size: var(--text-xs); }

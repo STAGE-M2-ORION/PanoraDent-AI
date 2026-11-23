@@ -1,7 +1,7 @@
 import { addDetection, closeAnalysis, postVerdict, reopenAnalysis, saveConclusion, undoVerdict } from "@/entities/analysis";
 import { Verdict } from "@/entities/detection";
 
-import { toViewDetection } from "@/widgets/analysis-workspace";
+import { awaitsVerdict, forReport, toViewDetection } from "@/widgets/analysis-workspace";
 
 const STATUS_OF_VERDICT = { [Verdict.VALIDATE]: "validated", [Verdict.CORRECT]: "corrected", [Verdict.REJECT]: "rejected" };
 
@@ -111,12 +111,20 @@ export function writeResume(id, detId) {
   }
 }
 
-/** Décompte pour l'écran de clôture. */
-export function reviewSummary(dets) {
+/**
+ * Décompte pour l'écran de clôture. `pending` : détections PROPOSÉES encore
+ * sans verdict (elles bloquent la clôture) ; `optional` : restées sous le seuil
+ * de leur classe sans verdict (non exigé, exclues du compte rendu) ;
+ * `retained` : celles qui iront au compte rendu.
+ */
+export function reviewSummary(dets, thresholds = null) {
   const count = (s) => dets.filter((d) => d.status === s).length;
+  const pending = dets.filter((d) => awaitsVerdict(d, thresholds)).length;
   return {
     total: dets.length,
-    pending: count("pending"),
+    pending,
+    optional: count("pending") - pending,
+    retained: dets.filter((d) => forReport(d, thresholds)).length,
     validated: count("validated"),
     corrected: count("corrected"),
     rejected: count("rejected"),

@@ -184,15 +184,50 @@ Dans `runs/<nom>/evaluation_<split>/` : `metrics.json`, `rapport.md`,
 - Matrice de confusion au seuil d'exploitation, avec ligne « fond » (manqué) et
   colonne « fond » (inventé).
 
+- Rappel **selon la taille** de la lésion (côté de la boîte en pixels vus par le
+  modèle) et lésions « mal typées » (vues au bon endroit, sous une autre classe).
+
 > **Le test ne se regarde qu'une fois.** Chaque évaluation sur le test est
 > inscrite dans `evaluations_test.jsonl` à côté de `split.json` ; une seconde est
-> refusée, sauf `--forcer "<motif>"`, motif porté au rapport.
+> refusée, sauf `--forcer "<motif>"`, motif porté au rapport. Le registre vit
+> avec les données, recréées sur chaque machine : la garde relit donc aussi les
+> évaluations du test rangées dans `runs/*/evaluation*_test/` (Drive, copie
+> locale).
+
+### 5 bis. Essais et choix d'un modèle (validation)
+
+```powershell
+# Rééquilibrage des classes rares (méthode LVIS) : une classe présente sur moins
+# de 30 % des clichés d'entraînement est vue plus souvent
+training\.venv\Scripts\python training\train.py --data data\yolo\anomalies\data.yaml --name anomalies-e1 --reequilibrage 0.3
+# Tableau des essais, sur la validation seulement (temps d'analyse CPU compris)
+training\.venv\Scripts\python training\comparer_essais.py runs\anomalies-v1 runs\anomalies-e1 --temps-cpu 10 --out runs\comparaison_anomalies.md
+```
+
+Le modèle se choisit sur ce tableau ; **seul** le modèle retenu passe ensuite
+le test, une fois, avec un `--forcer` qui en donne la raison (le test a déjà
+servi au modèle précédent). Sur Colab : cellules 8 à 8 ter du carnet.
+
+### 5 ter. Seuils d'exploitation par classe (validation)
+
+```powershell
+training\.venv\Scripts\python training\seuils_exploitation.py --weights runs\anomalies-v1\weights\best.pt --data data\yolo\anomalies\data.yaml --cible 0.70
+```
+
+Pour chaque anomalie, le plus haut seuil de confiance qui atteint la
+sensibilité visée (`--cible`, ou `--cible-classe periapical_lesion=0.8`),
+entre `--plancher` (0,10, celui du service d'inférence) et `--plafond`
+(0,25, l'ancien seuil global). Sortie : `runs/<run>/seuils_exploitation.json`
+et le tableau du compromis (sensibilité, précision, fausses alertes par
+cliché). Le test est refusé. `publish_model.py` publie ces seuils avec la
+paire ; l'application n'exige alors de verdict que sur les anomalies
+au-dessus du seuil de leur classe (DOCUMENTATION §10.8).
 
 ### 6. Publier la paire
 
 ```powershell
 training\.venv\Scripts\python training\publish_model.py --version dentex-2026.11 `
-    --dents runs\dents-v1 --anomalies runsnomalies-v1 `
+    --dents runs\dents-v1 --anomalies runs\anomalies-v1 `
     --database-url "postgresql+psycopg2://panoradent:<mot de passe>@localhost:<DB_PORT>/panoradent"
 ```
 
@@ -208,8 +243,8 @@ vérifie la version avant qu'elle ne devienne active.
 ### 7. Rapport d'évaluation (mémoire)
 
 ```powershell
-training\.venv\Scripts\python trainingapport_evaluation.py --version dentex-2026.11 `
-    --dents runs\dents-v1 --anomalies runsnomalies-v1
+training\.venv\Scripts\python training\rapport_evaluation.py --version dentex-2026.11 `
+    --dents runs\dents-v1 --anomalies runs\anomalies-v1
 ```
 
 Écrit `docs/evaluation/<version>/rapport.md` et ses figures : données et
@@ -230,20 +265,20 @@ l'entraînement dure des jours).
 
 ```powershell
 $py = "training\.venv\Scripts\python"
-& $py training	elecharger_dentex.py --dest data\dentex
+& $py training\telecharger_dentex.py --dest data\dentex
 & $py training\prepare_dataset.py --dentex data\dentex --out data\yolo
-& $py training\planche_augmentations.py --data data\yolonomalies\data.yaml --out runs\planche.jpg --imgsz 1024
-& $py training	rain.py --data data\yolo\dents\data.yaml     --name dents-v1
-& $py training	rain.py --data data\yolonomalies\data.yaml --name anomalies-v1
+& $py training\planche_augmentations.py --data data\yolo\anomalies\data.yaml --out runs\planche.jpg --imgsz 1024
+& $py training\train.py --data data\yolo\dents\data.yaml     --name dents-v1
+& $py training\train.py --data data\yolo\anomalies\data.yaml --name anomalies-v1
 # Réglages : la validation, autant que nécessaire
-& $py training\evaluate.py --weights runs\dents-v1\weightsest.pt --split val
-& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --split val
+& $py training\evaluate.py --weights runs\dents-v1\weights\best.pt --split val
+& $py training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --split val
 # À la fin, une seule fois
-& $py training\evaluate.py --weights runs\dents-v1\weightsest.pt --split test
-& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --split test
-& $py training\evaluate.py --weights runsnomalies-v1\weightsest.pt --data data\yolo\externe\data.yaml --split test
-& $py training\publish_model.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runsnomalies-v1 --database-url "<URL de la base>"
-& $py trainingapport_evaluation.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runsnomalies-v1
+& $py training\evaluate.py --weights runs\dents-v1\weights\best.pt --split test
+& $py training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --split test
+& $py training\evaluate.py --weights runs\anomalies-v1\weights\best.pt --data data\yolo\externe\data.yaml --split test
+& $py training\publish_model.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runs\anomalies-v1 --database-url "<URL de la base>"
+& $py training\rapport_evaluation.py --version dentex-2026.11 --dents runs\dents-v1 --anomalies runs\anomalies-v1
 ```
 
 Coupure en cours d'entraînement : relancer avec

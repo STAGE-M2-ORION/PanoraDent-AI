@@ -8,6 +8,7 @@ const ACTIONS = [
   { codes: ["analysis:create"], text: "importer et lancer des analyses" },
   { codes: ["analysis:delete"], text: "supprimer des analyses" },
   { codes: ["detection:review"], text: "relire et corriger les détections" },
+  { codes: ["analysis:reopen"], text: "rouvrir les analyses clôturées" },
   { codes: ["report:generate"], text: "générer les comptes rendus" },
   { codes: ["model:read"], text: "consulter la performance du modèle" },
   { codes: ["model:manage"], text: "changer la version du modèle en service" },

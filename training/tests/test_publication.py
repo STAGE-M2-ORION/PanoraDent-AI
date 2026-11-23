@@ -11,7 +11,7 @@ TABLE = """CREATE TABLE model_versions (
     id TEXT PRIMARY KEY, version TEXT UNIQUE, created_at TIMESTAMP, dataset TEXT,
     metrics_json TEXT, notes TEXT, poids_dents TEXT, poids_anomalies TEXT,
     sha256_dents TEXT, sha256_anomalies TEXT, empreinte_decoupage TEXT,
-    actif BOOLEAN, active_le TIMESTAMP)"""
+    actif BOOLEAN, active_le TIMESTAMP, seuils JSON)"""
 
 
 def faux_run(dossier, poids=b"poids", empreinte="e" * 64, classes=CLASSES, externe=False):
@@ -98,3 +98,32 @@ def test_version_publiee_immuable(tmp_path, base):
 def test_nom_de_version_valide(tmp_path, base, version):
     with pytest.raises(pm.PublicationRefusee, match="invalide"):
         publier(tmp_path, base, version=version)
+
+
+def ecrire_seuils(run, sha, split="val"):
+    (run / "seuils_exploitation.json").write_text(json.dumps({
+        "split": split, "poids_sha256": sha,
+        "par_classe": {"caries": {"seuil": 0.1, "rappel": 0.6}, "impacted_tooth": {"seuil": 0.25, "rappel": 0.94}}}))
+
+
+def test_seuils_d_exploitation_publies_avec_la_paire(tmp_path, base):
+    anomalies = faux_run(tmp_path / "anomalies", b"poids-anomalies", externe=True)
+    ecrire_seuils(anomalies, pm.sha256_de(anomalies / "weights" / "best.pt"))
+    publier(tmp_path, base, anomalies=anomalies)
+    [l] = lignes(base)
+    assert json.loads(l["seuils"]) == {"caries": 0.1, "impacted_tooth": 0.25}
+    assert json.loads(l["metrics_json"])["seuils_exploitation"]["split"] == "val"
+
+
+def test_sans_seuils_publication_possible(tmp_path, base):
+    publier(tmp_path, base)
+    assert lignes(base)[0]["seuils"] is None
+
+
+@pytest.mark.parametrize("sha, split, message", [("0" * 64, "val", "autres poids"), (None, "test", "validation")])
+def test_seuils_d_autres_poids_ou_du_test_refuses(tmp_path, base, sha, split, message):
+    anomalies = faux_run(tmp_path / "anomalies", b"poids-anomalies")
+    ecrire_seuils(anomalies, sha or pm.sha256_de(anomalies / "weights" / "best.pt"), split)
+    with pytest.raises(pm.PublicationRefusee, match=message):
+        publier(tmp_path, base, anomalies=anomalies)
+    assert lignes(base) == []

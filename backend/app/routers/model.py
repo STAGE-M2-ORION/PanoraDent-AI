@@ -39,6 +39,7 @@ def version_out(m: ModelVersion) -> dict:
         "servable": m.servable,
         "empreinte_decoupage": m.empreinte_decoupage,
         "sha256": {"dents": m.sha256_dents, "anomalies": m.sha256_anomalies},
+        "seuils": m.seuils,
     }
 
 

@@ -427,10 +427,11 @@ def build_report(
         raise ApiError(409, "analyse_non_terminee", "L'analyse n'est pas terminée : pas de compte rendu.")
     image = Image.open(io.BytesIO(storage.get(a.image_key))).convert("L")
     L, H = image.size  # boîtes stockées en fractions → pixels de cette image
-    # Valeurs retenues par le praticien ; les détections rejetées sont exclues.
+    # Valeurs retenues par le praticien ; exclues : les détections rejetées, et
+    # celles restées sous le seuil d'exploitation sans verdict (jamais proposées).
     dets = []
     for d in a.detections:
-        if d.etat == EtatDetection.REJETEE:
+        if not revue.au_compte_rendu(a, d):
             continue
         r = d.retenu()
         dets.append(dict(label=r["label"], fdi=r["fdi"], confidence=d.confidence,
