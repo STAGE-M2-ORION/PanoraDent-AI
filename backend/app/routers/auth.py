@@ -70,9 +70,10 @@ def connexion(body: ConnexionEntree, request: Request, response: Response, db: S
     """Adresse e-mail et mot de passe. Succès : profil, rôle et permissions,
     cookies de session posés. Refus : 401 neutre, 423 verrouillé, 403 désactivé."""
     utilisateur = auth_service.connexion_mot_de_passe(db, body.email, body.mot_de_passe, request)
-    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
+    acces, rafraichissement, nouvelle_session = auth_service.ouvrir_session(db, utilisateur, request)
     journal.inscrire(
         db, "connexion", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+        cible=f"session:{nouvelle_session.id}",
         details={"mode": "mot_de_passe", "adresse": utilisateur.email}, commit=False,
     )
     db.commit()
@@ -99,9 +100,10 @@ def mot_de_passe_oublie(
 
 def _session_apres_lien(db: Session, utilisateur: Utilisateur, request: Request, via: TypeJeton) -> Response:
     """La réussite ouvre directement la session (les autres ont été révoquées)."""
-    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
+    acces, rafraichissement, nouvelle_session = auth_service.ouvrir_session(db, utilisateur, request)
     journal.inscrire(
         db, "connexion", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
+        cible=f"session:{nouvelle_session.id}",
         details={"mode": "mot_de_passe", "via": via.value}, commit=False,
     )
     db.commit()
@@ -246,9 +248,9 @@ def retour(
     except RefusConnexion as exc:
         return refus(exc.code, exc.motif, exc.utilisateur_id)
 
-    acces, rafraichissement, _ = auth_service.ouvrir_session(db, utilisateur, request)
+    acces, rafraichissement, nouvelle_session = auth_service.ouvrir_session(db, utilisateur, request)
     journal.inscrire(
-        db, "connexion", journal.SUCCES, request=request,
+        db, "connexion", journal.SUCCES, request=request, cible=f"session:{nouvelle_session.id}",
         utilisateur_id=utilisateur.id, details=details, commit=False,
     )
     db.commit()
