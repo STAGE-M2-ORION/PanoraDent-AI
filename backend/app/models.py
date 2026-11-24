@@ -5,6 +5,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
+from .vecteurs import Vecteur
 
 
 def _uuid() -> str:
@@ -321,3 +322,66 @@ class BasculeModele(Base):
     motif: Mapped[str] = mapped_column(Text, default="")
 
     auteur = relationship("Utilisateur", foreign_keys=[utilisateur_id])
+
+
+class EtatDocument:
+    """Cycle d'un document de la base documentaire (sprint 9)."""
+    EN_ATTENTE = "en_attente"  # déposé, pas encore découpé ni vectorisé
+    INDEXE = "indexe"
+    ECHEC = "echec"            # extraction ou vectorisation impossible : `erreur` dit pourquoi
+    TOUS = (EN_ATTENTE, INDEXE, ECHEC)
+
+
+class Document(Base):
+    """Document de référence de l'assistant (sprint 9) : PDF ou Markdown.
+
+    Le fichier déposé est gardé dans le stockage objet (`cle_stockage`), pour
+    pouvoir le réindexer seul ; son empreinte sha256 évite les doublons.
+    """
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    titre: Mapped[str] = mapped_column(String(200))
+    nom_fichier: Mapped[str] = mapped_column(String(255))
+    format: Mapped[str] = mapped_column(String(16))  # « pdf » ou « markdown »
+    cle_stockage: Mapped[str] = mapped_column(String)
+    empreinte: Mapped[str] = mapped_column(String(64), unique=True)
+    taille: Mapped[int] = mapped_column(Integer, default=0)
+    etat: Mapped[str] = mapped_column(String(16), default=EtatDocument.EN_ATTENTE, index=True)
+    erreur: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Modèle de vectorisation de la dernière indexation, et nombre de passages.
+    modele_vecteurs: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    nb_passages: Mapped[int] = mapped_column(Integer, default=0)
+    depose_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+    depose_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    indexe_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    depose_par = relationship("Utilisateur", foreign_keys=[depose_par_id])
+    passages: Mapped[list["Passage"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Passage.rang",
+    )
+
+
+class Passage(Base):
+    """Passage d'un document : un extrait d'environ 800 caractères, avec son
+    titre de section et sa page pour la citation, et son vecteur sémantique.
+
+    `modele` garde le modèle qui a calculé le vecteur : un passage vectorisé
+    par un autre modèle que le modèle courant est périmé, jamais comparé.
+    """
+    __tablename__ = "passages"
+    __table_args__ = (UniqueConstraint("document_id", "rang", name="uq_passages_document_rang"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    rang: Mapped[int] = mapped_column(Integer)
+    texte: Mapped[str] = mapped_column(Text)
+    section: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    modele: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    vecteur: Mapped[list[float] | None] = mapped_column(Vecteur(), nullable=True)
+
+    document: Mapped["Document"] = relationship(back_populates="passages")
