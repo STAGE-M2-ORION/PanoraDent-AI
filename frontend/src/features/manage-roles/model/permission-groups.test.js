@@ -5,7 +5,7 @@ import { PERMISSION_GROUPS, SENSITIVE_PERMISSIONS, orderedPermissions, permissio
 // Catalogue du backend (`app/permissions.py`) : chaque code doit avoir sa place à l'écran.
 const CATALOGUE = [
   "analysis:read", "analysis:create", "analysis:delete", "analysis:reopen", "detection:review",
-  "report:generate", "model:read", "model:manage", "user:manage", "role:manage",
+  "report:generate", "model:read", "model:manage", "user:manage", "role:manage", "cabinet:manage",
 ];
 
 describe("permissions présentées à l'écran des rôles", () => {

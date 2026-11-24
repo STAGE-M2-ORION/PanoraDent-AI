@@ -142,18 +142,17 @@ def test_suppression_reservee_au_deposant_et_a_l_administrateur(admin, connecte,
     from app import worker
 
     assert worker.traiter_une(session_factory)
-    assert rabe.post(f"{BASE}/analyses/{a['id']}/report").status_code == 200
-    assert len(objets) == 3                                   # image, affichage, compte rendu
+    assert len(objets) == 2                                   # image, affichage (compte rendu : jamais stocké)
 
     r = autre.delete(f"{BASE}/analyses/{a['id']}")
     assert r.status_code == 403 and "déposé" in r.json()["message"]
-    assert len(objets) == 3
+    assert len(objets) == 2
 
     assert rabe.delete(f"{BASE}/analyses/{a['id']}").status_code == 204
     assert objets == {}                                       # la ligne ET tous les objets
     assert rabe.get(f"{BASE}/analyses/{a['id']}").status_code == 404
     ligne = db.scalars(select(Journal).where(Journal.action == "suppression_analyse")).one()
-    assert ligne.details == {"reference": a["reference"], "objets": 3}
+    assert ligne.details == {"reference": a["reference"], "objets": 2}
 
     b = _envoyer(rabe, octets(panoramique())).json()
     assert admin.delete(f"{BASE}/analyses/{b['id']}").status_code == 204

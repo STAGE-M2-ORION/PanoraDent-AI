@@ -14,7 +14,7 @@ const LAYERS = ["tooth", "caries", "deep_caries", "periapical_lesion", "impacted
  * de large, puis mises à l'échelle de l'image réelle.
  */
 export const Viewer = forwardRef(function Viewer(
-  { vm, dets, visible, show, onToggleLayer, onToggleAll, onExport, exporting, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, onPickTooth, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
+  { vm, dets, visible, show, onToggleLayer, onToggleAll, onExport, exporting, sel, hover, onHover, onSelect, mode, draft, onDraft, onDrawEnd, onBoxChange, focusTooth, onPickTooth, canReview = true, hint, panelClosed, onTogglePanel, loading, error, onRetry, children },
   ref,
 ) {
   const stageRef = useRef(null);
@@ -449,7 +449,8 @@ export const Viewer = forwardRef(function Viewer(
           {hint}
         </div>
         <span className="minimap-note">
-          Molette ou + / − : zoom · 0 : ajuster · J / K : suivante / précédente · V / C / R : valider, corriger, rejeter · U : annuler · H : tout masquer{vm?.demo ? " · Image simulée" : ""}
+          Molette ou + / − : zoom · 0 : ajuster · J / K : suivante / précédente
+          {canReview ? " · V / C / R : valider, corriger, rejeter · U : annuler" : ""} · H : tout masquer{vm?.demo ? " · Image simulée" : ""}
         </span>
         <div className="overlay-state" data-show={loading ? "true" : "false"}>
           <div style={{ width: "70%", display: "grid", gap: 12 }}>

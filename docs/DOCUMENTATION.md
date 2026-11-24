@@ -234,17 +234,14 @@ tierce, ni de gestion multi-comptes.
 **non validé** — il reflète la sortie brute du modèle, pas un arbitrage
 praticien. C'est la limite fonctionnelle la plus structurante du prototype.
 
-### Parcours 2 — La consultation de l'historique
+### Parcours 2 — La consultation de l'historique (sprint 8)
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Le praticien accède au tableau de bord listant ses analyses passées | ⚠️ `GET /api/analyses` existe et renvoie les résumés triés du plus récent au plus ancien ; **aucune interface ne l'appelle** |
-| 2 | Il rouvre une analyse pour consulter détections et rapport | ⚠️ `GET /api/analyses/{id}` existe ; pas de route frontend |
-
-L'analyse courante vit dans un `useState` de
-[`AnalysisPage`](../frontend/src/views/analysis/ui/AnalysisPage.jsx) : **un
-rechargement de page la perd**. Les données restent en base et dans le stockage
-objet, seule la navigation manque.
+| 1 | Le praticien retrouve une analyse : recherche par référence ou n°, filtres par état, praticien, période et type d'anomalie retenue, tri | ✅ `GET /historique`, filtré et paginé **par le serveur** (pagination par clé, index sur la date, l'état et le déposant) |
+| 2 | Il consulte la fiche d'historique de l'analyse : import, traitement, verdicts, clôture, comptes rendus produits | ✅ `GET /analyses/{id}/historique`, lue dans le **journal** et la table des verdicts (jamais modifiés) |
+| 3 | Il exporte la liste filtrée pour un suivi d'activité | ✅ `GET /historique.csv` (séparateur « ; », UTF-8), journalisé |
+| 4 | Il rouvre l'analyse et son compte rendu | ✅ écran d'analyse ; compte rendu reconstruit à la demande (§5.4) |
 
 ### Parcours 3 — L'inspection du modèle (porteur / jury)
 
@@ -312,21 +309,24 @@ reste entièrement à écrire.
 dans le viewer. Le frontend est prêt à les accueillir : la marche à suivre est
 décrite dans [frontend/README.md](../frontend/README.md).
 
-### 5.4 Rapport
+### 5.4 Compte rendu (sprint 8)
 
-| Exigence PRD | État | Détail |
+| Exigence | État | Détail |
 |---|---|---|
-| PDF : image annotée, liste des détections avec confiance, mentions légales | ✅ | A4 portrait, image mise à l'échelle sur la largeur utile, tableau paginé, mention en pied de page |
-| Rapport strictement anonymisé | ⚠️ | Aucune donnée identifiante ajoutée par le système — sous réserve des pixels incrustés (§5.1) |
+| PDF d'une analyse clôturée : image annotée, schéma dentaire, tableau des anomalies retenues | ✅ | [`compte_rendu.py`](../backend/app/services/compte_rendu.py) : image composée **par le serveur** depuis l'image anonymisée ; odontogramme FDI ; anomalies validées, corrigées ou ajoutées |
+| En-tête du cabinet : nom, logo, praticien, date de l'examen, référence anonyme | ✅ | Paramètres du cabinet dans l'administration (`cabinet:manage`, migration 0013) ; identité professionnelle du praticien qui a clôturé |
+| Mention « prototype non certifié » sur **chaque** page | ✅ | Pied de page avec les mentions du cabinet, la référence et la pagination |
+| Version du modèle, seuils, date de clôture | ✅ | Heures dans le fuseau du cabinet (`FUSEAU_HORAIRE`) |
+| Options : image, commentaires, propositions rejetées | ✅ | Rejetées seulement sur demande, dans une section séparée et intitulée |
+| Conclusion reprise telle que saisie | ✅ | Retours à la ligne conservés |
+| Aperçu, régénération à l'identique | ✅ | Reconstruit à chaque demande, **jamais stocké** ; PDF « invariant » : deux générations ne diffèrent que par la date (test) |
+| Refus avant la clôture | ✅ | Aperçu « BROUILLON » possible pendant la relecture, non téléchargeable |
+| Aucune donnée identifiante | ✅ | Référence anonyme et image anonymisée seulement (test : le nom du fichier importé n'apparaît pas) |
+| Aperçus et téléchargements journalisés | ✅ | Auteur, date, référence et options |
 
-**Mention légale imprimée sur chaque rapport** :
-
-> *PanoraDent AI — prototype de recherche NON certifie. Aide au diagnostic : la
-> decision medicale releve exclusivement du praticien.*
-
-Deux imperfections connues : les **accents sont absents** (polices de base
-ReportLab) et les **noms de classes restent en anglais** (la table de traduction
-n'existe que côté frontend).
+Accents et noms français sont gérés (polices standard en Windows-1252,
+caractères hors police remplacés plutôt qu'affichés en carré noir). L'ancienne
+génération stockée (`POST /report`) est retirée.
 
 ### 5.5 Page de performance du modèle — ❌ non implémentée
 

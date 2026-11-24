@@ -151,6 +151,11 @@ class AnalysisSummary(BaseModel):
     cloturee: bool = False
     a_revoir: int = 0
     revues: int = 0
+    # Historique (sprint 8) : rang dans le cabinet (n° d'analyse), anomalies
+    # retenues au compte rendu, date de clôture.
+    numero: int | None = None
+    anomalies_retenues: int = 0
+    cloturee_le: datetime | None = None
 
 
 def analyse_out(a) -> AnalysisOut:

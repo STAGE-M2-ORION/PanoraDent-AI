@@ -8,6 +8,7 @@ from .auth_models import Journal
 
 SUCCES = "succes"
 REFUS = "refus"
+ECHEC = "echec"   # tâche de fond qui n'a pas abouti (traitement d'une analyse)
 
 
 def adresse_ip(request: Request | None) -> str | None:

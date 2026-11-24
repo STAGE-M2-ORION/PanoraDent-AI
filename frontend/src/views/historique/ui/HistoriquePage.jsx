@@ -1,52 +1,53 @@
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { ANALYSIS_STATUS, AnalysisStatus, POLL_MS, deleteAnalysis, displayStatus, fetchAnalyses, formatAnalysisNumber, launchAnalysis } from "@/entities/analysis";
+import {
+  ANALYSIS_STATUS,
+  AnalysisStatus,
+  EMPTY_HISTORY_FILTERS,
+  POLL_MS,
+  deleteAnalysis,
+  displayStatus,
+  fetchHistory,
+  fetchHistoryCsv,
+  formatAnalysisNumber,
+  historyParams,
+  launchAnalysis,
+} from "@/entities/analysis";
 import { ANOMALY_LABELS, DETECTION_TYPES, TypeChip } from "@/entities/detection";
 import { Permission, useCurrentUser } from "@/entities/session";
 import { toAppError } from "@/shared/api";
-import { formatDate, useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, Button, Icon, IconAction, IdChip, Modal, NumChip, Pager, WhoChip, paginate, useToast } from "@/shared/ui";
+import { formatDate } from "@/shared/lib";
+import { Alert, Badge, Button, Icon, IconAction, IdChip, Modal, NumChip, WhoChip, useToast } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
+
+import { AnalysisTimeline } from "./AnalysisTimeline";
 
 const PAGE_SIZE = 10;
 const PERIOD = { today: "Aujourd’hui", 7: "7 jours", 30: "30 jours", custom: "Personnalisée" };
 const STATUS_FILTER = { queued: "En file d’attente", running: "Analyse en cours", pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
 const isProcessing = (r) => r.status === AnalysisStatus.QUEUED || r.status === AnalysisStatus.RUNNING;
-const EMPTY_FILTERS = { q: "", owner: "all", period: "all", status: "all", types: [], from: "", to: "" };
+const EMPTY_PAGE = { items: [], total: 0, next: null, depositors: [] };
 
-/** Âge en jours d'une date ISO du backend (UTC). */
-function ageInDays(iso) {
-  const d = new Date(`${String(iso).replace(/Z?$/, "Z")}`);
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.ceil((start - d) / 864e5));
-}
-
-function applyFilters(rows, f, meId) {
-  const q = f.q.trim().toLowerCase();
-  return rows.filter((r) => {
-    if (f.owner === "mine" && r.depositorId !== meId) return false;
-    if (q && !(r.ref.toLowerCase().includes(q) || formatAnalysisNumber(r.number).includes(q))) return false;
-    const age = ageInDays(r.createdAt);
-    if (f.period === "today" && age > 0) return false;
-    if (f.period === "7" && age > 7) return false;
-    if (f.period === "30" && age > 30) return false;
-    if (f.period === "custom") {
-      const iso = String(r.createdAt).slice(0, 10);
-      if (f.from && iso < f.from) return false;
-      if (f.to && iso > f.to) return false;
-    }
-    if (f.status !== "all" && r.status !== f.status) return false;
-    if (f.types.length && !f.types.some((t) => r.labels.includes(t))) return false;
-    return true;
-  });
+function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
- * Analyses du cabinet : recherche par référence anonyme, filtres (« Mes
- * analyses » d'emblée pour qui en dépose), pagination, suppression confirmée
- * — réservée au déposant et à l'administrateur, le serveur le revérifie.
+ * Analyses du cabinet (sprint 8) : recherche par référence ou n°, filtres
+ * (état, déposant, période, type d'anomalie retenue), tri et pagination —
+ * tout est fait par le SERVEUR (pagination par clé : rapide quel que soit le
+ * nombre d'analyses). Export CSV des analyses filtrées, fiche d'historique
+ * de chaque analyse. « Mes analyses » d'emblée pour qui en dépose.
+ * Suppression confirmée, réservée au déposant et à l'administrateur (le
+ * serveur le revérifie).
  */
 export function HistoriquePage() {
   const router = useRouter();
@@ -56,9 +57,19 @@ export function HistoriquePage() {
   const isAdmin = can(Permission.USER_MANAGE) && can(Permission.ROLE_MANAGE);
   const canDeleteRow = (r) => can(Permission.ANALYSIS_DELETE) && (isAdmin || (r.depositorId && r.depositorId === me?.id));
   const readOnly = !can(Permission.DETECTION_REVIEW);
-  const { data, error, isLoading, reload } = useAsyncResource(fetchAnalyses);
-  const [rows, setRows] = useState([]);
-  const [f, setF] = useState(EMPTY_FILTERS);
+  const [f, setF] = useState(EMPTY_HISTORY_FILTERS);
+  // Filtres envoyés au serveur : la saisie de la recherche est regroupée (300 ms).
+  const [query, setQuery] = useState(EMPTY_HISTORY_FILTERS);
+  // Début de chaque page vue (pagination par clé) : on revient en arrière en dépilant.
+  const [cursors, setCursors] = useState([""]);
+  const [page, setPageData] = useState(EMPTY_PAGE);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [version, setVersion] = useState(0);
+  const [everHadRows, setEverHadRows] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [timeline, setTimeline] = useState(null);
+  const [exporting, setExporting] = useState(false);
   // « Mes analyses » d'emblée pour qui en dépose, une fois la session connue
   // (au premier rendu les permissions ne sont pas encore chargées).
   const ownerDefaulted = useRef(false);
@@ -67,47 +78,74 @@ export function HistoriquePage() {
     ownerDefaulted.current = true;
     if (canCreate) setF((v) => ({ ...v, owner: "mine" }));
   }, [me, canCreate]);
-  const [page, setPage] = useState(1);
-  const [pendingDelete, setPendingDelete] = useState(null);
-
-  useEffect(() => setRows(data ?? []), [data]);
-  // Tant qu'une analyse est en file ou en cours, la liste est relue en silence.
-  const processingCount = rows.filter(isProcessing).length;
-  useEffect(() => {
-    if (!processingCount) return undefined;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      fetchAnalyses()
-        .then((next) => !cancelled && setRows(next))
-        .catch(() => {});
-    }, POLL_MS * 2);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [rows, processingCount]);
   // Recherche transmise par le tableau de bord (`?q=7F3A`).
   useEffect(() => {
     if (router.isReady && typeof router.query.q === "string") setF((v) => ({ ...v, q: router.query.q }));
   }, [router.isReady, router.query.q]);
-  useEffect(() => setPage(1), [f]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(f);
+      setCursors([""]);
+    }, f.q === query.q ? 0 : 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f]);
 
-  const list = useMemo(() => applyFilters(rows, f, me?.id), [rows, f, me?.id]);
-  const { items, pageCount } = paginate(list, page, PAGE_SIZE);
+  const cursor = cursors[cursors.length - 1];
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    fetchHistory(historyParams(query, { cursor, limit: PAGE_SIZE }))
+      .then((data) => {
+        if (cancelled) return;
+        setPageData(data);
+        if (data.items.length) setEverHadRows(true);
+      })
+      .catch((cause) => !cancelled && setError(toAppError(cause)))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [query, cursor, version]);
+  const reload = () => setVersion((v) => v + 1);
+
+  const rows = page.items;
+  // Tant qu'une analyse de la page est en file ou en cours, la page est relue en silence.
+  const processingCount = rows.filter(isProcessing).length;
+  useEffect(() => {
+    if (!processingCount) return undefined;
+    const timer = setTimeout(reload, POLL_MS * 2);
+    return () => clearTimeout(timer);
+  }, [page, processingCount]);
+
   const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length);
   const set = (patch) => setF((v) => ({ ...v, ...patch }));
+  const ownerLabel = (o) => (o === "mine" ? "Mes analyses" : `Déposées par ${page.depositors.find((d) => d.id === o)?.name ?? "un praticien"}`);
 
   const chips = [];
   if (f.q.trim()) chips.push(["q", `Recherche : ${f.q.trim()}`, { q: "" }]);
-  if (f.owner === "mine") chips.push(["owner", "Mes analyses", { owner: "all" }]);
+  if (f.owner !== "all") chips.push(["owner", ownerLabel(f.owner), { owner: "all" }]);
   if (f.period !== "all") chips.push(["period", `Période : ${PERIOD[f.period]}`, { period: "all", from: "", to: "" }]);
   if (f.status !== "all") chips.push(["status", `Statut : ${STATUS_FILTER[f.status]}`, { status: "all" }]);
   f.types.forEach((t) => chips.push([`type:${t}`, `Anomalie : ${DETECTION_TYPES[t].label}`, { types: f.types.filter((x) => x !== t) }]));
 
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const { blob, fileName } = await fetchHistoryCsv(historyParams(query));
+      saveBlob(blob, fileName);
+      toast(`Export CSV : ${page.total} analyse${page.total > 1 ? "s" : ""}. L’export est inscrit au journal d’audit.`);
+    } catch (cause) {
+      toast(toAppError(cause).message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const relaunch = async (r) => {
     try {
       const next = await launchAnalysis(r.id);
-      setRows((list) => list.map((x) => (x.id === r.id ? { ...x, processing: next.processing, status: displayStatus(next.processing, x.closed, x.reviewed) } : x)));
+      setPageData((pg) => ({ ...pg, items: pg.items.map((x) => (x.id === r.id ? { ...x, processing: next.processing, status: displayStatus(next.processing, x.closed, x.reviewed) } : x)) }));
       toast(`Analyse ${r.ref} remise en file d’attente.`);
     } catch (cause) {
       toast(toAppError(cause).message);
@@ -119,7 +157,7 @@ export function HistoriquePage() {
     setPendingDelete(null);
     try {
       await deleteAnalysis(target.id);
-      setRows((r) => r.filter((x) => x.id !== target.id));
+      reload();
       toast(`Analyse ${target.ref} supprimée, image et compte rendu compris. L’opération est inscrite au journal d’audit.`);
     } catch (cause) {
       toast(toAppError(cause).message);
@@ -154,7 +192,7 @@ export function HistoriquePage() {
         </div>
       </Alert>
     );
-  } else if (rows.length === 0) {
+  } else if (rows.length === 0 && !hasFilters && !everHadRows) {
     content = (
       <div className="card state-box">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -171,13 +209,13 @@ export function HistoriquePage() {
         )}
       </div>
     );
-  } else if (list.length === 0) {
+  } else if (rows.length === 0) {
     content = (
       <div className="card state-box">
         <Icon name="search" className="ill" />
         <h3>Aucune analyse ne correspond à ces critères.</h3>
         <p>{f.owner === "mine" ? "Vous n’avez pas encore déposé d’analyse correspondante : affichez celles de tout le cabinet." : "Vérifiez la référence saisie ou élargissez la période."}</p>
-        <Button variant="secondary" onClick={() => setF(EMPTY_FILTERS)}>
+        <Button variant="secondary" onClick={() => setF(EMPTY_HISTORY_FILTERS)}>
           Effacer les filtres
         </Button>
       </div>
@@ -193,7 +231,7 @@ export function HistoriquePage() {
               <th scope="col">N°</th>
               <th scope="col">Référence</th>
               <th scope="col">Statut de revue</th>
-              <th scope="col">Détections</th>
+              <th scope="col">Anomalies retenues</th>
               <th scope="col">Déposée par</th>
               <th scope="col" className="r">
                 Actions
@@ -201,7 +239,7 @@ export function HistoriquePage() {
             </tr>
           </thead>
           <tbody>
-            {items.map((r) => {
+            {rows.map((r) => {
               const S = ANALYSIS_STATUS[r.status];
               const n = formatAnalysisNumber(r.number);
               const closed = r.status === AnalysisStatus.CLOSED;
@@ -224,9 +262,11 @@ export function HistoriquePage() {
                       {S.label}
                     </Badge>
                   </td>
-                  <td data-label="Détections">
+                  <td data-label="Anomalies retenues">
                     <span className="dets">
-                      <span className="n mono">{notReady ? "—" : r.detectionCount}</span>
+                      <span className="n mono" title={notReady ? undefined : `${r.detectionCount} détection${r.detectionCount > 1 ? "s" : ""} du modèle`}>
+                        {notReady ? "—" : r.retainedCount}
+                      </span>
                       <span className="sw">
                         {r.labels.map((t) => (
                           <TypeChip key={t} label={t} />
@@ -256,6 +296,7 @@ export function HistoriquePage() {
                           title="Le compte rendu n’est disponible qu’une fois l’analyse clôturée."
                         />
                       )}
+                      <IconAction icon="history" label={`Historique de l’analyse n° ${n}`} title="Historique de l’analyse" onClick={() => setTimeline(r)} />
                       {canDeleteRow(r) ? <IconAction icon="trash" danger label={`Supprimer l’analyse ${r.ref}`} title="Supprimer" onClick={() => setPendingDelete(r)} /> : null}
                     </div>
                   </td>
@@ -268,7 +309,8 @@ export function HistoriquePage() {
     );
   }
 
-  const showFoot = !isLoading && !error && list.length > 0;
+  const showFoot = !isLoading && !error && rows.length > 0;
+  const first = (cursors.length - 1) * PAGE_SIZE + 1;
 
   return (
     <AppShell
@@ -278,6 +320,8 @@ export function HistoriquePage() {
       permission={Permission.ANALYSIS_READ}
       className="v-historique"
       overlay={
+        <>
+        <AnalysisTimeline analysis={timeline} onClose={() => setTimeline(null)} />
         <Modal open={Boolean(pendingDelete)} onClose={() => setPendingDelete(null)} labelledBy="del-title">
           <h2 id="del-title">
             Supprimer l’analyse <span className="mono">{pendingDelete?.ref ?? ""}</span> ?
@@ -292,6 +336,7 @@ export function HistoriquePage() {
             </Button>
           </div>
         </Modal>
+        </>
       }
     >
       <div className="page-head">
@@ -306,6 +351,10 @@ export function HistoriquePage() {
               Accès en lecture seule
             </Badge>
           ) : null}
+          <Button variant="secondary" onClick={exportCsv} disabled={exporting || isLoading || Boolean(error) || page.total === 0}>
+            <Icon name="download" />
+            {exporting ? "Export…" : "Exporter (CSV)"}
+          </Button>
           {canCreate ? (
             <Button href="/nouvelle-analyse">
               <Icon name="plus" />
@@ -315,7 +364,7 @@ export function HistoriquePage() {
         </div>
       </div>
 
-      <section className="card card-pad filters" aria-label="Recherche et filtres" style={{ opacity: error || (!isLoading && rows.length === 0) ? 0.5 : undefined }}>
+      <section className="card card-pad filters" aria-label="Recherche et filtres" style={{ opacity: error || (!isLoading && rows.length === 0 && !hasFilters && !everHadRows) ? 0.5 : undefined }}>
         <div className="filters-row">
           <div className="field search-wrap-col">
             <label className="label" htmlFor="q">
@@ -333,6 +382,13 @@ export function HistoriquePage() {
             <select className="select" id="owner" value={f.owner} onChange={(e) => set({ owner: e.target.value })}>
               <option value="all">Tout le cabinet</option>
               <option value="mine">Moi</option>
+              {page.depositors
+                .filter((d) => d.id !== me?.id)
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
             </select>
           </div>
           <div className="field">
@@ -359,6 +415,15 @@ export function HistoriquePage() {
               <option value="inprogress">Relecture en cours</option>
               <option value="closed">Clôturée</option>
               <option value="failed">Échec</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="sort">
+              Tri
+            </label>
+            <select className="select" id="sort" value={f.sort} onChange={(e) => set({ sort: e.target.value })}>
+              <option value="recent">Plus récentes d’abord</option>
+              <option value="ancien">Plus anciennes d’abord</option>
             </select>
           </div>
         </div>
@@ -401,7 +466,7 @@ export function HistoriquePage() {
             </span>
           ))}
           {chips.length ? (
-            <button className="btn btn-sm btn-ghost" type="button" onClick={() => setF(EMPTY_FILTERS)}>
+            <button className="btn btn-sm btn-ghost" type="button" onClick={() => setF({ ...EMPTY_HISTORY_FILTERS, sort: f.sort })}>
               Effacer les filtres
             </button>
           ) : null}
@@ -414,12 +479,18 @@ export function HistoriquePage() {
 
       {showFoot ? (
         <div className="foot">
-          <p className="muted">
-            {hasFilters
-              ? `${list.length} analyse${list.length > 1 ? "s" : ""} trouvée${list.length > 1 ? "s" : ""}`
-              : `${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + items.length} sur ${list.length} analyse${list.length > 1 ? "s" : ""}`}
+          <p className="muted" data-testid="pagination">
+            {first}–{first + rows.length - 1} sur {page.total} analyse{page.total > 1 ? "s" : ""}
+            {hasFilters ? ` trouvée${page.total > 1 ? "s" : ""}` : ""}
           </p>
-          <Pager page={page} pageCount={pageCount} onChange={setPage} />
+          <div className="btn-row" role="group" aria-label="Pagination">
+            <Button size="sm" variant="secondary" disabled={cursors.length === 1} onClick={() => setCursors((c) => c.slice(0, -1))}>
+              <Icon name="chevronleft" /> Précédentes
+            </Button>
+            <Button size="sm" variant="secondary" disabled={!page.next} onClick={() => setCursors((c) => [...c, page.next])}>
+              Suivantes <Icon name="chevron" />
+            </Button>
+          </div>
         </div>
       ) : null}
     </AppShell>

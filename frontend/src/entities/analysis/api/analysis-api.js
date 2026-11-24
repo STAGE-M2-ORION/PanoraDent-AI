@@ -3,6 +3,7 @@ import { httpClient } from "@/shared/api";
 
 import { normalizeAnalysis, normalizeAnalysisSummary, normalizeProcessing, withNumbers } from "../model/analysis";
 import { normalizeComparison } from "../model/comparison";
+import { normalizeHistoryPage, normalizeTimeline } from "../model/history";
 
 const toZone = (z) => ({ x: z.x, y: z.y, w: z.w, h: z.h });
 
@@ -52,6 +53,25 @@ export async function createAnalysis(file, { masks = [], examDate, note, onProgr
 export async function fetchAnalyses({ mine = false } = {}) {
   const { data } = await httpClient.get("/analyses", { params: mine ? { mine: true } : undefined });
   return withNumbers(data.map(normalizeAnalysisSummary));
+}
+
+/** `GET /api/v1/historique` — une page filtrée, paginée par clé (sprint 8). */
+export async function fetchHistory(params) {
+  const { data } = await httpClient.get("/historique", { params });
+  return normalizeHistoryPage(data);
+}
+
+/** `GET /api/v1/historique.csv` — export des analyses filtrées (journalisé). */
+export async function fetchHistoryCsv(params) {
+  const { data, headers } = await httpClient.get("/historique.csv", { params, responseType: "blob" });
+  const m = /filename="?([^";]+)"?/i.exec(headers?.["content-disposition"] ?? "");
+  return { blob: data, fileName: m ? m[1] : "historique-analyses.csv" };
+}
+
+/** `GET /api/v1/analyses/{id}/historique` — fiche d'historique, lue dans le journal. */
+export async function fetchAnalysisTimeline(analysisId) {
+  const { data } = await httpClient.get(`/analyses/${analysisId}/historique`);
+  return normalizeTimeline(data);
 }
 
 /** `GET /api/v1/analyses/{id}` — analyse complète avec ses détections. */

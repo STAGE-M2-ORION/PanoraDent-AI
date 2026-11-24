@@ -38,3 +38,16 @@
     .foot { justify-content: center; }
   }
 }
+
+/* Fiche d'historique d'une analyse (sprint 8) : rendue dans une fenêtre, hors de .v-historique. */
+.timeline { list-style: none; margin: var(--space-4) 0; padding: 0; display: grid; gap: var(--space-3); max-height: 60vh; overflow-y: auto; }
+.timeline li { display: grid; grid-template-columns: 28px 1fr; gap: var(--space-3); align-items: start; }
+.timeline .tl-dot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--color-subtle); color: var(--color-primary-hover); }
+.timeline .tl-dot svg { width: 15px; height: 15px; }
+.timeline .tl-verdict .tl-dot { color: var(--color-success, #15803d); }
+.timeline .tl-report .tl-dot { color: var(--color-info, #0369a1); }
+.timeline .tl-head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; justify-content: space-between; margin: 0; }
+.timeline .tl-when { font-size: var(--text-xs); color: var(--color-muted); white-space: nowrap; }
+.timeline .tl-detail { margin: 2px 0 0; font-size: var(--text-sm); }
+.timeline .tl-who { margin: 2px 0 0; font-size: var(--text-xs); color: var(--color-muted); }
+.timeline .tl-cancelled b { text-decoration: line-through; }

@@ -148,6 +148,10 @@ test.describe.serial("parcours du sprint 1 : deux modes de connexion", () => {
   test("le praticien oublie son mot de passe, le réinitialise et se reconnecte", async ({ page, request }) => {
     await page.goto("/connexion");
     await page.getByRole("link", { name: "Mot de passe oublié ?" }).click();
+    // La page de connexion a aussi un champ « Adresse e-mail » : attendre la
+    // nouvelle page, sinon la saisie tombe dans l'ancienne pendant la navigation.
+    await page.waitForURL(/\/mot-de-passe-oublie/);
+    await expect(page.getByRole("heading", { name: "Mot de passe oublié" })).toBeVisible();
     await page.getByLabel("Adresse e-mail", { exact: true }).fill(practitioner.email);
     await page.getByRole("button", { name: "Recevoir un lien" }).click();
     await expect(page.locator("[data-etat=envoye]")).toContainText("Si un compte existe pour cette adresse");

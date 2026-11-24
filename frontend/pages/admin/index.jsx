@@ -15,6 +15,7 @@ export default function AdminIndex() {
     if (status === SessionStatus.ANONYMOUS) router.replace("/connexion");
     else if (can(Permission.USER_MANAGE)) router.replace("/admin/comptes");
     else if (can(Permission.ROLE_MANAGE)) router.replace("/admin/roles");
+    else if (can(Permission.CABINET_MANAGE)) router.replace("/admin/cabinet");
     else router.replace("/tableau-de-bord");
   }, [status, can, router]);
   return null;

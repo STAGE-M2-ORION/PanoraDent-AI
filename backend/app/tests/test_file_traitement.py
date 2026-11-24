@@ -155,7 +155,7 @@ def test_analyse_supprimee_pendant_le_traitement(connecte, objets, modele, sessi
 def test_pas_de_compte_rendu_avant_la_fin(connecte, objets, modele):
     rabe = connecte("dr.rabe@cabinet.example.org")
     a = _importer(rabe)
-    r = rabe.post(f"{BASE}/analyses/{a['id']}/report")
+    r = rabe.get(f"{BASE}/analyses/{a['id']}/compte-rendu", params={"brouillon": "true"})
     assert r.status_code == 409 and r.json()["code"] == "analyse_non_terminee"
 
 

@@ -223,7 +223,6 @@ def test_analyse_non_terminee_rien_a_relire(connecte, analyse, db):
 
 # Routes d'écriture sur une analyse qui N'ONT PAS à être verrouillées par la clôture.
 HORS_VERROU = {
-    ("POST", "/api/v1/analyses/{analysis_id}/report"),     # le compte rendu se génère APRÈS la clôture
     ("POST", "/api/v1/analyses/{analysis_id}/rouvrir"),    # c'est elle qui lève le verrou
     ("POST", "/api/v1/analyses/{analysis_id}/lancer"),     # seulement une analyse échouée, jamais clôturée
     ("POST", "/api/v1/analyses/{analysis_id}/rejouer"),    # crée une autre analyse ; l'origine n'est pas touchée
@@ -295,19 +294,20 @@ def test_compte_rendu_avec_les_valeurs_retenues_sans_les_rejets(connecte, analys
     Image.new("L", (2000, 1000)).save(stock["images/a.png"], "PNG")
     s = analyses_router.storage
     monkeypatch.setattr(s, "get", lambda k: stock[k].getvalue())
-    monkeypatch.setattr(s, "put", lambda k, d, c: None)
-    monkeypatch.setattr(s, "presigned_url", lambda k, expires=3600: f"http://s3/{k}")
     vu = {}
-    monkeypatch.setattr(analyses_router.report_svc, "build", lambda image, dets, ref, version: vu.setdefault("dets", dets) and b"%PDF")
+    from app.routers import compte_rendu as compte_rendu_router
+
+    monkeypatch.setattr(compte_rendu_router.compte_rendu, "rendre",
+                        lambda contenu, image, logo, genere_le: vu.setdefault("contenu", contenu) and b"%PDF")
 
     praticien = connecte(PRATICIEN)
     _verdict(praticien, analyse, "carie", "valider")
     _verdict(praticien, analyse, "profonde", "corriger", label="caries", fdi=36)
     _verdict(praticien, analyse, "lesion", "rejeter")
     praticien.post(_url(analyse, "/detections"), json={"label": "impacted_tooth", "fdi": 48, "cadre": {"x": 0.8, "y": 0.6, "w": 0.05, "h": 0.1}})
-    assert praticien.post(_url(analyse, "/report")).status_code == 200
-    resume = sorted((d["label"], d["fdi"], d["confidence"]) for d in vu["dets"])
-    assert resume == [("caries", 36, 0.55), ("caries", 36, 0.81), ("impacted_tooth", 48, None), ("tooth", 36, 0.97)]
+    assert praticien.get(_url(analyse, "/compte-rendu"), params={"brouillon": "true"}).status_code == 200
+    resume = sorted((d["label"], d["fdi"], d["confiance"]) for d in vu["contenu"]["retenues"])
+    assert resume == [("caries", 36, 0.55), ("caries", 36, 0.81), ("impacted_tooth", 48, None)]
 
 
 def test_correction_reconfirmee_pour_changer_son_commentaire(connecte, analyse):

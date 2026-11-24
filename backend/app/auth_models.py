@@ -272,7 +272,7 @@ class Journal(Base):
     action: Mapped[str] = mapped_column(String(50))
     resultat: Mapped[str] = mapped_column(String(20))
     # Objet de l'action, p. ex. « utilisateur:<id> » ou « session:<id> ».
-    cible: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cible: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     # Motif d'un refus, adresse présentée… Jamais de jeton ni de mot de passe.
     details: Mapped[dict] = mapped_column(Json, default=dict)
     ip: Mapped[str | None] = mapped_column(String(45), nullable=True)

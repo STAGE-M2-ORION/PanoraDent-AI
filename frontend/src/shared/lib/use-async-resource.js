@@ -7,7 +7,9 @@ import { toAppError } from "@/shared/api";
  * `fetcher` doit être une référence STABLE (fonction de module) : elle sert de
  * dépendance à l'effet.
  *
- * Renvoie `{ data, error, isLoading, reload }`. `error` est une `AppError`.
+ * Renvoie `{ data, error, isLoading, reload, setData }`. `error` est une
+ * `AppError` ; `setData` remplace la donnée par celle qu'une écriture vient
+ * de renvoyer, sans nouvelle requête.
  */
 export function useAsyncResource(fetcher) {
   const [state, setState] = useState({ data: null, error: null, isLoading: true });
@@ -29,5 +31,6 @@ export function useAsyncResource(fetcher) {
   }, [fetcher, version]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
-  return { ...state, reload };
+  const setData = useCallback((data) => setState({ data, error: null, isLoading: false }), []);
+  return { ...state, reload, setData };
 }

@@ -59,7 +59,8 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Indexé : l'historique trie et pagine par (date, id) (sprint 8, migration 0014).
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     # Référence lisible et anonyme, attribuée à l'import.
     reference: Mapped[str] = mapped_column(String(20), unique=True)
     # Déposant : lui seul (et l'administrateur) peut supprimer l'analyse.
@@ -194,6 +195,27 @@ class Detection(Base):
                 and self.dent.etat != EtatDetection.REJETEE):
             valeurs["fdi"] = self.dent.retenu()["fdi"]
         return valeurs
+
+
+class ParametresCabinet(Base):
+    """Paramètres du cabinet (sprint 8) : une seule ligne (id = 1), reprise en
+    en-tête de chaque compte rendu. Le logo est stocké comme les images, dans
+    le stockage objet ; seule sa clé est ici."""
+    __tablename__ = "parametres_cabinet"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    nom: Mapped[str] = mapped_column(String(120), default="")
+    adresse: Mapped[str] = mapped_column(Text, default="")
+    # Mentions propres au cabinet, ajoutées au pied du compte rendu (la mention
+    # « prototype non certifié » est fixée par le code, jamais retirable).
+    mentions: Mapped[str] = mapped_column(Text, default="")
+    logo_cle: Mapped[str | None] = mapped_column(String, nullable=True)
+    maj_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    maj_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+
+    maj_par = relationship("Utilisateur", foreign_keys=[maj_par_id])
 
 
 class DentAbsente(Base):
