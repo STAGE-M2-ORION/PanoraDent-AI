@@ -728,6 +728,21 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
   échouer la suite. Côté écran, aucune action d'écriture ne lui est proposée
   (parcours `parcours-lecteur.spec.js`).
 
+## Journal d'audit (administration)
+
+`GET /api/v1/journal` (`user:manage`) lit le journal (table `journal`, en ajout
+seul) et les verdicts de la relecture, sur une période (1 à 365 jours), avec des
+filtres par auteur, catégorie et résultat. Chaque action reçoit un libellé
+français et une catégorie (`services/journal_audit.py` ; un test exige un libellé
+pour toute action journalisée par le code). Les entrées sont rattachées à leur
+**session** : exactement quand elles la citent (connexion et déconnexion,
+« session:<id> »), sinon par période ; poste lisible (« Chrome · Windows »),
+méthode de connexion, état (en cours, déconnectée, expirée). Les connexions
+refusées forment un groupe « Tentatives de connexion » (avec leur motif), les
+traitements du worker un groupe « Traitements de la plateforme ».
+`GET /api/v1/journal.csv` exporte les mêmes entrées ; l'export est lui-même
+journalisé. Écran : Administration › Journal d'audit.
+
 ## Tests et CI
 
 ```bash
