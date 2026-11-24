@@ -101,6 +101,8 @@ def test_connexion_refusee_dans_les_tentatives_et_filtre_des_echecs(admin, compt
     tentatives = groupe(echecs, "Fara Oubli")
     assert tentatives["id"].startswith("tentatives:") and tentatives["titre"] == "Tentatives de connexion"
     assert tentatives["etat"] == "none"
+    refus = tentatives["entrees"][-1]
+    assert refus["precision"] == "Par e-mail et mot de passe · mot de passe incorrect"   # motif traduit
 
 
 def test_verdicts_traitements_et_filtres_par_categorie_et_auteur(admin, connecte, db):
@@ -145,3 +147,9 @@ def test_export_csv_journalise(admin, db):
     assert entree.details["jours"] == 30 and entree.details["lignes"] >= 1
     # L'export lui-même apparaît ensuite dans le journal, avec son libellé.
     assert any(e["libelle"] == "Export du journal d’audit (CSV)" for g in lire(admin)["sessions"] for e in g["entrees"])
+
+
+def test_motifs_de_refus_traduits():
+    assert ja.motif_lisible("adresse_inconnue adresse=x@y.org") == "adresse inconnue"
+    assert ja.motif_lisible("lien_expire") == "lien expiré"
+    assert ja.motif_lisible("motif_nouveau") == "motif nouveau"

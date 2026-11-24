@@ -95,12 +95,42 @@ def poste(agent: str | None) -> str:
     return " · ".join(x for x in (navigateur, systeme) if x) or "Poste inconnu"
 
 
+# Motifs de refus écrits par le serveur (codes) -> français. Seul le premier mot
+# compte : certains motifs sont suivis d'un contexte technique (« adresse=… »).
+MOTIFS = {
+    "adresse_inconnue": "adresse inconnue",
+    "mot_de_passe_faux": "mot de passe incorrect",
+    "mot_de_passe_non_defini": "mot de passe pas encore choisi",
+    "mode_non_autorise": "mode de connexion non autorisé pour ce compte",
+    "compte_desactive": "compte désactivé",
+    "compte_verrouille": "compte verrouillé",
+    "domaine_refuse": "domaine de messagerie refusé",
+    "sub_different": "autre identité Google que celle rattachée",
+    "adresse_differente": "adresse Google différente de celle du compte",
+    "autre_compte_google_deja_rattache": "un autre compte Google est déjà rattaché",
+    "compte_google_deja_utilise": "ce compte Google est déjà utilisé",
+    "lien_deja_utilise": "lien déjà utilisé",
+    "lien_expire": "lien expiré",
+    "lien_inexistant": "lien inconnu",
+    "type_different": "lien d’un autre usage",
+    "ancien_incorrect": "ancien mot de passe incorrect",
+}
+
+
+def motif_lisible(motif: str) -> str:
+    code = str(motif).split()[0] if str(motif).strip() else ""
+    return MOTIFS.get(code, code.replace("_", " ") or str(motif))
+
+
 def _precision(action: str, d: dict) -> str | None:
     """Détail lisible, à partir des seuls champs connus (jamais un jeton ni un mot de passe)."""
     if action == "connexion":
-        return "Avec Google" if d.get("mode") == "google" else "Par e-mail et mot de passe"
+        mode = "Avec Google" if d.get("mode") == "google" else "Par e-mail et mot de passe"
+        return f"{mode} · {motif_lisible(d['motif'])}" if d.get("motif") else mode   # refus : le motif
     if d.get("motif"):
-        return f"Motif : {d['motif']}"
+        # Réouverture, bascule : motif saisi par une personne ; refus : code du serveur.
+        motif = d["motif"]
+        return f"Motif : {motif_lisible(motif) if (str(motif).split() or [''])[0] in MOTIFS else motif}"
     if action in ("dent_absente", "dent_absente_retiree") and d.get("fdi"):
         return f"Dent {d['fdi']}"
     if action == "analyse_traitee":
@@ -253,7 +283,7 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
                 "entrees": [],
             }
         if x["action"] == "connexion" and x["ok"] and g["methode"] is None:
-            g["methode"] = "google" if x["precision"] == "Avec Google" else "mot_de_passe"
+            g["methode"] = "google" if (x["precision"] or "").startswith("Avec Google") else "mot_de_passe"
         g["entrees"].append({k: x[k] for k in ("date", "action", "libelle", "categorie", "resultat", "ok", "cible",
                                                "precision", "ip")})
 
