@@ -321,8 +321,9 @@ def photo_google(claims: dict) -> str | None:
 
 def ouvrir_session(
     db: Session, utilisateur: Utilisateur, request: Request | None = None
-) -> tuple[str, str, datetime]:
-    """Crée la ligne de session et renvoie `(accès, rafraîchissement, expiration)`.
+) -> tuple[str, str, SessionUtilisateur]:
+    """Crée la ligne de session et renvoie `(accès, rafraîchissement, session)` ;
+    la session sert à journaliser la connexion sous « session:<id> ».
     Seule l'empreinte du jeton de rafraîchissement est conservée. Ne valide
     pas la transaction."""
     expiration = maintenant() + sec.refresh_ttl()
@@ -337,7 +338,7 @@ def ouvrir_session(
     )
     rafraichissement = sec.create_refresh_token(session.id, expiration)
     session.empreinte_refresh = sec.empreinte(rafraichissement)
-    return acces, rafraichissement, expiration
+    return acces, rafraichissement, session
 
 
 def session_depuis_rafraichissement(db: Session, jeton: str | None) -> SessionUtilisateur | None:

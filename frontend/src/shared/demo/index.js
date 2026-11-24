@@ -67,4 +67,3 @@ export const demoNotifications = {
     { title: "Inférence : temps de réponse élevé", text: "Incident en cours depuis 6 h", href: "/admin/supervision" },
   ],
 };
-export { AUDIT_AUTHORS, AUDIT_ENTRIES, AUDIT_SESSIONS, AUDIT_TYPES } from "./audit";
