@@ -555,11 +555,13 @@ export function AnalysePage() {
               {left ? (
                 <>
                   <span style={{ color: "#FBBF24" }}>
-                    {left} à revoir
+                    {left} {canReview ? "à revoir" : "en attente de relecture"}
                   </span>
-                  <button type="button" className="vbtn outline" onClick={goNext}>
-                    Suivante à revoir <Icon name="chevron" />
-                  </button>
+                  {canReview ? (
+                    <button type="button" className="vbtn outline" onClick={goNext}>
+                      Suivante à revoir <Icon name="chevron" />
+                    </button>
+                  ) : null}
                 </>
               ) : (
                 <span style={{ color: "#4ADE80" }}>Tout est relu</span>
@@ -597,6 +599,7 @@ export function AnalysePage() {
             onBoxChange={(detId, box) => updateDet(detId, { box })}
             focusTooth={ui.tooth ?? current?.fdi}
             onPickTooth={pickTooth}
+            canReview={canReview}
             hint={ui.hint}
             panelClosed={ui.panelClosed}
             onTogglePanel={() => patch({ panelClosed: true })}

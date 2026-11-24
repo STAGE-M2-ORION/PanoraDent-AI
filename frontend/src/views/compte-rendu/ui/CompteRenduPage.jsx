@@ -115,16 +115,20 @@ export function CompteRenduPage() {
                 {downloadError.message}
               </Alert>
             ) : null}
-            <div className="btn-row">
-              <Button onClick={onDownload} disabled={!done || draft || !canGenerate || downloading}>
-                <Icon name="download" /> {downloading ? "Préparation du PDF…" : "Télécharger le PDF"}
-              </Button>
-            </div>
+            {canGenerate || vm?.demo ? (
+              <div className="btn-row">
+                <Button onClick={onDownload} disabled={!done || draft || !canGenerate || downloading}>
+                  <Icon name="download" /> {downloading ? "Préparation du PDF…" : "Télécharger le PDF"}
+                </Button>
+              </div>
+            ) : null}
             <p className="live" role="status">
               {live}
             </p>
           </div>
 
+          {canGenerate || vm?.demo ? (
+          <>
           <div className="card card-pad">
             <h2>Contenu du compte rendu</h2>
             <div>
@@ -168,6 +172,8 @@ export function CompteRenduPage() {
               <p className="hint">Nom, adresse et logo sont réglés par l’administrateur.</p>
             )}
           </div>
+          </>
+          ) : null}
         </aside>
       </div>
     </AppShell>
