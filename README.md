@@ -178,7 +178,7 @@ Compose. Principes :
 | `backend` | `./backend` (python:3.11-slim) | `8000` | *aucun* |
 | `worker` | `./backend`, commande `python -m app.worker` | *aucun* | *aucun* (journal « Worker prêt. ») |
 | `inference` | `./inference` (python:3.11-slim) | `8001` | `/health`, 10 s, 5 essais |
-| `db` | `postgres:16-alpine` | `5432` | `pg_isready`, 5 s, 10 essais |
+| `db` | `pgvector/pgvector:0.8.0-pg16` (PostgreSQL 16 + pgvector) | `5432` | `pg_isready`, 5 s, 10 essais |
 | `minio` | `pgsty/minio:latest` | `9000`, `9001` | `mc ready local`, 5 s, 10 essais |
 
 **Ordre de démarrage** : `backend` attend `db` et `minio` *healthy*, mais
@@ -188,6 +188,20 @@ démarrer avant le chargement du modèle, sans conséquence. `frontend` dépend 
 
 **Volumes** : `db_data` et `minio_data`. `make clean` (`docker compose down -v`)
 les supprime — **données perdues**.
+
+**Passage de `postgres:16-alpine` à `pgvector/pgvector:0.8.0-pg16` (sprint 9).**
+Même version majeure : le volume `db_data` existant est repris tel quel. Mais
+l'ancienne image (musl) et la nouvelle (glibc) ne trient pas le texte de la
+même façon ; les index sur des colonnes de texte (adresses e-mail, journal…)
+doivent être reconstruits **une fois**, juste après le changement d'image :
+
+```bash
+docker compose up -d db
+docker compose exec db psql -U panoradent -d panoradent -c "REINDEX DATABASE panoradent;"
+docker compose up -d
+```
+
+Inutile sur une base neuve (CI, e2e, première installation).
 
 ---
 
