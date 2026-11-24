@@ -709,6 +709,25 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
 
 ---
 
+## Sprint 8 : compte rendu, historique, lecture seule
+
+- **Compte rendu** : `GET /api/v1/analyses/{id}/compte-rendu` (options `image`,
+  `commentaires`, `rejetees`, `brouillon`, `telecharger`), reconstruit à la demande
+  et jamais stocké ; refusé avant la clôture sauf aperçu « brouillon » ; aperçus et
+  téléchargements journalisés. L'écran affiche le PDF du serveur lui-même.
+- **Cabinet** : Administration › Cabinet (nom, adresse, mentions, logo), permission
+  `cabinet:manage` ; migration `0013_parametres_cabinet`.
+- **Historique** : `GET /api/v1/historique` (recherche, filtres, tri, pagination par
+  clé), `GET /api/v1/historique.csv`, `GET /api/v1/analyses/{id}/historique` (fiche
+  lue dans le journal) ; migration `0014_index_historique`. Le worker journalise
+  chaque traitement (`analyse_traitee`, `analyse_echouee`).
+- **Lecteur** : consulte analyses, historique, fiches et export CSV ; ne produit
+  rien. Côté serveur, deux tests couvrent TOUTES les routes montées : la liste des
+  routes ouvertes à tous les rôles est fermée, et le lecteur reçoit 403 sur toute
+  route d'écriture hors son propre compte — une route ajoutée sans contrôle fait
+  échouer la suite. Côté écran, aucune action d'écriture ne lui est proposée
+  (parcours `parcours-lecteur.spec.js`).
+
 ## Tests et CI
 
 ```bash
