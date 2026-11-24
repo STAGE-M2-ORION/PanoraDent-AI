@@ -8,6 +8,9 @@ export {
   fetchAnalysis,
   fetchAnalysisImageUrl,
   fetchAnalysisStatus,
+  fetchAnalysisTimeline,
+  fetchHistory,
+  fetchHistoryCsv,
   fetchComparison,
   launchAnalysis,
   postVerdict,
@@ -33,4 +36,5 @@ export {
   withNumbers,
 } from "./model/analysis";
 export { canReplay, normalizeComparison } from "./model/comparison";
+export { EMPTY_HISTORY_FILTERS, historyParams, normalizeHistoryPage, normalizeTimeline, periodBounds } from "./model/history";
 export { POLL_MS, useAnalysisProgress } from "./model/use-analysis-progress";
