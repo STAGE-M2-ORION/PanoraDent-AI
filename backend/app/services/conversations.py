@@ -10,6 +10,7 @@ valide n'y entre jamais, seul son message d'échec. Dès que l'analyse est
 clôturée, le fil est en lecture seule (ni question, ni effacement) : il fait
 partie de ce que la clôture fige.
 """
+import asyncio
 from datetime import datetime
 
 from fastapi import Request
@@ -64,22 +65,12 @@ def poser(db: Session, analyse: Analysis, *, auteur_id, question: str, request: 
     """Question posée dans le fil : réponse vérifiée (ou refus, ou échec),
     journalisée, puis les deux messages ajoutés au fil."""
     revue.verifier_modifiable(analyse)
-    reponse = assistant.poser_question(db, question, utilisateur_id=auteur_id, analyse=analyse,
-                                       request=request, **reglages)
-    conv = fil(db, analyse, auteur_id)
-    if conv is None:
-        conv = Conversation(analysis_id=analyse.id, auteur_id=auteur_id)
-        db.add(conv)
-        db.flush()
-    rang = len(conv.messages)
-    maintenant = datetime.utcnow()
-    q = Message(rang=rang, role="question", texte=" ".join(question.split()), cree_le=maintenant)
-    r = Message(rang=rang + 1, role="reponse", statut=reponse.statut, texte=reponse.texte,
-                sources=reponse.sources, cree_le=maintenant)
-    conv.messages.extend([q, r])
-    conv.maj_le = maintenant
-    db.commit()
-    return q, r
+    question = assistant.question_valide(question)
+    p = assistant.parametres(db)
+    reglages.setdefault("nombre", p.passages)
+    reglages.setdefault("seuil", p.seuil)
+    reponse = assistant.repondre(db, question, analyse=analyse, **reglages)
+    return _enregistrer(db, analyse, auteur_id, question, reponse, request)
 
 
 def effacer(db: Session, analyse: Analysis, *, auteur_id, request: Request | None = None) -> int:
@@ -95,3 +86,65 @@ def effacer(db: Session, analyse: Analysis, *, auteur_id, request: Request | Non
                      commit=False)
     db.commit()
     return n
+
+
+# --- Au fil de l'eau (sprint 10, lot B) ------------------------------------------
+
+def _enregistrer(db: Session, analyse: Analysis, auteur_id, question: str, reponse: "assistant.Reponse",
+                 request: Request | None) -> tuple[Message, Message]:
+    """Journal, puis les deux messages ajoutés au fil, dans la même transaction."""
+    assistant.journaliser(db, question, reponse, utilisateur_id=auteur_id, analyse=analyse, request=request,
+                          commit=False)
+    conv = fil(db, analyse, auteur_id)
+    if conv is None:
+        conv = Conversation(analysis_id=analyse.id, auteur_id=auteur_id)
+        db.add(conv)
+        db.flush()
+    rang, maintenant = len(conv.messages), datetime.utcnow()
+    q = Message(rang=rang, role="question", texte=question, cree_le=maintenant)
+    r = Message(rang=rang + 1, role="reponse", statut=reponse.statut, texte=reponse.texte,
+                sources=reponse.sources, cree_le=maintenant)
+    conv.messages.extend([q, r])
+    conv.maj_le = maintenant
+    db.commit()
+    return q, r
+
+
+async def repondre_en_flux(fabrique, analyse_id: str, auteur_id, question: str, request: Request | None = None,
+                           *, vectoriseur=None, redacteur=None):
+    """Événements d'une réponse au fil de l'eau : (« debut », n passages),
+    (« fragment », texte)…, puis (« fin », (question, réponse)) une fois la
+    réponse vérifiée et enregistrée.
+
+    Le texte des fragments n'est qu'un brouillon : seule la réponse vérifiée
+    entre dans le fil. Si le flux est coupé (arrêt demandé, navigateur
+    fermé), la rédaction s'arrête côté serveur et le fil garde la question
+    avec une réponse « interrompue », sans le brouillon.
+
+    La session vient de `fabrique` : celle de la requête est déjà fermée
+    quand la réponse en flux commence.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    with fabrique() as db:
+        analyse = db.get(Analysis, analyse_id)
+        p = assistant.parametres(db)
+        db.commit()
+        # Recherche (vectorisation de la question) : appel bloquant, hors de la boucle.
+        prep = await run_in_threadpool(assistant.preparer, db, question, analyse=analyse,
+                                       vectoriseur=vectoriseur, nombre=p.passages, seuil=p.seuil)
+        reponse = prep.reponse
+        try:
+            if reponse is None:
+                yield "debut", len(prep.extraits)
+                async for genre, valeur in assistant.rediger_en_flux(prep, question, redacteur):
+                    if genre == "fragment":
+                        yield "fragment", valeur
+                    else:
+                        reponse = valeur
+        except (asyncio.CancelledError, GeneratorExit):
+            db.rollback()
+            _enregistrer(db, analyse, auteur_id, question,
+                         assistant.Reponse("interrompue", assistant.INTERROMPUE), request)
+            raise
+        yield "fin", _enregistrer(db, analyse, auteur_id, question, reponse, request)

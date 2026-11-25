@@ -136,7 +136,8 @@ def _precision(action: str, d: dict) -> str | None:
     if action == "question_assistant":
         question = str(d.get("question") or "")
         question = question if len(question) <= 80 else question[:79].rstrip() + "…"
-        statut = {"reponse": "réponse", "refus": "sans réponse", "echec": "échec"}.get(d.get("statut"), "?")
+        statut = {"reponse": "réponse", "refus": "sans réponse", "echec": "échec",
+                  "interrompue": "interrompue"}.get(d.get("statut"), "?")
         n = len(d.get("sources") or [])
         sources = f" · {n} source{'s' if n > 1 else ''}" if n else ""
         return f"« {question} » · {statut}{sources}"
