@@ -34,7 +34,7 @@ from . import journal
 from .config import settings
 from .database import SessionLocal
 from .models import Analysis, Detection, StatutAnalyse
-from .services import inference_client, registre_modeles, storage
+from .services import indexation, inference_client, registre_modeles, storage
 
 logger = logging.getLogger("panoradent.worker")
 
@@ -195,13 +195,20 @@ def traiter(db: Session, analyse: Analysis) -> None:
 
 
 def traiter_une(fabrique=SessionLocal) -> bool:
-    """Prend et traite une tâche ; renvoie False si la file est vide."""
+    """Prend et traite une tâche ; renvoie False si la file est vide. Les
+    analyses passent d'abord ; un document de la base documentaire (sprint 9)
+    n'est indexé que lorsqu'aucune analyse n'attend."""
     with fabrique() as db:
         analyse = prendre_une_tache(db)
-        if analyse is None:
+        if analyse is not None:
+            logger.info("Analyse %s (%s) : tentative %s", analyse.reference, analyse.id, analyse.tentatives)
+            traiter(db, analyse)
+            return True
+        document = indexation.prendre_un_document(db)
+        if document is None:
             return False
-        logger.info("Analyse %s (%s) : tentative %s", analyse.reference, analyse.id, analyse.tentatives)
-        traiter(db, analyse)
+        logger.info("Document %s : indexation", document.id)
+        indexation.traiter_document(db, document, storage.get)
         return True
 
 
@@ -220,8 +227,11 @@ def main() -> None:
         try:
             with SessionLocal() as db:
                 n = reprendre_les_taches_interrompues(db)
+                m = indexation.reprendre_les_documents_interrompus(db)
             if n:
                 logger.info("%s analyse(s) interrompue(s) remise(s) en file.", n)
+            if m:
+                logger.info("%s document(s) interrompu(s) remis en attente.", m)
             break
         except Exception as exc:  # noqa: BLE001
             logger.info("Base pas encore prête (%s) ; nouvel essai.", exc.__class__.__name__)

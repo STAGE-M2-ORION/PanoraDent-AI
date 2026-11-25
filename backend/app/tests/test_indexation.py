@@ -300,7 +300,7 @@ def test_changement_de_modele_detecte_et_signale(db):
 
     a_jour = etat_index(db, "factice-hachage-v1")
     assert a_jour["documents_perimes"] == 0 and a_jour["passages_perimes"] == 1
-    assert a_jour["par_etat"] == {"en_attente": 0, "indexe": 1, "echec": 0}
+    assert a_jour["par_etat"] == {"en_attente": 0, "en_cours": 0, "indexe": 1, "echec": 0}
     assert not perime(doc, "factice-hachage-v1")
 
     # Le modèle de vectorisation change : tout l'index est signalé périmé.

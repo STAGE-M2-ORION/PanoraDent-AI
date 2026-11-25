@@ -326,10 +326,11 @@ class BasculeModele(Base):
 
 class EtatDocument:
     """Cycle d'un document de la base documentaire (sprint 9)."""
-    EN_ATTENTE = "en_attente"  # déposé, pas encore découpé ni vectorisé
+    EN_ATTENTE = "en_attente"  # déposé (ou à réindexer) : le worker le prendra
+    EN_COURS = "en_cours"      # pris par le worker
     INDEXE = "indexe"
     ECHEC = "echec"            # extraction ou vectorisation impossible : `erreur` dit pourquoi
-    TOUS = (EN_ATTENTE, INDEXE, ECHEC)
+    TOUS = (EN_ATTENTE, EN_COURS, INDEXE, ECHEC)
 
 
 class Document(Base):
@@ -385,3 +386,20 @@ class Passage(Base):
     vecteur: Mapped[list[float] | None] = mapped_column(Vecteur(), nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="passages")
+
+
+class ParametresAssistant(Base):
+    """Réglages de la recherche de l'assistant (sprint 9) : une seule ligne
+    (id = 1), modifiable dans l'administration de la base documentaire."""
+    __tablename__ = "parametres_assistant"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    # Passages remis au modèle de langage, et similarité minimale d'un passage.
+    passages: Mapped[int] = mapped_column(Integer, default=5)
+    seuil: Mapped[float] = mapped_column(Float, default=0.5)
+    maj_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    maj_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+
+    maj_par = relationship("Utilisateur", foreign_keys=[maj_par_id])
