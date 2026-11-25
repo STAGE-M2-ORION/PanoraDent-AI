@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     # `passages.vecteur` (1024 pour bge-m3).
     modele_vecteurs: str = "bge-m3"
     modele_langage: str = "qwen2.5:3b"
+    # Recherche : passages remis au modèle, et similarité cosinus minimale. Sous
+    # ce seuil, un passage n'est pas jugé pertinent ; si aucun ne le passe,
+    # l'assistant refuse de répondre plutôt que de compléter de mémoire.
+    assistant_passages: int = 5
+    assistant_seuil: float = 0.5
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
