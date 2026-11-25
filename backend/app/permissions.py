@@ -19,6 +19,8 @@ MODEL_MANAGE = "model:manage"
 USER_MANAGE = "user:manage"
 ROLE_MANAGE = "role:manage"
 CABINET_MANAGE = "cabinet:manage"
+ASSISTANT_USE = "assistant:use"
+DOCUMENT_MANAGE = "document:manage"
 
 # code -> libellé affiché dans l'interface d'administration.
 PERMISSIONS: dict[str, str] = {
@@ -33,6 +35,8 @@ PERMISSIONS: dict[str, str] = {
     USER_MANAGE: "Gérer les comptes utilisateurs",
     ROLE_MANAGE: "Gérer les rôles et leurs permissions",
     CABINET_MANAGE: "Modifier les paramètres du cabinet (en-tête des comptes rendus)",
+    ASSISTANT_USE: "Poser des questions à l'assistant documentaire",
+    DOCUMENT_MANAGE: "Gérer la base documentaire de l'assistant",
 }
 
 # Libellés des trois rôles système (colonne `role.libelle`).
@@ -56,7 +60,7 @@ SYSTEM_ROLES: dict[str, frozenset[str]] = {
     ADMIN_ROLE: frozenset(PERMISSIONS),
     PRACTITIONER_ROLE: frozenset({
         ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_DELETE,
-        DETECTION_REVIEW, REPORT_GENERATE, MODEL_READ,
+        DETECTION_REVIEW, REPORT_GENERATE, MODEL_READ, ASSISTANT_USE,
     }),
     VIEWER_ROLE: frozenset({ANALYSIS_READ, MODEL_READ}),
 }

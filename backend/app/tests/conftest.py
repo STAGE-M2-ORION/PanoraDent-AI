@@ -19,6 +19,8 @@ os.environ["APP_URL"] = "http://localhost:3000"
 # bcrypt au coût 4 : mêmes chemins de code, tests rapides (la production exige 12).
 os.environ["BCRYPT_COUT"] = "4"
 os.environ["COURRIEL_MODE"] = "memoire"
+# Assistant sans modèle : vecteurs et réponses factices (Ollama n'est jamais appelé).
+os.environ["ASSISTANT_FOURNISSEUR"] = "factice"
 
 from urllib.parse import parse_qs, urlparse
 

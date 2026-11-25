@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .. import journal
 from ..config import settings
 from ..errors import ApiError
-from ..models import LABEL_DENT, Analysis
+from ..models import LABEL_DENT, Analysis, ParametresAssistant
 from . import revue
 from .compte_rendu import TYPES
 from .recherche import passages_utilisables, rechercher
@@ -49,6 +49,17 @@ class Reponse:
     def en_json(self) -> dict:
         return {"statut": self.statut, "texte": self.texte, "sources": self.sources,
                 "avertissement": AVERTISSEMENT}
+
+
+def parametres(db: Session) -> ParametresAssistant:
+    """Réglages de la recherche : la ligne unique, créée à la première lecture
+    avec les valeurs par défaut de la configuration."""
+    p = db.get(ParametresAssistant, 1)
+    if p is None:
+        p = ParametresAssistant(id=1, passages=settings.assistant_passages, seuil=settings.assistant_seuil)
+        db.add(p)
+        db.flush()
+    return p
 
 
 def contexte_analyse(a: Analysis) -> dict:
@@ -119,6 +130,9 @@ def poser_question(db: Session, question: str, *, utilisateur_id, analyse: Analy
     if not QUESTION_MIN <= len(question) <= QUESTION_MAX:
         raise ApiError(422, "question_invalide",
                        f"La question doit compter entre {QUESTION_MIN} et {QUESTION_MAX} caractères.")
+    p = parametres(db)
+    reglages.setdefault("nombre", p.passages)
+    reglages.setdefault("seuil", p.seuil)
     reponse = repondre(db, question, analyse=analyse, **reglages)
     journal.inscrire(
         db, "question_assistant", journal.ECHEC if reponse.statut == "echec" else journal.SUCCES,

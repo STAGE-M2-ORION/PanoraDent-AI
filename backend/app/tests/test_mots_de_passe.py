@@ -22,7 +22,7 @@ def test_cout_12_par_defaut_et_exige_en_production():
         Settings(
             app_env="production", identity_provider="google", bcrypt_cout=4,
             jwt_secret="x" * 40, google_client_id="id", google_client_secret="s",
-            courriel_mode="smtp", smtp_hote="smtp.example.org",
+            courriel_mode="smtp", smtp_hote="smtp.example.org", assistant_fournisseur="ollama",
         )
 
 

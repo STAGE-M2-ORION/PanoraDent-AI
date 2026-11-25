@@ -421,7 +421,7 @@ def test_production_exige_secret_client_google_et_smtp():
     valide = dict(
         app_env="production", identity_provider="google", jwt_secret="x" * 40,
         google_client_id="a", google_client_secret="b", bcrypt_cout=12,
-        courriel_mode="smtp", smtp_hote="smtp.example.org",
+        courriel_mode="smtp", smtp_hote="smtp.example.org", assistant_fournisseur="ollama",
     )
     Settings(**valide)
     for defaut in (
@@ -516,7 +516,7 @@ def test_roles_systeme_et_crud(admin):
     assert set(roles["Lecteur"]["permissions"]) == {"analysis:read", "model:read"}
     assert set(roles["Praticien"]["permissions"]) == {
         "analysis:create", "analysis:read", "analysis:delete",
-        "detection:review", "report:generate", "model:read",
+        "detection:review", "report:generate", "model:read", "assistant:use",
     }
     for role in roles.values():
         assert admin.delete(f"{BASE}/roles/{role['id']}").status_code == 400
