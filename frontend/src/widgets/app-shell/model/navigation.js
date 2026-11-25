@@ -19,6 +19,7 @@ export const NAVIGATION = [
   { href: "/admin/audit", admin: true, page: "admin-audit", label: "Journal d'audit", icon: "list", permission: Permission.USER_MANAGE },
   { href: "/admin/modeles", admin: true, page: "admin-modeles", label: "Modèles", icon: "cpu", permission: Permission.MODEL_MANAGE },
   { href: "/admin/cabinet", admin: true, page: "admin-cabinet", label: "Cabinet", icon: "file", permission: Permission.CABINET_MANAGE },
+  { href: "/admin/documents", admin: true, page: "admin-documents", label: "Base documentaire", icon: "book", permission: Permission.DOCUMENT_MANAGE },
   { href: "/admin/supervision", admin: true, page: "admin-supervision", label: "Supervision", icon: "activity", permission: Permission.USER_MANAGE },
 ];
 

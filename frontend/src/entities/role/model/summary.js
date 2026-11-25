@@ -15,6 +15,8 @@ const ACTIONS = [
   { codes: ["user:manage"], text: "créer et gérer les comptes" },
   { codes: ["role:manage"], text: "modifier les rôles et leurs permissions" },
   { codes: ["cabinet:manage"], text: "modifier l’en-tête des comptes rendus du cabinet" },
+  { codes: ["assistant:use"], text: "interroger l’assistant documentaire" },
+  { codes: ["document:manage"], text: "gérer la base documentaire de l’assistant" },
 ];
 
 /** « a », « a et b », « a, b et c ». */
