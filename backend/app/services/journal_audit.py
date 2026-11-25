@@ -73,6 +73,7 @@ ACTIONS = {
     "document_supprime": ("Document retiré de la base documentaire", "Assistant documentaire"),
     "document_indexe": ("Document indexé", "Assistant documentaire"),
     "document_echec": ("Indexation d’un document échouée", "Assistant documentaire"),
+    "conversation_effacee": ("Conversation avec l’assistant effacée", "Assistant documentaire"),
     "assistant_parametres": ("Réglages de la recherche de l’assistant", "Assistant documentaire"),
     "bascule_modele": ("Changement de la version du modèle", "Modèles"),
     "cabinet_parametres": ("Modification de l’en-tête du cabinet", "Paramètres et exports"),
@@ -135,7 +136,8 @@ def _precision(action: str, d: dict) -> str | None:
     if action == "question_assistant":
         question = str(d.get("question") or "")
         question = question if len(question) <= 80 else question[:79].rstrip() + "…"
-        statut = {"reponse": "réponse", "refus": "sans réponse", "echec": "échec"}.get(d.get("statut"), "?")
+        statut = {"reponse": "réponse", "refus": "sans réponse", "echec": "échec",
+                  "interrompue": "interrompue"}.get(d.get("statut"), "?")
         n = len(d.get("sources") or [])
         sources = f" · {n} source{'s' if n > 1 else ''}" if n else ""
         return f"« {question} » · {statut}{sources}"
@@ -147,6 +149,8 @@ def _precision(action: str, d: dict) -> str | None:
         return f"« {d['titre']} »"
     if action == "document_reindexation" and "documents" in d:
         return f"{d['documents']} document{'s' if d['documents'] > 1 else ''}"
+    if action == "conversation_effacee" and "messages" in d:
+        return f"{d['messages']} message{'s' if d['messages'] > 1 else ''}"
     if action == "assistant_parametres":
         return f"{d.get('passages')} passages · seuil {d.get('seuil')}"
     if action == "connexion":

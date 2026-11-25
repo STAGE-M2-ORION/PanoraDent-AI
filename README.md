@@ -813,11 +813,63 @@ section, page, extrait) et mène au document — à la bonne page pour un PDF.
 Refus et échecs s'affichent comme tels, sans source. L'avertissement « pas de
 diagnostic » accompagne chaque réponse. Sans `assistant:use` (lecteur), le
 panneau le dit et reste fermé. La démonstration garde ses réponses fictives.
-La conversation n'est pas conservée : le fil par analyse arrive au sprint 10.
+
+**Fil par analyse et réponse au fil de l'eau (sprint 10).** Chaque praticien a
+**son** fil par analyse (`GET`/`DELETE /analyses/{id}/conversation`), repris
+intact ; l'effacement est journalisé ; après clôture, le fil se lit mais ne
+s'écrit plus. `POST /analyses/{id}/conversation/flux` répond en flux
+d'événements (`text/event-stream`) :
+
+| Événement | Contenu |
+|---|---|
+| `debut` | nombre de passages retenus |
+| `fragment` | un morceau de texte — **brouillon non vérifié** |
+| `fin` | question et réponse **vérifiées**, telles qu'enregistrées dans le fil |
+
+Le contrôle des citations porte sur la réponse complète : un brouillon sans
+source est **retiré** à la fin (`fin` porte alors l'échec) et n'entre jamais
+dans le fil. **Arrêter** coupe le flux : la rédaction s'arrête côté serveur (la
+connexion à Ollama est fermée, il cesse de générer) ; le fil garde la question
+avec une réponse « interrompue ». Les refus (droits, analyse clôturée, question
+invalide) restent des réponses JSON, rendues avant l'ouverture du flux.
+nginx relaie chaque événement sans le retenir (`X-Accel-Buffering: no`) et
+attend jusqu'à 5 minutes entre deux (`proxy_read_timeout`) ; Caddy relaie les
+flux d'événements sans réglage.
+
+**Dans le panneau** : le fil est repris à l'ouverture ; la réponse s'écrit en
+brouillon (« les sources sont vérifiées à la fin »), puis la réponse vérifiée
+la remplace — ou le message d'échec si elle ne citait pas ses sources.
+**Arrêter** coupe la connexion. Une réponse se **copie** (avec ses sources) ou
+s'**insère dans la conclusion**, à la suite, marquée `[Assistant documentaire]`
+avec ses sources en clair : le praticien la relit et la réécrit, c'est lui qui
+signe (réservé à qui peut relire, avant clôture ; 4000 caractères au plus).
+**Effacer la conversation** demande une confirmation. Après clôture, le fil se
+relit mais ne se poursuit plus. Les parcours e2e ralentissent le rédacteur
+factice (`ASSISTANT_DELAI_FACTICE`) pour pouvoir l'arrêter.
 
 **Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
 avec `APP_ENV=production`.
+
+## Performances du modèle (sprint 10)
+
+La page **Performance du modèle** affiche les mesures **publiées au registre**
+avec chaque version (`metrics` de `GET /model/versions`, écrites par
+`training/publish_model.py`), **telles quelles** : rien n'est recalculé à
+l'ouverture, une mesure absente reste absente (« non publiée »), aucune valeur
+fictive. Par défaut la version en service ; les autres se consultent.
+
+- **Mesures par classe** (jeu de test) : mAP@50, rappel, précision, nombre
+  d'anomalies, et par cliché la sensibilité et la spécificité ;
+- **Effet du seuil** : pour chaque classe, une phrase en clair (rappel,
+  précision, fausses alertes par cliché au seuil retenu, objectif atteint ou
+  non) et la **courbe précision-rappel de la validation** (un panneau par
+  classe ; survol ou focus d'un point : seuil, rappel, précision ; tableau des
+  données). Une version publiée sans seuils le dit, sans courbe inventée ;
+- **Matrice de confusion** (jeu de test), effectifs écrits dans les cases ;
+- **Comparaison de deux versions** : écart affiché seulement si les deux ont
+  été mesurées sur le même jeu de test (même empreinte du découpage) ; sinon,
+  signalé, colonnes côte à côte, sans conclusion.
 
 ## Journal d'audit (administration)
 
@@ -1138,15 +1190,20 @@ mode réel emprunte la déduction géométrique.
 
 1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
 2. ~~**Relecture par le praticien**~~ Fait (sprint 5) : verdicts, ajouts, clôture,
-   verrouillage ; reste à porter la conclusion dans le compte rendu.
-3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
+   verrouillage ; conclusion portée dans le compte rendu (sprint 8).
+3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal et son écran).
 4. ~~**Historique dans l'UI**~~ Fait (sprint 3), avec le suivi de la file (sprint 4).
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès
    (UFBA-425 immédiat, DENTEX et Tufts à délai) est le vrai chemin critique.
-6. **Page de performance** — `GET /api/v1/model/versions` sert les métriques dès
-   qu'un modèle est publié ; l'UI de restitution reste à écrire.
-7. ~~**Tests d'intégration**~~ Fait : parcours Playwright des sprints 1 à 4 en CI.
+6. ~~**Page de performance**~~ Fait (sprint 10) : mesures du registre, courbes de
+   seuil, matrice, comparaison ; les courbes viennent avec la publication de
+   `dentex-2026.11b` (seuils par classe).
+7. ~~**Tests d'intégration**~~ Fait : parcours Playwright des sprints 1 à 10 en CI.
+8. ~~**Assistant documentaire**~~ Fait (sprints 9 et 10) : réponses sourcées, fil
+   par analyse, réponse au fil de l'eau ; il reste à installer les modèles Ollama
+   au cabinet, à déposer les documents de référence et à régler le seuil de
+   similarité sur de vraies questions.
 
 ---
 

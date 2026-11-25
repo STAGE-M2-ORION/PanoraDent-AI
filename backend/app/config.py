@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     # l'assistant refuse de répondre plutôt que de compléter de mémoire.
     assistant_passages: int = 5
     assistant_seuil: float = 0.5
+    # Rédacteur factice : secondes entre deux mots livrés au fil de l'eau
+    # (les parcours e2e le ralentissent pour pouvoir l'arrêter).
+    assistant_delai_factice: float = 0.02
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

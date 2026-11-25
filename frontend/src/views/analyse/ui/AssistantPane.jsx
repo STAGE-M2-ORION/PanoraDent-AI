@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { AnswerStatus, askAssistant, citationParts, sourceOrigin, validateQuestion } from "@/entities/assistant";
+import {
+  AnswerStatus, citationParts, clipboardText, conclusionBlock, deleteConversation, fetchConversation, sourceOrigin,
+  streamQuestion, validateQuestion,
+} from "@/entities/assistant";
 import { detectionType } from "@/entities/detection";
 import { toAppError } from "@/shared/api";
 import { Icon } from "@/shared/ui";
@@ -8,13 +11,15 @@ import { Icon } from "@/shared/ui";
 import { pct } from "@/widgets/analysis-workspace";
 
 /**
- * Assistant documentaire (sprint 9).
+ * Assistant documentaire (sprints 9 et 10).
  * - En démonstration : les réponses de la maquette, sources fictives, sans
  *   appel au serveur.
- * - Sur une vraie analyse : `POST /assistant/questions`. La réponse ne vient
- *   que des passages de la base documentaire, chaque phrase cite sa source ;
- *   sans passage pertinent, l'assistant le dit au lieu d'inventer. Le serveur
- *   joint le contexte ANONYME de l'analyse (types, dents, confiances).
+ * - Sur une vraie analyse : le fil du praticien est repris à l'ouverture ; la
+ *   réponse s'écrit au fil de l'eau (brouillon), puis est remplacée par la
+ *   réponse VÉRIFIÉE, ou retirée si elle ne cite pas ses sources. « Arrêter »
+ *   coupe la connexion : le serveur cesse de rédiger. Une réponse se copie,
+ *   ou s'insère dans la conclusion (marquée, modifiable). Le fil s'efface ;
+ *   après clôture, il se lit mais ne se poursuit plus.
  *   Réservé à `assistant:use` : sans elle, le panneau le dit et reste muet.
  */
 const SRC = {
@@ -172,8 +177,8 @@ function BotMessage({ m, index, onFeedback }) {
   );
 }
 
-/** Réponse du serveur : texte avec renvois, sources dépliables, avertissement. */
-function RealBotMessage({ answer }) {
+/** Réponse vérifiée : texte avec renvois, sources dépliables, actions, avertissement. */
+function RealBotMessage({ answer, onCopy, onInsert }) {
   const listRef = useRef(null);
   const open = (n) => {
     const src = listRef.current?.querySelector(`[data-source="${n}"]`);
@@ -185,7 +190,7 @@ function RealBotMessage({ answer }) {
   };
   const isAnswer = answer.status === AnswerStatus.ANSWER;
   return (
-    <div className={`msg bot${isAnswer ? "" : " refusal"}`} data-testid="assistant-reponse">
+    <div className={`msg bot${isAnswer ? "" : " refusal"}`} data-testid="assistant-reponse" data-statut={answer.status}>
       <span className="who">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/Icone.svg" alt="" style={{ width: 16, height: 16 }} />
@@ -223,35 +228,121 @@ function RealBotMessage({ answer }) {
                 </details>
               ))}
             </div>
+            <div className="msg-actions">
+              <button type="button" className="vbtn outline" onClick={() => onCopy(answer)}>
+                <Icon name="copy" />
+                Copier
+              </button>
+              {onInsert ? (
+                <button type="button" className="vbtn outline" onClick={() => onInsert(answer)}>
+                  <Icon name="edit" />
+                  Insérer dans la conclusion
+                </button>
+              ) : null}
+            </div>
           </>
         ) : (
           <p>{answer.text}</p>
         )}
+        {answer.status === AnswerStatus.INTERRUPTED ? null : (
+          <p className="reminder">
+            <Icon name="info" />
+            {answer.warning || "Aide à la décision : cette explication ne constitue pas un diagnostic."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Brouillon en cours de rédaction : affiché tel quel, vérifié à la fin. */
+function DraftMessage({ text }) {
+  return (
+    <div className="msg bot draft" data-testid="assistant-brouillon" aria-busy="true">
+      <span className="who">
+        <Icon name="sparkle" />
+        Assistant PanoraDent
+      </span>
+      <div className="body">
+        {text ? (
+          <p>{text}</p>
+        ) : (
+          <span className="typing">
+            <i />
+            <i />
+            <i /> Recherche dans la base documentaire…
+          </span>
+        )}
         <p className="reminder">
-          <Icon name="info" />
-          {answer.warning || "Aide à la décision : cette explication ne constitue pas un diagnostic."}
+          <Icon name="clock" />
+          Rédaction en cours : les sources sont vérifiées à la fin. Une réponse qui ne les cite pas sera retirée.
         </p>
       </div>
     </div>
   );
 }
 
-export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled, canAsk = true }) {
+const DEMO_SUGGESTIONS = (current) => [
+  "Que signifie une lésion péri-apicale ?",
+  current ? `Pourquoi la dent ${current.fdi} est-elle signalée ?` : "Pourquoi la dent 36 est-elle signalée ?",
+  "Quelle différence entre carie et carie profonde ?",
+  "Comment est calculé l'indice de confiance ?",
+];
+
+const INTERRUPTED = { status: AnswerStatus.INTERRUPTED, text: "Réponse interrompue à votre demande.", sources: [], warning: "" };
+
+export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled, canAsk = true, closed = false, onInsertConclusion }) {
   const demo = vm?.demo;
+  const muted = !demo && !canAsk;
   const [msgs, setMsgs] = useState(() => (demo ? DEMO_START : []));
-  const [status, setStatus] = useState("idle");
+  const [thread, setThread] = useState({ loading: !demo && canAsk, suggestions: [], readOnly: false, error: null });
+  const [status, setStatus] = useState("idle"); // idle | loading (démonstration) | streaming | error
+  const [draft, setDraft] = useState(null);
   const [input, setInput] = useState("");
   const [notice, setNotice] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const chatRef = useRef(null);
-  const muted = !demo && !canAsk;
+  const abortRef = useRef(null);
+  const lastQuestion = useRef(null);
+  const analysisId = vm?.id;
+
+  // Reprise du fil à l'ouverture ; une réponse en cours est arrêtée en quittant.
+  useEffect(() => {
+    if (demo || !canAsk || !analysisId) return undefined;
+    let cancelled = false;
+    fetchConversation(analysisId)
+      .then((c) => {
+        if (cancelled) return;
+        setMsgs(c.messages);
+        setThread({ loading: false, suggestions: c.suggestions, readOnly: c.readOnly, error: null });
+      })
+      .catch((cause) => {
+        if (!cancelled) setThread((t) => ({ ...t, loading: false, error: toAppError(cause).message }));
+      });
+    return () => {
+      cancelled = true;
+      abortRef.current?.abort();
+    };
+  }, [demo, canAsk, analysisId]);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [msgs, status]);
+  }, [msgs, status, draft]);
+
+  useEffect(() => {
+    if (!flash) return undefined;
+    const timer = setTimeout(() => setFlash(null), 4000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
+  const busy = status === "loading" || status === "streaming";
+  const readOnly = !demo && (thread.readOnly || closed);
+  const locked = muted || readOnly || thread.loading;
 
   const ask = async (q) => {
     const text = q.replace(/\s+/g, " ").trim();
-    if (!text || status === "loading" || muted) return;
+    if (!text || busy || locked) return;
     if (demo) {
       setMsgs((m) => [...m, { who: "user", text }]);
       setStatus("loading");
@@ -268,22 +359,39 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
       return;
     }
     setNotice(null);
-    setMsgs((m) => [...m, { who: "user", text }]);
-    setStatus("loading");
+    lastQuestion.current = text;
+    setMsgs((m) => [...m, { who: "user", text, pending: true }]);
+    setDraft("");
+    setStatus("streaming");
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const withoutPending = (m) => m.filter((x) => !x.pending);
     try {
-      const answer = await askAssistant({ question: text, analysisId: vm.id });
-      setMsgs((m) => [...m, { who: "bot", real: answer }]);
+      const fin = await streamQuestion(analysisId, text, {
+        signal: controller.signal,
+        onFragment: (fragment) => setDraft((d) => (d ?? "") + fragment),
+      });
+      setMsgs((m) => [...withoutPending(m), fin.question, fin.answer]);
       setStatus("idle");
     } catch (cause) {
-      const error = toAppError(cause);
-      // Refus du serveur (question invalide, droit retiré) : son message ; sinon, l'état « indisponible ».
-      if (error.status && error.status < 500 && error.status !== 408) {
-        setMsgs((m) => m.slice(0, -1));
-        setNotice(error.message);
+      if (cause?.name === "AbortError") {
+        // Le serveur a gardé la question et une réponse « interrompue » : même chose à l'écran.
+        setMsgs((m) => [...withoutPending(m), { who: "user", text }, { who: "bot", answer: INTERRUPTED }]);
         setStatus("idle");
       } else {
-        setStatus("error");
+        const error = toAppError(cause);
+        setMsgs(withoutPending);
+        if (error.status && error.status < 500 && error.status !== 408) {
+          setNotice(error.message);
+          if (error.serverCode === "analyse_cloturee") setThread((t) => ({ ...t, readOnly: true }));
+          setStatus("idle");
+        } else {
+          setStatus("error");
+        }
       }
+    } finally {
+      setDraft(null);
+      abortRef.current = null;
     }
   };
 
@@ -295,21 +403,45 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingQuestion]);
 
+  const stop = () => abortRef.current?.abort();
+
   const retry = () => {
-    const lastUser = [...msgs].reverse().find((m) => m.who === "user");
     setStatus("idle");
-    if (lastUser) {
-      setMsgs((m) => m.filter((x) => x !== lastUser));
-      setTimeout(() => ask(lastUser.text), 0);
+    if (lastQuestion.current) setTimeout(() => ask(lastQuestion.current), 0);
+  };
+
+  const copy = async (answer) => {
+    try {
+      await navigator.clipboard.writeText(clipboardText(answer));
+      setFlash("Réponse copiée, avec ses sources.");
+    } catch {
+      setNotice("Copie impossible : le navigateur refuse l’accès au presse-papiers.");
     }
   };
 
-  const suggestions = [
-    "Que signifie une lésion péri-apicale ?",
-    current ? `Pourquoi la dent ${current.fdi} est-elle signalée ?` : "Pourquoi la dent 36 est-elle signalée ?",
-    "Quelle différence entre carie et carie profonde ?",
-    "Comment est calculé l'indice de confiance ?",
-  ];
+  const insert = async (answer) => {
+    try {
+      await onInsertConclusion(conclusionBlock(answer));
+      setFlash("Réponse insérée dans la conclusion, marquée « Assistant documentaire » : relisez-la et modifiez-la à votre guise.");
+    } catch (cause) {
+      setNotice(toAppError(cause).message);
+    }
+  };
+
+  const clear = async () => {
+    try {
+      await deleteConversation(analysisId);
+      setMsgs([]);
+      setFlash("Conversation effacée.");
+    } catch (cause) {
+      setNotice(toAppError(cause).message);
+    } finally {
+      setConfirmClear(false);
+    }
+  };
+
+  const suggestions = demo ? DEMO_SUGGESTIONS(current) : thread.suggestions;
+  const questions = msgs.filter((m) => m.who === "user").length;
 
   return (
     <>
@@ -318,10 +450,27 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/Icone.svg" alt="" />
           Assistant PanoraDent
+          {!demo && !locked && msgs.length && !busy ? (
+            confirmClear ? (
+              <span className="chat-clear">
+                <button type="button" className="vbtn outline" onClick={clear}>
+                  Confirmer l’effacement
+                </button>
+                <button type="button" className="vbtn" onClick={() => setConfirmClear(false)}>
+                  Annuler
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="vbtn chat-clear" onClick={() => setConfirmClear(true)}>
+                <Icon name="trash" />
+                Effacer la conversation
+              </button>
+            )
+          ) : null}
         </div>
         <div style={{ display: "grid", gap: 4 }}>
           <span>
-            Conversation liée à l&apos;<b>analyse n° {vm?.number}</b> · {msgs.filter((m) => m.who === "user").length} questions
+            Conversation liée à l&apos;<b>analyse n° {vm?.number}</b> · {questions} question{questions > 1 ? "s" : ""}
           </span>
           <span>
             Détection sélectionnée :{" "}
@@ -330,20 +479,20 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
         </div>
       </div>
       <div className="chat" ref={chatRef} aria-live="polite">
+        {thread.loading ? <p className="chat-muted">Chargement de votre conversation…</p> : null}
         {msgs.map((m, i) =>
           m.who === "user" ? (
-            // eslint-disable-next-line react/no-array-index-key
-            <div key={i} className="msg user">
+            <div key={m.id ?? `u${i}`} className="msg user">
               <div className="bubble">{m.text}</div>
             </div>
-          ) : m.real ? (
-            // eslint-disable-next-line react/no-array-index-key
-            <RealBotMessage key={i} answer={m.real} />
+          ) : m.answer ? (
+            <RealBotMessage key={m.id ?? `r${i}`} answer={m.answer} onCopy={copy} onInsert={onInsertConclusion && !readOnly ? insert : null} />
           ) : (
             // eslint-disable-next-line react/no-array-index-key
             <BotMessage key={i} m={m} index={i} onFeedback={(idx, fb) => setMsgs((list) => list.map((x, k) => (k === idx ? { ...x, fb } : x)))} />
           ),
         )}
+        {draft !== null ? <DraftMessage text={draft} /> : null}
         {status === "loading" ? (
           <div className="msg bot">
             <span className="who">
@@ -372,10 +521,14 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
         <p className="chat-muted" role="note">
           L&apos;assistant documentaire n&apos;est pas ouvert à votre rôle. Demandez à l&apos;administrateur si vous en avez besoin.
         </p>
+      ) : readOnly ? (
+        <p className="chat-muted" role="note">
+          Analyse clôturée : la conversation se relit, mais ne se poursuit plus.
+        </p>
       ) : (
         <div className="sugg" aria-label="Suggestions de questions">
           {suggestions.map((q) => (
-            <button key={q} type="button" onClick={() => ask(q)} disabled={status === "loading"}>
+            <button key={q} type="button" onClick={() => ask(q)} disabled={busy || locked}>
               {q}
             </button>
           ))}
@@ -386,11 +539,21 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
           {notice}
         </p>
       ) : null}
+      {thread.error ? (
+        <p className="chat-notice" role="alert">
+          {thread.error}
+        </p>
+      ) : null}
+      {flash ? (
+        <p className="chat-flash" role="status">
+          {flash}
+        </p>
+      ) : null}
       <form
         className="composer"
         onSubmit={(e) => {
           e.preventDefault();
-          if (status === "loading") return;
+          if (busy) return;
           ask(input);
           setInput("");
         }}
@@ -403,19 +566,26 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled,
           id="ask"
           autoComplete="off"
           maxLength={1000}
-          placeholder={muted ? "Assistant non disponible pour votre rôle" : "Posez une question sur cette analyse…"}
+          placeholder={muted ? "Assistant non disponible pour votre rôle" : readOnly ? "Conversation en lecture seule" : "Posez une question sur cette analyse…"}
           value={input}
-          disabled={muted}
+          disabled={locked}
           onChange={(e) => setInput(e.target.value)}
         />
-        <button type="submit" className="vbtn accent" aria-label="Envoyer" disabled={muted || status === "loading"}>
-          <Icon name="send" />
-        </button>
+        {status === "streaming" ? (
+          <button type="button" className="vbtn outline" onClick={stop}>
+            <Icon name="square" />
+            Arrêter
+          </button>
+        ) : (
+          <button type="submit" className="vbtn accent" aria-label="Envoyer" disabled={locked || busy}>
+            <Icon name="send" />
+          </button>
+        )}
       </form>
       <p className="composer-note">
         L&apos;assistant explique à partir de la base documentaire, cite ses sources et ne pose jamais de diagnostic. Il ne
         reçoit que les détections retenues de cette analyse (type, dent, confiance) : ni l&apos;image, ni la référence, ni vos notes.
-        {demo ? null : " La conversation n’est pas conservée : elle s’efface en quittant la page."}
+        {demo ? null : " Votre conversation est conservée avec cette analyse ; vous seul la voyez."}
       </p>
     </>
   );

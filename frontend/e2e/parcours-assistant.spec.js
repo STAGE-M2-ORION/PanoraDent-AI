@@ -4,12 +4,18 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
 /**
- * Sprint 9, lot E — l'assistant documentaire dans la page d'analyse, contre
- * la pile de test (vectoriseur et rédacteur factices) : une question couverte
- * par la base documentaire reçoit une réponse qui cite sa source, dépliable
- * et liée au document ; une question hors documentation est refusée, sans
- * réponse inventée ; l'avertissement « pas de diagnostic » accompagne chaque
- * réponse ; la question est inscrite au journal, rattachée à l'analyse.
+ * L'assistant documentaire dans la page d'analyse, contre la pile de test
+ * (vectoriseur et rédacteur factices, ce dernier ralenti pour être arrêté).
+ *
+ * Sprint 9 : une question couverte par la base documentaire reçoit une réponse
+ * qui cite sa source, dépliable et liée au document ; une question hors
+ * documentation est refusée, sans réponse inventée ; l'avertissement « pas de
+ * diagnostic » accompagne chaque réponse ; la question est au journal.
+ *
+ * Sprint 10 : la réponse s'écrit au fil de l'eau (brouillon), puis est
+ * vérifiée ; le fil est repris intact après rechargement ; « Arrêter » coupe
+ * la réponse, et le fil garde une réponse « interrompue » ; une réponse se
+ * copie et s'insère dans la conclusion, marquée ; le fil s'efface.
  */
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
@@ -25,8 +31,9 @@ async function signInWithGoogle(page, email) {
   await page.waitForURL(/\/admin\/comptes/);
 }
 
-test("le praticien interroge l'assistant depuis une analyse", async ({ page }) => {
-  test.setTimeout(180_000);
+test("le praticien interroge l'assistant depuis une analyse", async ({ page, context }) => {
+  test.setTimeout(240_000);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const marque = Date.now();
   const titre = `Fiches de lecture ${marque}`;
   await page.setViewportSize({ width: 1600, height: 1000 });
@@ -67,8 +74,15 @@ test("le praticien interroge l'assistant depuis une analyse", async ({ page }) =
   // Question couverte par la documentation : réponse sourcée.
   await page.getByRole("tab", { name: /Assistant/ }).click();
   const panneau = page.locator("#paneChat");
+  await expect(panneau.getByText("Chargement de votre conversation…")).toHaveCount(0);
   await panneau.getByLabel("Votre question").fill("Qu'est-ce qu'une lésion péri-apicale ?");
   await panneau.getByRole("button", { name: "Envoyer" }).click();
+  // Au fil de l'eau : un brouillon s'écrit, marqué « vérifié à la fin »…
+  const brouillon = panneau.getByTestId("assistant-brouillon");
+  await expect(brouillon).toContainText("lésion", { timeout: 30_000 });
+  await expect(brouillon).toContainText("les sources sont vérifiées à la fin");
+  // … puis la réponse vérifiée le remplace.
+  await expect(brouillon).toHaveCount(0, { timeout: 60_000 });
   const reponse = panneau.getByTestId("assistant-reponse").first();
   await expect(reponse).toContainText("zone radio-claire autour de l'apex", { timeout: 60_000 });
   await expect(reponse).toContainText("ne pose pas de diagnostic");
@@ -92,10 +106,48 @@ test("le praticien interroge l'assistant depuis une analyse", async ({ page }) =
   await expect(refus).toContainText("Je ne trouve rien dans la documentation de référence", { timeout: 60_000 });
   await expect(refus.locator("details.src")).toHaveCount(0);
 
-  // Les deux questions sont au journal, rattachées à l'analyse.
+  // Le fil est repris intact après rechargement.
+  await page.reload();
+  await page.getByRole("tab", { name: /Assistant/ }).click();
+  await expect(panneau.getByTestId("assistant-reponse")).toHaveCount(2);
+  await expect(panneau.getByTestId("assistant-reponse").first()).toContainText("zone radio-claire autour de l'apex");
+  await expect(panneau.getByText("2 questions")).toBeVisible();
+
+  // « Arrêter » coupe la réponse en cours ; le fil garde une réponse « interrompue ».
+  await panneau.getByLabel("Votre question").fill("Que dit la documentation sur la lésion péri-apicale et la pulpe ?");
+  await panneau.getByRole("button", { name: "Envoyer" }).click();
+  await expect(panneau.getByTestId("assistant-brouillon")).toContainText("lésion", { timeout: 30_000 });
+  await panneau.getByRole("button", { name: "Arrêter" }).click();
+  await expect(panneau.getByTestId("assistant-brouillon")).toHaveCount(0);
+  await expect(panneau.getByTestId("assistant-reponse").nth(2)).toContainText("Réponse interrompue à votre demande");
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/v1/analyses/${analyseId}/conversation`)).json()).messages.map((m) => m.statut))
+    .toEqual([null, "reponse", null, "refus", null, "interrompue"]);
+
+  // Copier une réponse, puis l'insérer dans la conclusion, marquée.
+  const premiere = panneau.getByTestId("assistant-reponse").first();
+  await premiere.getByRole("button", { name: "Copier" }).click();
+  await expect(panneau.getByRole("status").filter({ hasText: "Réponse copiée" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Sources :");
+  await premiere.getByRole("button", { name: "Insérer dans la conclusion" }).click();
+  await expect(panneau.getByRole("status").filter({ hasText: "insérée dans la conclusion" })).toBeVisible();
+  const analyse = await (await page.request.get(`/api/v1/analyses/${analyseId}`)).json();
+  expect(analyse.conclusion).toContain("[Assistant documentaire] Une lésion péri-apicale est une zone radio-claire");
+  expect(analyse.conclusion).toContain(`(Sources : ${titre} — Lésions péri-apicales.)`);
+
+  // Effacer le fil, en deux temps.
+  await panneau.getByRole("button", { name: "Effacer la conversation" }).click();
+  await panneau.getByRole("button", { name: "Confirmer l’effacement" }).click();
+  await expect(panneau.getByRole("status").filter({ hasText: "Conversation effacée." })).toBeVisible();
+  await expect(panneau.getByTestId("assistant-reponse")).toHaveCount(0);
+  expect((await (await page.request.get(`/api/v1/analyses/${analyseId}/conversation`)).json()).messages).toEqual([]);
+
+  // Les questions et l'effacement sont au journal, rattachés à l'analyse.
   const journal = await (await page.request.get("/api/v1/journal", { params: { jours: 1, categorie: "Assistant documentaire" } })).json();
   const questions = journal.sessions.flatMap((s) => s.entrees).filter((e) => e.action === "question_assistant");
   expect(questions.some((e) => e.precision.includes("lésion péri-apicale") && e.precision.includes("réponse · 1 source"))).toBe(true);
   expect(questions.some((e) => e.precision.includes("fracture du fémur") && e.precision.includes("sans réponse"))).toBe(true);
+  expect(questions.some((e) => e.precision.includes("la pulpe") && e.precision.includes("interrompue"))).toBe(true);
+  expect(journal.sessions.flatMap((s) => s.entrees).some((e) => e.action === "conversation_effacee")).toBe(true);
   expect(analyseId).toBeTruthy();
 });

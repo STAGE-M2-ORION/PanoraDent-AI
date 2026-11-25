@@ -82,3 +82,19 @@ export function toAppError(error) {
     details: body.details,
   });
 }
+
+/** Réponse `fetch` en erreur → `AppError`, avec le message du backend s'il y en a un. */
+export async function errorFromResponse(response) {
+  let body = {};
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
+  const message = typeof body?.message === "string" && body.message.trim() ? body.message : undefined;
+  return new AppError(codeFromStatus(response.status), message, {
+    serverCode: typeof body?.code === "string" ? body.code : null,
+    status: response.status,
+    details: body?.details,
+  });
+}

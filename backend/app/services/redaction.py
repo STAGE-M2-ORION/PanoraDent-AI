@@ -9,6 +9,8 @@ résultat dégradé : elle n'est pas montrée.
 Deux rédacteurs, choisis par ASSISTANT_FOURNISSEUR : `ollama` (modèle local
 MODELE_LANGAGE) et `factice` (reprend le passage le plus proche, pour les tests).
 """
+import asyncio
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -96,19 +98,23 @@ class Redacteur(Protocol):
 
     def rediger(self, question: str, extraits: list[Extrait], contexte: dict | None) -> str: ...
 
+    def flux(self, question: str, extraits: list[Extrait], contexte: dict | None):
+        """Générateur asynchrone des fragments de la réponse, à mesure."""
+
 
 class RedacteurOllama:
-    def __init__(self, url: str, modele: str, delai: float = 180.0):
+    def __init__(self, url: str, modele: str, delai: float = 180.0, transport=None):
         self.url, self.modele, self.delai = url.rstrip("/"), modele, delai
         self.nom = modele
+        self.transport = transport   # tests : transport httpx simulé
 
-    def charge(self, question: str, extraits: list[Extrait], contexte: dict | None) -> dict:
+    def charge(self, question: str, extraits: list[Extrait], contexte: dict | None, flux: bool = False) -> dict:
         """Corps exact de la requête envoyée à Ollama (vérifié par les tests)."""
         return {
             "model": self.modele,
             "messages": [{"role": "system", "content": CONSIGNES},
                          {"role": "user", "content": message(question, extraits, contexte)}],
-            "stream": False,
+            "stream": flux,
             # Température basse : la réponse colle aux passages ; bornes de longueur.
             "options": {"temperature": 0.1, "num_predict": 400, "num_ctx": 4096},
         }
@@ -128,14 +134,55 @@ class RedacteurOllama:
         except (ValueError, KeyError, TypeError) as exc:
             raise RedactionImpossible("réponse d'Ollama illisible") from exc
 
+    async def flux(self, question: str, extraits: list[Extrait], contexte: dict | None):
+        """Réponse d'Ollama au fil de l'eau (une ligne JSON par fragment).
+
+        Fermer ce générateur sort des deux `async with` : la connexion HTTP est
+        fermée, et Ollama, qui voit le client partir, arrête la génération.
+        Un arrêt libère donc le modèle au lieu de le laisser écrire pour rien.
+        """
+        # Pas de délai global : seule l'attente entre deux fragments est bornée.
+        delais = httpx.Timeout(10.0, read=self.delai)
+        try:
+            async with httpx.AsyncClient(timeout=delais, transport=self.transport) as client:
+                async with client.stream("POST", f"{self.url}/api/chat",
+                                         json=self.charge(question, extraits, contexte, flux=True)) as resp:
+                    if resp.status_code == 404:
+                        raise RedactionImpossible(f"le modèle « {self.modele} » n'est pas installé dans Ollama")
+                    if resp.status_code >= 400:
+                        raise RedactionImpossible(f"Ollama refuse la requête (HTTP {resp.status_code})")
+                    async for ligne in resp.aiter_lines():
+                        if not ligne.strip():
+                            continue
+                        try:
+                            morceau = json.loads(ligne)
+                        except ValueError as exc:
+                            raise RedactionImpossible("réponse d'Ollama illisible") from exc
+                        texte = (morceau.get("message") or {}).get("content") or ""
+                        if texte:
+                            yield texte
+                        if morceau.get("done"):
+                            return
+        except httpx.HTTPError as exc:
+            raise RedactionImpossible("le modèle de langage (Ollama) ne répond pas") from exc
+
 
 class RedacteurFactice:
-    """Reprend les deux premières phrases du passage le plus proche, citées [1]."""
+    """Reprend les deux premières phrases du passage le plus proche, citées [1].
+    En flux, il livre ses mots un à un, avec `delai` secondes entre deux."""
     nom = "factice"
+
+    def __init__(self, delai: float | None = None):
+        self.delai = settings.assistant_delai_factice if delai is None else delai
 
     def rediger(self, question: str, extraits: list[Extrait], contexte: dict | None) -> str:
         phrases = re.split(r"(?<=[.!?])\s+", extraits[0].texte.strip())
         return " ".join(phrases[:2]).rstrip() + " [1]"
+
+    async def flux(self, question: str, extraits: list[Extrait], contexte: dict | None):
+        for morceau in re.findall(r"\S+\s*", self.rediger(question, extraits, contexte)):
+            await asyncio.sleep(self.delai)
+            yield morceau
 
 
 def redacteur_courant() -> Redacteur:

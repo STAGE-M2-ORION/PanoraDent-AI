@@ -1,77 +1,57 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { activeVersion, fetchModelVersions } from "@/entities/model-version";
+import {
+  activeVersion, compareVersions, fetchModelVersions, formatDelta, formatScore, formatShare, performanceOf, shortHash,
+  thresholdSentence,
+} from "@/entities/model-version";
 import { Permission } from "@/entities/session";
 import { formatDate, useAsyncResource } from "@/shared/lib";
-import { Alert, Badge, KpiRing, VizEmpty } from "@/shared/ui";
+import { Alert, Badge, DataDetails, KpiRing, Select, VizEmpty } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-/**
- * Mesures globales lues dans `metrics` d'une version de modèle (JSON libre
- * côté backend). Clés reconnues : `map50`, `recall`, `precision` (0-1) et
- * `test_images` (entier). Absentes : « à renseigner », jamais de chiffre inventé.
- */
-const GLOBAL_METRICS = [
-  { key: "map50", label: "mAP@50", sub: "Toutes classes", icon: "chart" },
-  { key: "recall", label: "Rappel", sub: "Part des anomalies trouvées", icon: "search" },
-  { key: "precision", label: "Précision", sub: "Part des détections justes", icon: "detect" },
-  { key: "test_images", label: "Images de test", sub: "Jamais vues à l’entraînement", icon: "pano" },
-];
+import { ConfusionMatrix } from "./ConfusionMatrix";
+import { ThresholdCurve } from "./ThresholdCurve";
 
-const CLASSES = [
-  ["det-tooth", "Numérotation des dents", "0,90", "0,90", "0,90"],
-  ["det-caries", "Carie", "0,70", "0,70", "0,90"],
-  ["det-deep", "Carie profonde", "0,60", "0,60", "0,90"],
-  ["det-periapical", "Lésion péri-apicale", "0,50", "0,50", "0,90"],
-  ["det-impacted", "Dent incluse", "0,80", "0,80", "0,90"],
-];
-const MATRIX_NAMES = ["Dents", "Carie", "Carie profonde", "Péri-apicale", "Incluse", "Fond"];
-const MATRIX = [
-  [80, 2, 0, 0, 3, 15],
-  [1, 60, 15, 2, 0, 22],
-  [0, 20, 50, 5, 0, 25],
-  [0, 3, 5, 55, 2, 35],
-  [5, 0, 0, 2, 70, 23],
-  [10, 8, 4, 3, 2, 73],
-];
-
-function Example({ value }) {
-  return (
-    <>
-      <span className="cell-tbd">à renseigner</span>
-      <span className="cell-ex">
-        ex. fictif :{" "}
-        <span className="fict" title="Valeur fictive">
-          {value}
-        </span>
-      </span>
-    </>
-  );
-}
-
-function metricKpi(m, metrics) {
-  const raw = metrics?.[m.key];
-  if (typeof raw !== "number") {
-    return { icon: m.icon, label: `${m.label} · ${m.sub}`, value: "à renseigner", ring: null, ringText: `${m.label} : mesure pas encore disponible`, dir: "flat" };
+function kpi(label, sub, icon, value, { share = true } = {}) {
+  if (value === null || value === undefined) {
+    return { icon, label: `${label} · ${sub}`, value: "non publiée", ring: null, ringText: `${label} : mesure non publiée`, dir: "flat" };
   }
-  if (m.key === "test_images") return { icon: m.icon, label: `${m.label} · ${m.sub}`, value: raw, ring: 100, ringText: `${raw} images de test`, dir: "flat" };
-  const pctValue = Math.round(raw * 100);
-  return { icon: m.icon, label: `${m.label} · ${m.sub}`, value: raw.toLocaleString("fr-FR", { maximumFractionDigits: 2 }), ring: pctValue, ringText: `${m.label} : ${pctValue} %`, dir: "flat" };
+  if (!share) return { icon, label: `${label} · ${sub}`, value, ring: 100, ringText: `${value} ${label.toLowerCase()}`, dir: "flat" };
+  return { icon, label: `${label} · ${sub}`, value: formatScore(value), ring: Math.round(value * 100), ringText: `${label} : ${formatShare(value)}`, dir: "flat" };
 }
 
-/** Performance du modèle : ce qu'il sait faire, mesuré honnêtement, et ses limites. */
+/**
+ * Performance du modèle (sprint 10) : les mesures publiées au registre avec
+ * chaque version, lues telles quelles — jamais recalculées ici. Par défaut la
+ * version en service ; les versions passées se consultent et se comparent,
+ * à jeu de test identique seulement.
+ */
 export function PerformancePage() {
-  const { data: versions } = useAsyncResource(fetchModelVersions);
-  const [threshold, setThreshold] = useState(50);
-  // La version en service, jamais « la plus récente » par supposition.
+  const { data: versions, error } = useAsyncResource(fetchModelVersions);
   const active = activeVersion(versions);
-  const x = 40 + (340 * threshold) / 100;
-  const hasMetrics = active && GLOBAL_METRICS.some((m) => typeof active.metrics?.[m.key] === "number");
+  const [shownId, setShownId] = useState(null);
+  const [pair, setPair] = useState({ a: null, b: null });
+
+  useEffect(() => {
+    if (!versions?.length) return;
+    setShownId((id) => id ?? (active ?? versions[0]).version);
+    setPair((p) => (p.a ? p : { a: versions[1]?.version ?? versions[0].version, b: (active ?? versions[0]).version }));
+  }, [versions, active]);
+
+  const shown = versions?.find((v) => v.version === shownId) ?? null;
+  const perf = useMemo(() => performanceOf(shown), [shown]);
+  const comparison = useMemo(() => {
+    const a = versions?.find((v) => v.version === pair.a);
+    const b = versions?.find((v) => v.version === pair.b);
+    return a && b && a !== b ? compareVersions(a, b) : null;
+  }, [versions, pair]);
+  const g = perf.global;
 
   return (
     <AppShell page="performance" title="Performance du modèle" permission={Permission.MODEL_READ} className="v-performance">
-      <Alert tone="warning" role="note" title="Valeurs d’exemple fictives">
-        Valeurs d’exemple fictives — les mesures réelles seront renseignées après l’évaluation du modèle sur le jeu de test.
+      <Alert tone="warning" role="note" title="Prototype de recherche non certifié">
+        Ces mesures décrivent le modèle sur des radiographies publiques (DENTEX). Elles ne garantissent pas sa performance sur vos
+        clichés : le diagnostic et la conduite à tenir relèvent du praticien.
       </Alert>
 
       <div className="page-head">
@@ -79,117 +59,98 @@ export function PerformancePage() {
           <h2>Performance du modèle</h2>
           <p>Ce que le modèle sait faire, mesuré honnêtement, et ce qu’il ne sait pas faire.</p>
         </div>
+        {versions?.length ? (
+          <div className="perf-version">
+            <label className="label" htmlFor="perf-version">
+              Version affichée
+            </label>
+            <Select id="perf-version" value={shownId ?? ""} onChange={(e) => setShownId(e.target.value)}>
+              {versions.map((v) => (
+                <option key={v.version} value={v.version}>
+                  {v.version}
+                  {v.active ? " (en service)" : ""}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
       </div>
 
+      {error ? (
+        <Alert tone="danger" role="alert">
+          {error.message}
+        </Alert>
+      ) : null}
+
       <section className="kpi-row" aria-label="Mesures globales du modèle">
-        {GLOBAL_METRICS.map((m) => (
-          <KpiRing key={m.key} {...metricKpi(m, active?.metrics)} />
-        ))}
+        <KpiRing {...kpi("mAP@50", "Toutes classes", "chart", g?.map50)} />
+        <KpiRing {...kpi("Rappel", "Part des anomalies trouvées", "search", g?.recall)} />
+        <KpiRing {...kpi("Précision", "Part des détections justes", "detect", g?.precision)} />
+        <KpiRing {...kpi("Images de test", "Jamais vues à l’entraînement", "pano", g?.testImages, { share: false })} />
       </section>
-      <div className="dash-grid">
-        <section className="dcard span-12 signature" aria-labelledby="t-evol">
-          <div className="dcard-h">
-            <div>
-              <h3 id="t-evol">Évolution de la mAP@50 par version</h3>
-              <p>Une courbe par version du modèle, mesurée sur le même jeu de test</p>
-            </div>
-          </div>
-          <div>
-            {hasMetrics ? (
-              <ul className="prog">
-                {versions
-                  .filter((v) => typeof v.metrics?.map50 === "number")
-                  .map((v) => (
-                    <li key={v.version}>
-                      <div className="prog-top">
-                        <span className="prog-name mono">{v.version}</span>
-                        <span className="prog-v mono">{v.metrics.map50.toLocaleString("fr-FR")}</span>
-                      </div>
-                      <div className="prog-trk" role="img" aria-label={`${v.version} : mAP@50 ${v.metrics.map50}`}>
-                        <span className="prog-fill" style={{ "--w": `${v.metrics.map50 * 100}%` }} />
-                      </div>
-                    </li>
-                  ))}
-              </ul>
-            ) : (
-              <VizEmpty title="Pas encore de mesure réelle">La courbe apparaîtra quand le modèle aura été évalué sur le jeu de test. Nous n’affichons aucun chiffre inventé.</VizEmpty>
-            )}
-          </div>
-        </section>
-      </div>
 
       <div className="perf-grid">
         <section className="card card-pad" aria-labelledby="t-modele">
           <div className="card-head">
             <h3 className="section-title" id="t-modele">
-              Modèle actif
+              Version {shown?.version ?? ""}
             </h3>
-            {active ? (
-              <Badge tone="success" dot>
-                Actif
-              </Badge>
+            {shown ? (
+              shown.active ? (
+                <Badge tone="success" dot>
+                  En service
+                </Badge>
+              ) : (
+                <Badge>Archivée</Badge>
+              )
             ) : (
-              <Badge>Aucune version enregistrée</Badge>
+              <Badge>Aucune version publiée</Badge>
             )}
           </div>
           <dl className="meta">
-            <div>
-              <dt>Nom</dt>
-              <dd className="mono">panoradent-yolo</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd className={active ? "mono" : "tbd"}>{active?.version ?? "à renseigner"}</dd>
-            </div>
             <div>
               <dt>Architecture</dt>
               <dd>YOLO (détection d’objets)</dd>
             </div>
             <div>
-              <dt>Date d’entraînement</dt>
-              <dd className={active ? undefined : "tbd"}>{active ? formatDate(active.createdAt) : "à renseigner"}</dd>
+              <dt>Publiée le</dt>
+              <dd>{shown ? formatDate(shown.createdAt) : "—"}</dd>
             </div>
             <div>
               <dt>Jeu de données</dt>
-              <dd>{active?.dataset || "DENTEX — radiographies panoramiques publiques, challenge MICCAI 2023"}</dd>
+              <dd>{shown?.dataset || "DENTEX — radiographies panoramiques publiques"}</dd>
             </div>
             <div>
-              <dt>Nombre d’images</dt>
-              <dd className="tbd">à renseigner</dd>
+              <dt>Jeu de test (empreinte)</dt>
+              <dd className="mono" title={shown?.splitHash ?? ""}>
+                {shortHash(shown?.splitHash)}
+              </dd>
             </div>
             <div>
-              <dt>Répartition entraînement / validation / test</dt>
-              <dd className="tbd">à renseigner</dd>
+              <dt>mAP@50:95</dt>
+              <dd>{formatScore(g?.map5095)}</dd>
             </div>
             <div>
-              <dt>Notes</dt>
-              <dd className={active?.notes ? undefined : "tbd"}>{active?.notes || "à renseigner"}</dd>
+              <dt>Jeu externe (mAP@50)</dt>
+              <dd>{perf.external ? formatScore(perf.external.map50) : "non évalué"}</dd>
             </div>
+            {shown?.notes ? (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <dt>Notes</dt>
+                <dd>{shown.notes}</dd>
+              </div>
+            ) : null}
           </dl>
-          <details className="versions">
-            <summary>Historique des versions</summary>
-            <ul>
-              {(versions ?? []).map((v, i) => (
-                <li key={v.version}>
-                  <span className="mono">{v.version}</span>
-                  <Badge tone={i === 0 ? "success" : undefined}>{i === 0 ? "Active" : "Archivée"}</Badge>
-                  <span className="muted">{formatDate(v.createdAt)}</span>
-                </li>
-              ))}
-              {versions?.length === 0 ? <li className="muted">Aucune version enregistrée.</li> : null}
-            </ul>
-          </details>
         </section>
 
         <section className="card card-pad" aria-labelledby="t-lexique">
           <h3 className="section-title" id="t-lexique">
             Petit lexique
           </h3>
-          <p className="section-lead">Les mots utilisés plus bas, sans jargon.</p>
           <dl className="lexicon" style={{ gridTemplateColumns: "1fr" }}>
             <div>
-              <dt>mAP (précision moyenne)</dt>
-              <dd>À quel point les cadres proposés tombent juste, toutes confiances confondues.</dd>
+              <dt>mAP@50 (précision moyenne)</dt>
+              <dd>À quel point les cadres proposés tombent juste, toutes confiances confondues (recouvrement d’au moins 50 %).</dd>
             </div>
             <div>
               <dt>Rappel (sensibilité)</dt>
@@ -197,15 +158,11 @@ export function PerformancePage() {
             </div>
             <div>
               <dt>Précision</dt>
-              <dd>Part des propositions du modèle qui sont justes. Pour un détecteur de cadres, elle remplace la spécificité, qui n’a pas de sens sans « vrais négatifs ».</dd>
+              <dd>Part des propositions du modèle qui sont justes : ce qui n’est pas une fausse alerte.</dd>
             </div>
             <div>
               <dt>Seuil de confiance</dt>
-              <dd>Niveau minimal de confiance au-dessous duquel une détection n’est pas affichée.</dd>
-            </div>
-            <div>
-              <dt>IoU</dt>
-              <dd>Recouvrement entre le cadre proposé et le cadre de référence.</dd>
+              <dd>Confiance minimale pour qu’une détection soit proposée. Plus bas : moins d’oublis, plus de fausses alertes.</dd>
             </div>
           </dl>
         </section>
@@ -215,162 +172,181 @@ export function PerformancePage() {
         <h3 className="section-title" id="t-classes">
           Mesures par classe
         </h3>
-        <p className="section-lead">Les mesures réelles sont à renseigner ; l’exemple fictif en dessous illustre seulement le format attendu.</p>
-        <div className="table-wrap">
-          <table className="table stack">
-            <caption className="sr-only">Mesures par classe : mAP@50, rappel, précision, nombre d’exemples du jeu de test</caption>
-            <thead>
-              <tr>
-                <th scope="col">Classe</th>
-                <th scope="col">mAP@50</th>
-                <th scope="col">Rappel</th>
-                <th scope="col">Précision</th>
-                <th scope="col">Exemples du jeu de test</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CLASSES.map((c) => (
-                <tr key={c[1]}>
-                  <td>
-                    <span className="cls">
-                      <span className={`det-swatch ${c[0]}`} />
-                      {c[1]}
-                    </span>
-                  </td>
-                  <td>
-                    <Example value={c[2]} />
-                  </td>
-                  <td>
-                    <Example value={c[3]} />
-                  </td>
-                  <td>
-                    <Example value={c[4]} />
-                  </td>
-                  <td>
-                    <Example value="100" />
-                  </td>
+        <p className="section-lead">
+          Mesurées une seule fois sur le jeu de test, au moment de la publication. Par cliché : le modèle signale-t-il la classe sur un cliché qui
+          la porte (sensibilité), et s’en abstient-il sur un cliché qui ne la porte pas (spécificité) ?
+        </p>
+        {perf.perClass.length ? (
+          <div className="table-wrap">
+            <table className="table stack">
+              <caption className="sr-only">Mesures par classe sur le jeu de test</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Classe</th>
+                  <th scope="col" className="num">mAP@50</th>
+                  <th scope="col" className="num">Rappel</th>
+                  <th scope="col" className="num">Précision</th>
+                  <th scope="col" className="num">Sensibilité par cliché</th>
+                  <th scope="col" className="num">Spécificité par cliché</th>
+                  <th scope="col" className="num">Anomalies du test</th>
                 </tr>
-              ))}
-              <tr className="total">
-                <th scope="row">Toutes classes</th>
-                <td data-label="mAP@50">
-                  <Example value="0,70" />
-                </td>
-                <td data-label="Rappel">
-                  <Example value="0,70" />
-                </td>
-                <td data-label="Précision">
-                  <Example value="0,90" />
-                </td>
-                <td data-label="Exemples du jeu de test">
-                  <Example value="500" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {perf.perClass.map((r) => (
+                  <tr key={r.cls}>
+                    <th scope="row">{r.label}</th>
+                    <td data-label="mAP@50" className="num mono">{formatScore(r.map50)}</td>
+                    <td data-label="Rappel" className="num mono">{formatShare(r.recall)}</td>
+                    <td data-label="Précision" className="num mono">{formatShare(r.precision)}</td>
+                    <td data-label="Sensibilité par cliché" className="num mono">{formatShare(r.sensitivity)}</td>
+                    <td data-label="Spécificité par cliché" className="num mono">{formatShare(r.specificity)}</td>
+                    <td data-label="Anomalies du test" className="num mono">{r.instances ?? "—"}</td>
+                  </tr>
+                ))}
+                {g ? (
+                  <tr className="total">
+                    <th scope="row">Toutes classes</th>
+                    <td data-label="mAP@50" className="num mono">{formatScore(g.map50)}</td>
+                    <td data-label="Rappel" className="num mono">{formatShare(g.recall)}</td>
+                    <td data-label="Précision" className="num mono">{formatShare(g.precision)}</td>
+                    <td className="num mono">—</td>
+                    <td className="num mono">—</td>
+                    <td data-label="Images de test" className="num mono">{g.testImages ?? "—"} images</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <VizEmpty title="Mesures par classe non publiées">Cette version a été publiée sans le détail par classe. Aucun chiffre n’est inventé.</VizEmpty>
+        )}
       </section>
 
       <section className="card card-pad" aria-labelledby="t-seuil">
         <h3 className="section-title" id="t-seuil">
-          Seuil de confiance
+          Effet du seuil de confiance
         </h3>
-        <p className="section-lead">Un seuil bas fait apparaître plus de détections (moins d’oublis, plus de fausses alertes) ; un seuil haut l’inverse.</p>
-        <div className="perf-grid">
-          <div className="field">
-            <label className="label" htmlFor="seuil">
-              Seuil de confiance
-            </label>
-            <div className="slider-row">
-              <input type="range" id="seuil" min="0" max="100" step="1" value={threshold} aria-describedby="seuil-txt" onChange={(e) => setThreshold(Number(e.target.value))} />
-              <output className="slider-val" htmlFor="seuil">
-                {threshold} %
-              </output>
+        <p className="section-lead">
+          Abaisser le seuil fait proposer davantage : moins d’anomalies manquées, mais plus de fausses alertes. Chaque classe a son seuil, choisi
+          sur la <strong>validation</strong> (jamais sur le test) ; les courbes ci-dessous sont celles de la validation, à quelques seuils.
+        </p>
+        {perf.thresholds?.length ? (
+          <>
+            <ul className="seuil-phrases">
+              {perf.thresholds.map((t) => (
+                <li key={t.cls}>
+                  <strong>{t.label}.</strong> {thresholdSentence(t)}
+                </li>
+              ))}
+            </ul>
+            <div className="pr-grid">
+              {perf.thresholds.filter((t) => t.curve.length).map((t) => (
+                <ThresholdCurve key={t.cls} item={t} />
+              ))}
             </div>
-            <p className="hint" id="seuil-txt" aria-live="polite">
-              {threshold < 35
-                ? "Seuil bas : plus de détections affichées, moins d’oublis, plus de fausses alertes."
-                : threshold > 65
-                  ? "Seuil haut : moins de détections affichées, plus d’oublis possibles, moins de fausses alertes."
-                  : "Seuil intermédiaire : compromis entre oublis et fausses alertes."}
-            </p>
-          </div>
-          <figure style={{ margin: 0 }}>
-            <svg className="curve" viewBox="0 0 400 230" role="img" aria-label="Schéma illustratif : le rappel baisse et la précision monte quand le seuil augmente. Courbe non mesurée.">
-              <line x1="40" y1="190" x2="380" y2="190" stroke="var(--color-border-strong)" />
-              <line x1="40" y1="20" x2="40" y2="190" stroke="var(--color-border-strong)" />
-              <path d="M40 40 C150 42 260 80 380 170" fill="none" stroke="var(--color-primary)" strokeWidth="3" />
-              <path d="M40 170 C150 120 260 70 380 36" fill="none" stroke="var(--color-ink)" strokeWidth="3" strokeDasharray="7 5" />
-              <line x1={x} y1="20" x2={x} y2="190" stroke="var(--color-muted)" strokeWidth="1.5" />
-              <text x="210" y="214" textAnchor="middle">
-                Seuil de confiance (0 → 100 %)
-              </text>
-              <text x="12" y="105" transform="rotate(-90 12 105)" textAnchor="middle">
-                Niveau
-              </text>
-            </svg>
-            <figcaption className="legend">
-              <span>
-                <i />
-                Rappel (oublis évités)
-              </span>
-              <span>
-                <i className="dash" />
-                Précision (fausses alertes évitées)
-              </span>
-            </figcaption>
-            <p className="hint" style={{ marginTop: "var(--space-2)" }}>
-              <Badge tone="warning">courbe illustrative, non mesurée</Badge>
-            </p>
-          </figure>
-        </div>
+            <DataDetails
+              caption="Courbes de seuil de la validation, par classe"
+              head={["Classe et seuil", "Rappel", "Précision"]}
+              rows={perf.thresholds.flatMap((t) => t.curve.map((p) => [`${t.label} — seuil ${formatScore(p.threshold)}`, formatShare(p.recall), formatShare(p.precision)]))}
+            />
+          </>
+        ) : (
+          <VizEmpty title="Seuils non publiés avec cette version">
+            Cette version a été publiée avant le choix des seuils par classe : ni seuils, ni courbes de validation au registre. Ils le seront avec la
+            prochaine publication. Aucune courbe n’est inventée.
+          </VizEmpty>
+        )}
       </section>
 
       <section className="card card-pad" aria-labelledby="t-matrice">
         <h3 className="section-title" id="t-matrice">
-          Matrice de confusion — exemple fictif
+          Matrice de confusion
         </h3>
         <p className="section-lead">
-          Lecture : ligne = classe réelle, colonne = classe prédite ; plus la case est foncée, plus la part est grande. Chaque ligne est exprimée en pourcentage, valeurs fictives.
+          Sur le jeu de test. Ligne : ce que le modèle a proposé ; colonne : ce qui était vraiment là. La diagonale compte les bonnes
+          détections ; « fond » regroupe les anomalies manquées (colonne) et les propositions sans anomalie (ligne).
         </p>
-        <p className="axis">Classe prédite →</p>
-        <div className="matrix-wrap">
-          <table className="matrix">
-            <caption className="sr-only">Matrice de confusion fictive, lignes : classe réelle, colonnes : classe prédite</caption>
-            <thead>
-              <tr>
-                <td style={{ background: "none" }} />
-                {MATRIX_NAMES.map((n) => (
-                  <th key={n} scope="col">
-                    {n}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {MATRIX.map((row, i) => (
-                <tr key={MATRIX_NAMES[i]}>
-                  <th scope="row" className="rowh">
-                    {MATRIX_NAMES[i]}
-                  </th>
-                  {row.map((v, j) => (
-                    <td
-                      // eslint-disable-next-line react/no-array-index-key
-                      key={j}
-                      title="Valeur fictive"
-                      style={{
-                        background: `color-mix(in srgb, var(--color-primary) ${Math.round(Math.max(0.06, v / 100) * 100)}%, var(--color-surface))`,
-                        color: v >= 45 ? "var(--color-surface)" : "var(--color-ink)",
-                      }}
-                    >
-                      <span className="fict">{v} %</span>
-                    </td>
+        {perf.confusion ? (
+          <ConfusionMatrix confusion={perf.confusion} />
+        ) : (
+          <VizEmpty title="Matrice non publiée">Cette version a été publiée sans matrice de confusion.</VizEmpty>
+        )}
+      </section>
+
+      <section className="card card-pad" aria-labelledby="t-comparer">
+        <h3 className="section-title" id="t-comparer">
+          Comparer deux versions
+        </h3>
+        <p className="section-lead">Un écart de mAP ne veut dire quelque chose que si les deux versions ont été mesurées sur le même jeu de test.</p>
+        {versions?.length >= 2 ? (
+          <>
+            <div className="perf-pair">
+              <div>
+                <label className="label" htmlFor="cmp-a">
+                  Version A
+                </label>
+                <Select id="cmp-a" value={pair.a ?? ""} onChange={(e) => setPair((p) => ({ ...p, a: e.target.value }))}>
+                  {versions.map((v) => (
+                    <option key={v.version} value={v.version}>
+                      {v.version}
+                    </option>
                   ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                </Select>
+              </div>
+              <div>
+                <label className="label" htmlFor="cmp-b">
+                  Version B
+                </label>
+                <Select id="cmp-b" value={pair.b ?? ""} onChange={(e) => setPair((p) => ({ ...p, b: e.target.value }))}>
+                  {versions.map((v) => (
+                    <option key={v.version} value={v.version}>
+                      {v.version}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            {!comparison ? (
+              <p className="hint">Choisissez deux versions différentes.</p>
+            ) : (
+              <>
+                {comparison.comparable ? null : (
+                  <Alert tone="warning" role="note" title="Jeux de test différents : pas de conclusion">
+                    Les deux versions n’ont pas été mesurées sur le même jeu de test (empreintes {shortHash(comparison.a.splitHash)} et{" "}
+                    {shortHash(comparison.b.splitHash)}). Leurs mesures sont montrées côte à côte, sans écart : les comparer ne voudrait rien dire.
+                  </Alert>
+                )}
+                <div className="table-wrap">
+                  <table className="table stack" data-testid="comparaison">
+                    <caption className="sr-only">Comparaison de deux versions du modèle</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Mesure</th>
+                        <th scope="col" className="num">{comparison.a.version}</th>
+                        <th scope="col" className="num">{comparison.b.version}</th>
+                        {comparison.comparable ? <th scope="col" className="num">Écart (B − A)</th> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparison.rows.map((r) => (
+                        <tr key={r.label}>
+                          <th scope="row">{r.label}</th>
+                          <td data-label={comparison.a.version} className="num mono">{formatScore(r.a)}</td>
+                          <td data-label={comparison.b.version} className="num mono">{formatScore(r.b)}</td>
+                          {comparison.comparable ? (
+                            <td data-label="Écart (B − A)" className="num mono">{formatDelta(r.delta)}</td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <VizEmpty title="Une seule version publiée">La comparaison sera possible dès la publication d’une seconde version.</VizEmpty>
+        )}
       </section>
 
       <div className="perf-grid">
@@ -394,13 +370,15 @@ export function PerformancePage() {
           </h3>
           <ol className="steps" style={{ gridTemplateColumns: "1fr" }}>
             <li>
-              <strong>Un jeu de test séparé</strong>Des images jamais vues par le modèle pendant l’entraînement.
+              <strong>Un jeu de test séparé, évalué une seule fois</strong>Des images jamais vues pendant l’entraînement ; les réglages se font sur la
+              validation, jamais sur le test.
             </li>
             <li>
-              <strong>Comparaison aux annotations de référence</strong>Chaque cadre proposé est comparé à celui des annotations de référence de DENTEX.
+              <strong>Comparaison aux annotations de référence</strong>Un cadre proposé compte comme juste si sa classe est la bonne et qu’il recouvre
+              le cadre de référence à 50 % au moins.
             </li>
             <li>
-              <strong>Calcul par classe</strong>Les mesures sont calculées séparément pour chaque classe, puis toutes classes confondues.
+              <strong>Publié avec la version</strong>Les mesures sont écrites au registre à la publication et lues ici telles quelles.
             </li>
           </ol>
         </section>
