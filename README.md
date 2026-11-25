@@ -836,6 +836,17 @@ nginx relaie chaque événement sans le retenir (`X-Accel-Buffering: no`) et
 attend jusqu'à 5 minutes entre deux (`proxy_read_timeout`) ; Caddy relaie les
 flux d'événements sans réglage.
 
+**Dans le panneau** : le fil est repris à l'ouverture ; la réponse s'écrit en
+brouillon (« les sources sont vérifiées à la fin »), puis la réponse vérifiée
+la remplace — ou le message d'échec si elle ne citait pas ses sources.
+**Arrêter** coupe la connexion. Une réponse se **copie** (avec ses sources) ou
+s'**insère dans la conclusion**, à la suite, marquée `[Assistant documentaire]`
+avec ses sources en clair : le praticien la relit et la réécrit, c'est lui qui
+signe (réservé à qui peut relire, avant clôture ; 4000 caractères au plus).
+**Effacer la conversation** demande une confirmation. Après clôture, le fil se
+relit mais ne se poursuit plus. Les parcours e2e ralentissent le rédacteur
+factice (`ASSISTANT_DELAI_FACTICE`) pour pouvoir l'arrêter.
+
 **Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
 avec `APP_ENV=production`.

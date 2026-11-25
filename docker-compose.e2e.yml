@@ -48,6 +48,8 @@ services:
       # seuil à l'échelle du vectoriseur factice (hachage des mots).
       ASSISTANT_FOURNISSEUR: factice
       ASSISTANT_SEUIL: "0.2"
+      # Réponse au fil de l'eau assez lente pour qu'on puisse l'arrêter (sprint 10).
+      ASSISTANT_DELAI_FACTICE: "0.15"
 
   # Le worker indexe les documents : même vectoriseur factice que le backend.
   worker:
