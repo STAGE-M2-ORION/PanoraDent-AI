@@ -813,7 +813,28 @@ section, page, extrait) et mène au document — à la bonne page pour un PDF.
 Refus et échecs s'affichent comme tels, sans source. L'avertissement « pas de
 diagnostic » accompagne chaque réponse. Sans `assistant:use` (lecteur), le
 panneau le dit et reste fermé. La démonstration garde ses réponses fictives.
-La conversation n'est pas conservée : le fil par analyse arrive au sprint 10.
+
+**Fil par analyse et réponse au fil de l'eau (sprint 10).** Chaque praticien a
+**son** fil par analyse (`GET`/`DELETE /analyses/{id}/conversation`), repris
+intact ; l'effacement est journalisé ; après clôture, le fil se lit mais ne
+s'écrit plus. `POST /analyses/{id}/conversation/flux` répond en flux
+d'événements (`text/event-stream`) :
+
+| Événement | Contenu |
+|---|---|
+| `debut` | nombre de passages retenus |
+| `fragment` | un morceau de texte — **brouillon non vérifié** |
+| `fin` | question et réponse **vérifiées**, telles qu'enregistrées dans le fil |
+
+Le contrôle des citations porte sur la réponse complète : un brouillon sans
+source est **retiré** à la fin (`fin` porte alors l'échec) et n'entre jamais
+dans le fil. **Arrêter** coupe le flux : la rédaction s'arrête côté serveur (la
+connexion à Ollama est fermée, il cesse de générer) ; le fil garde la question
+avec une réponse « interrompue ». Les refus (droits, analyse clôturée, question
+invalide) restent des réponses JSON, rendues avant l'ouverture du flux.
+nginx relaie chaque événement sans le retenir (`X-Accel-Buffering: no`) et
+attend jusqu'à 5 minutes entre deux (`proxy_read_timeout`) ; Caddy relaie les
+flux d'événements sans réglage.
 
 **Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
