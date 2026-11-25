@@ -81,10 +81,17 @@ class VectoriseurOllama:
         return _verifier(vecteurs, len(textes), f"Le modèle « {self.modele} »")
 
 
+# Mots vides : sans eux, deux phrases sans rapport se ressembleraient par
+# leurs « une », « est » ou « dans ».
+_VIDES = frozenset("""les des une est sont qui que quoi quel quelle quels quelles dans pour par sur sous avec
+sans aux du ces cet cette son ses leur leurs mais donc car pas plus moins tres ete etre avoir fait elle elles
+ils nous vous comment pourquoi quand entre vers chez ainsi aussi comme dont tout tous toute toutes""".split())
+
+
 def _mots(texte: str) -> list[str]:
     sans_accents = unicodedata.normalize("NFKD", texte.lower())
     sans_accents = "".join(c for c in sans_accents if not unicodedata.combining(c))
-    return [m for m in re.findall(r"[a-z0-9]+", sans_accents) if len(m) > 2]
+    return [m for m in re.findall(r"[a-z0-9]+", sans_accents) if len(m) > 2 and m not in _VIDES]
 
 
 def _case(terme: str) -> tuple[int, float]:
