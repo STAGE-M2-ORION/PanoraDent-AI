@@ -1190,15 +1190,20 @@ mode réel emprunte la déduction géométrique.
 
 1. ~~**Rendre les URLs présignées utilisables depuis le navigateur**~~ Fait (proxy `/storage/`).
 2. ~~**Relecture par le praticien**~~ Fait (sprint 5) : verdicts, ajouts, clôture,
-   verrouillage ; reste à porter la conclusion dans le compte rendu.
-3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal) ; reste l'écran du journal.
+   verrouillage ; conclusion portée dans le compte rendu (sprint 8).
+3. ~~**Authentification** — protéger les routes, restreindre le CORS.~~ Fait (mot de passe + Google, permissions, cookies `httpOnly`, journal et son écran).
 4. ~~**Historique dans l'UI**~~ Fait (sprint 3), avec le suivi de la file (sprint 4).
 5. **Modèle réel** — le pipeline [`training/`](training/) et la numérotation FDI
    sont en place ; il manque **les données**. Lancer les demandes d'accès
    (UFBA-425 immédiat, DENTEX et Tufts à délai) est le vrai chemin critique.
-6. **Page de performance** — `GET /api/v1/model/versions` sert les métriques dès
-   qu'un modèle est publié ; l'UI de restitution reste à écrire.
-7. ~~**Tests d'intégration**~~ Fait : parcours Playwright des sprints 1 à 4 en CI.
+6. ~~**Page de performance**~~ Fait (sprint 10) : mesures du registre, courbes de
+   seuil, matrice, comparaison ; les courbes viennent avec la publication de
+   `dentex-2026.11b` (seuils par classe).
+7. ~~**Tests d'intégration**~~ Fait : parcours Playwright des sprints 1 à 10 en CI.
+8. ~~**Assistant documentaire**~~ Fait (sprints 9 et 10) : réponses sourcées, fil
+   par analyse, réponse au fil de l'eau ; il reste à installer les modèles Ollama
+   au cabinet, à déposer les documents de référence et à régler le seuil de
+   similarité sur de vraies questions.
 
 ---
 
