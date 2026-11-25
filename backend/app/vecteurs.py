@@ -45,7 +45,8 @@ class _VectorPg(UserDefinedType):
 
 class Vecteur(TypeDecorator):
     """Vecteur de flottants de dimension fixe : pgvector, ou JSON sous SQLite."""
-    impl = JSON
+    # none_as_null : un vecteur absent est un vrai NULL SQL, pas le JSON `null`.
+    impl = JSON(none_as_null=True)
     cache_ok = True
 
     def __init__(self, dimension: int = DIMENSION):
@@ -55,7 +56,7 @@ class Vecteur(TypeDecorator):
     def load_dialect_impl(self, dialect):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(_VectorPg(self.dimension))
-        return dialect.type_descriptor(JSON())
+        return dialect.type_descriptor(JSON(none_as_null=True))
 
     def process_bind_param(self, valeur, dialect):
         if valeur is None:

@@ -8,6 +8,7 @@ DEFAULT_JWT_SECRET = "change-me-in-prod"
 ENVIRONNEMENTS = {"development", "test", "production"}
 FOURNISSEURS = {"google", "fake"}
 MODES_COURRIEL = {"console", "memoire", "smtp"}
+FOURNISSEURS_ASSISTANT = {"ollama", "factice"}
 
 
 class Settings(BaseSettings):
@@ -83,6 +84,17 @@ class Settings(BaseSettings):
     # Alerte d'administration au-delà de ce volume occupé dans le stockage objet.
     stockage_alerte_go: float = 50.0
 
+    # --- Assistant documentaire (sprint 9) ----------------------------------
+    # `ollama` : modèles locaux servis par le conteneur Ollama, rien ne sort du
+    # cabinet ; `factice` : vecteurs et réponses calculés sans modèle (tests,
+    # parcours e2e), refusé quand APP_ENV=production.
+    assistant_fournisseur: str = "ollama"
+    ollama_url: str = "http://ollama:11434"
+    # Modèle de vectorisation : sa dimension doit valoir celle de la colonne
+    # `passages.vecteur` (1024 pour bge-m3).
+    modele_vecteurs: str = "bge-m3"
+    modele_langage: str = "qwen2.5:3b"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
@@ -105,7 +117,12 @@ class Settings(BaseSettings):
             raise ValueError("COURRIEL_MODE=memoire n'est autorisé qu'avec APP_ENV=test.")
         if mode == "smtp" and not self.smtp_hote:
             raise ValueError("SMTP_HOTE est obligatoire quand COURRIEL_MODE=smtp.")
+        assistant = self.assistant_fournisseur.lower()
+        if assistant not in FOURNISSEURS_ASSISTANT:
+            raise ValueError(f"ASSISTANT_FOURNISSEUR inconnu : {self.assistant_fournisseur!r}.")
         if env == "production":
+            if assistant == "factice":
+                raise ValueError("ASSISTANT_FOURNISSEUR=factice est refusé quand APP_ENV=production.")
             if self.bcrypt_cout < 12:
                 raise ValueError("BCRYPT_COUT doit valoir au moins 12 quand APP_ENV=production.")
             if mode != "smtp":
