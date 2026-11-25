@@ -44,7 +44,14 @@ services:
       ADMIN_EMAIL: admin@e2e.example.org
       COURRIEL_MODE: memoire
       BCRYPT_COUT: "4"
-      # Assistant sans modèle : vecteurs et réponses factices (refusé hors test et développement).
+      # Assistant sans modèle : vecteurs et réponses factices (refusé en production),
+      # seuil à l'échelle du vectoriseur factice (hachage des mots).
+      ASSISTANT_FOURNISSEUR: factice
+      ASSISTANT_SEUIL: "0.2"
+
+  # Le worker indexe les documents : même vectoriseur factice que le backend.
+  worker:
+    environment:
       ASSISTANT_FOURNISSEUR: factice
 
   frontend:

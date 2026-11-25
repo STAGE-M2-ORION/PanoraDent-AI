@@ -774,6 +774,38 @@ ses passages précédents. Si `MODELE_VECTEURS` change, les passages vectorisés
 avec l'ancien modèle sont **signalés périmés** (`etat_index`) et ne seront
 jamais comparés aux nouveaux.
 
+**Recherche et réponse** (`services/recherche.py`, `redaction.py`, `assistant.py`) :
+la question est comparée aux seuls passages vectorisés par le modèle courant ;
+si aucun ne passe le **seuil de similarité**, l'assistant refuse (« je ne
+trouve rien dans la documentation ») **sans appeler le modèle**. Sinon, le
+modèle rédige à partir des passages retenus et, si la question vient d'une
+analyse, de son **contexte anonyme** (version du modèle, type, dent et
+confiance des anomalies retenues — ni image, ni référence, ni note, ni
+conclusion, ni praticien). Chaque paragraphe doit citer un passage (`[1]`) :
+une réponse sans source valide est un échec, jamais affichée. Question,
+statut, réponse et sources sont inscrits au journal.
+
+**Routes et permissions** :
+
+| Route | Rôle | Permission |
+|---|---|---|
+| `POST /assistant/questions` | `{question, analyse_id?}` → réponse sourcée ou refus | `assistant:use` |
+| `GET` / `PUT /assistant/parametres` | passages (1–10) et seuil (0–1), journalisé | `document:manage` |
+| `GET /documents` | documents, état de l'index, réglages | `document:manage` |
+| `POST /documents` | dépôt (PDF ou Markdown, 20 Mo, doublon refusé) | `document:manage` |
+| `PUT /documents/{id}/fichier` | nouvelle version du fichier | `document:manage` |
+| `POST /documents/{id}/reindexation` | réindexer un document | `document:manage` |
+| `POST /documents/reindexation` | réindexer les périmés et les échecs | `document:manage` |
+| `DELETE /documents/{id}` | retirer un document et ses passages | `document:manage` |
+| `GET /documents/{id}/fichier` | ouvrir une source citée | `assistant:use` |
+
+`assistant:use` est accordée à l'administrateur et au praticien ; le lecteur,
+en lecture seule, ne pose pas de question (chaque question est journalisée).
+L'indexation est faite par le **worker**, jamais pendant la requête : un
+document déposé est « en attente », puis « indexé » ou « en échec » avec son
+motif ; les analyses passent toujours avant les documents. Écran :
+**Administration › Base documentaire**.
+
 **Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
 avec `APP_ENV=production`.
