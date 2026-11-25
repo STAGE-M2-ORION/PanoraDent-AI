@@ -238,6 +238,8 @@ CORPS = {
     ("POST", "/api/v1/analyses/{analysis_id}/cloturer"): {},
     ("POST", "/api/v1/analyses/{analysis_id}/dents/{fdi}/absente"): None,     # sprint 7
     ("DELETE", "/api/v1/analyses/{analysis_id}/dents/{fdi}/absente"): None,   # sprint 7
+    ("POST", "/api/v1/analyses/{analysis_id}/conversation/messages"): {"question": "Une question ?"},  # sprint 10
+    ("DELETE", "/api/v1/analyses/{analysis_id}/conversation"): None,                                   # sprint 10
 }
 
 
