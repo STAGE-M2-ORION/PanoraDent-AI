@@ -44,6 +44,8 @@ services:
       ADMIN_EMAIL: admin@e2e.example.org
       COURRIEL_MODE: memoire
       BCRYPT_COUT: "4"
+      # Assistant sans modèle : vecteurs et réponses factices (refusé hors test et développement).
+      ASSISTANT_FOURNISSEUR: factice
 
   frontend:
     ports: !override

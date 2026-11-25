@@ -742,6 +742,42 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
   échouer la suite. Côté écran, aucune action d'écriture ne lui est proposée
   (parcours `parcours-lecteur.spec.js`).
 
+## Assistant documentaire (sprint 9)
+
+L'assistant répond aux questions du praticien **à partir des seuls documents
+de référence** déposés dans la base documentaire, en citant ses sources. Les
+modèles tournent dans le cabinet (Ollama) : aucune donnée ne sort.
+
+**Mise en route** (une fois ; plusieurs Go à télécharger) :
+
+```bash
+docker compose --profile assistant up -d
+docker compose exec ollama ollama pull bge-m3       # vectorisation, ~1,2 Go
+docker compose exec ollama ollama pull qwen2.5:3b   # rédaction, ~2 Go
+```
+
+**Ingestion d'un document** (`services/indexation.py`) :
+
+1. extraction du texte (`services/extraction_texte.py`) — Markdown : sections
+   tirées des titres (`Lésions › Signes`) ; PDF : une page par bloc, section
+   tirée du sommaire (signets). Un PDF scanné, sans texte, est refusé (pas d'OCR) ;
+2. découpage (`services/decoupage.py`) en passages d'environ **800 caractères**,
+   **120 de recouvrement**, coupés en fin de phrase, sans déborder d'une
+   section ni d'une page ;
+3. vectorisation (`services/vectorisation.py`) par `MODELE_VECTEURS`, par lots
+   de 16 ; le titre de section précède le texte vectorisé ;
+4. enregistrement : chaque passage garde le **modèle qui l'a vectorisé**.
+
+Réindexer un document ne touche que ses passages. Un échec (texte introuvable,
+Ollama absent) met le document à l'état `echec` avec son motif, sans effacer
+ses passages précédents. Si `MODELE_VECTEURS` change, les passages vectorisés
+avec l'ancien modèle sont **signalés périmés** (`etat_index`) et ne seront
+jamais comparés aux nouveaux.
+
+**Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
+hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
+avec `APP_ENV=production`.
+
 ## Journal d'audit (administration)
 
 `GET /api/v1/journal` (`user:manage`) lit le journal (table `journal`, en ajout
