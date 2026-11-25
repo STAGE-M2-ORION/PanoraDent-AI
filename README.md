@@ -806,6 +806,15 @@ document déposé est « en attente », puis « indexé » ou « en échec » av
 motif ; les analyses passent toujours avant les documents. Écran :
 **Administration › Base documentaire**.
 
+**Dans la page d'analyse** (onglet *Assistant*) : la question part avec
+l'identifiant de l'analyse, le serveur y joint le contexte anonyme. La réponse
+s'affiche avec ses renvois `[1]` : un clic déplie la source (document,
+section, page, extrait) et mène au document — à la bonne page pour un PDF.
+Refus et échecs s'affichent comme tels, sans source. L'avertissement « pas de
+diagnostic » accompagne chaque réponse. Sans `assistant:use` (lecteur), le
+panneau le dit et reste fermé. La démonstration garde ses réponses fictives.
+La conversation n'est pas conservée : le fil par analyse arrive au sprint 10.
+
 **Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
 avec `APP_ENV=production`.
