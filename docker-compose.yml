@@ -43,10 +43,18 @@ x-backend-env: &backend-env
   SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
   # Alerte d'administration au-delà de ce volume (Go) dans le stockage objet.
   STOCKAGE_ALERTE_GO: ${STOCKAGE_ALERTE_GO:-50}
+  # --- Assistant documentaire (sprint 9) ---
+  # `ollama` : modèles locaux (service `ollama`, profil « assistant ») ;
+  # `factice` : sans modèle, pour les tests (refusé en production).
+  ASSISTANT_FOURNISSEUR: ${ASSISTANT_FOURNISSEUR:-ollama}
+  OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+  MODELE_VECTEURS: ${MODELE_VECTEURS:-bge-m3}
+  MODELE_LANGAGE: ${MODELE_LANGAGE:-qwen2.5:3b}
 
 services:
   db:
-    image: postgres:16-alpine
+    # PostgreSQL 16 avec l'extension pgvector (assistant documentaire, sprint 9).
+    image: pgvector/pgvector:0.8.0-pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-panoradent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-panoradent}
@@ -100,6 +108,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Modèles de langage et de vectorisation de l'assistant, servis en local :
+  # aucune donnée ne sort du cabinet. Profil « assistant » : l'image et les
+  # modèles (plusieurs Go) ne bloquent pas le reste de la pile.
+  #   docker compose --profile assistant up -d
+  #   docker compose exec ollama ollama pull bge-m3
+  #   docker compose exec ollama ollama pull qwen2.5:3b
+  ollama:
+    image: ollama/ollama:0.5.7
+    profiles: ["assistant"]
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     environment: *backend-env
@@ -142,3 +167,4 @@ services:
 volumes:
   db_data:
   minio_data:
+  ollama_data:

@@ -93,6 +93,19 @@ def test_actions_groupees_par_session_avec_etat_et_methode(admin, creer_compte, 
     assert g_prat["entrees"][0]["precision"] == "Par e-mail et mot de passe"
 
 
+def test_a_horodatage_egal_la_connexion_ouvre_la_session(admin, creer_compte, db):
+    """Horloge grossière : la connexion et l'action qui suit peuvent porter la
+    même date. La connexion reste en tête de sa session."""
+    creer_compte("dr.egal@cabinet.example.org")
+    lignes = db.scalars(select(Journal).where(Journal.action.in_(("connexion", "creation_compte")))).all()
+    date = max(l.horodatage for l in lignes)
+    for l in lignes:
+        l.horodatage = date
+    db.commit()
+    g = next(g for g in lire(admin)["sessions"] if any(e["action"] == "creation_compte" for e in g["entrees"]))
+    assert [e["action"] for e in g["entrees"]][:2] == ["connexion", "creation_compte"]
+
+
 def test_connexion_refusee_dans_les_tentatives_et_filtre_des_echecs(admin, compte_mdp, nouveau_client):
     compte_mdp("dr.oubli@cabinet.example.org", prenom="Fara", nom="Oubli")
     assert connexion_mdp(nouveau_client(), "dr.oubli@cabinet.example.org", "mauvais mot de passe").status_code == 401

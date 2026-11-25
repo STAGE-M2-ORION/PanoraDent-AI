@@ -7,6 +7,7 @@ export const PERMISSION_GROUPS = [
   { legend: "Revue des détections", codes: ["detection:review", "analysis:reopen"] },
   { legend: "Comptes rendus", codes: ["report:generate"] },
   { legend: "Modèle", codes: ["model:read", "model:manage"] },
+  { legend: "Assistant documentaire", codes: ["assistant:use", "document:manage"] },
   { legend: "Administration", codes: ["user:manage", "role:manage", "cabinet:manage"] },
 ];
 
@@ -22,11 +23,13 @@ const MATRIX_LABELS = {
   "user:manage": "Gestion des utilisateurs",
   "role:manage": "Gestion des rôles",
   "cabinet:manage": "Paramètres du cabinet (en-tête des comptes rendus)",
+  "assistant:use": "Questions à l’assistant documentaire",
+  "document:manage": "Gestion de la base documentaire de l’assistant",
 };
 
 /** Réservées à l'administration : signalées « Sensible ». */
 // La réouverture lève le verrou d'une analyse clôturée : réservée, elle aussi.
-export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage", "model:manage", "analysis:reopen", "cabinet:manage"]);
+export const SENSITIVE_PERMISSIONS = new Set(["user:manage", "role:manage", "model:manage", "analysis:reopen", "cabinet:manage", "document:manage"]);
 
 /** Ordre d'affichage : celui des groupes, puis les codes inconnus. */
 export function orderedPermissions(catalog) {

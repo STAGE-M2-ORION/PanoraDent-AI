@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
+import { AnswerStatus, askAssistant, citationParts, sourceOrigin, validateQuestion } from "@/entities/assistant";
 import { detectionType } from "@/entities/detection";
+import { toAppError } from "@/shared/api";
 import { Icon } from "@/shared/ui";
 
 import { pct } from "@/widgets/analysis-workspace";
 
 /**
- * Assistant documentaire. Le backend n'a pas encore de service d'assistant :
- * - en démonstration, les réponses de la maquette (sources fictives) ;
- * - sur une vraie analyse, l'état « indisponible » de la maquette, sans
- *   réponse inventée.
+ * Assistant documentaire (sprint 9).
+ * - En démonstration : les réponses de la maquette, sources fictives, sans
+ *   appel au serveur.
+ * - Sur une vraie analyse : `POST /assistant/questions`. La réponse ne vient
+ *   que des passages de la base documentaire, chaque phrase cite sa source ;
+ *   sans passage pertinent, l'assistant le dit au lieu d'inventer. Le serveur
+ *   joint le contexte ANONYME de l'analyse (types, dents, confiances).
+ *   Réservé à `assistant:use` : sans elle, le panneau le dit et reste muet.
  */
 const SRC = {
   lpa: { t: "Lésions péri-apicales : signes radiologiques", o: "Base documentaire de démonstration · fiche 12", q: "…zone radio-claire centrée sur l'apex, de taille et de contours variables ; l'image seule ne permet pas d'en préciser la nature." },
@@ -166,31 +172,119 @@ function BotMessage({ m, index, onFeedback }) {
   );
 }
 
-export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled }) {
+/** Réponse du serveur : texte avec renvois, sources dépliables, avertissement. */
+function RealBotMessage({ answer }) {
+  const listRef = useRef(null);
+  const open = (n) => {
+    const src = listRef.current?.querySelector(`[data-source="${n}"]`);
+    if (!src) return;
+    src.open = true;
+    src.classList.add("flash");
+    src.scrollIntoView({ block: "nearest" });
+    setTimeout(() => src.classList.remove("flash"), 1200);
+  };
+  const isAnswer = answer.status === AnswerStatus.ANSWER;
+  return (
+    <div className={`msg bot${isAnswer ? "" : " refusal"}`} data-testid="assistant-reponse">
+      <span className="who">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/Icone.svg" alt="" style={{ width: 16, height: 16 }} />
+        Assistant PanoraDent
+      </span>
+      <div className="body">
+        {isAnswer ? (
+          <>
+            <p>
+              {citationParts(answer.text, answer.sources).map((part, i) =>
+                typeof part === "number" ? (
+                  // eslint-disable-next-line react/no-array-index-key
+                  <button key={i} type="button" className="cite" aria-label={`Source ${part}`} onClick={() => open(part)}>
+                    [{part}]
+                  </button>
+                ) : (
+                  // eslint-disable-next-line react/no-array-index-key
+                  <span key={i}>{part}</span>
+                ),
+              )}
+            </p>
+            <div className="srcs" ref={listRef} aria-label="Sources citées">
+              {answer.sources.map((src) => (
+                <details key={src.number} className="src" data-source={src.number}>
+                  <summary>
+                    <b>
+                      [{src.number}] {src.title}
+                    </b>
+                    <span className="origin">{sourceOrigin(src)}</span>
+                  </summary>
+                  <q>{src.excerpt}</q>
+                  <a className="src-link" href={src.url} target="_blank" rel="noopener noreferrer">
+                    Ouvrir le document{src.page ? ` à la page ${src.page}` : ""}
+                  </a>
+                </details>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p>{answer.text}</p>
+        )}
+        <p className="reminder">
+          <Icon name="info" />
+          {answer.warning || "Aide à la décision : cette explication ne constitue pas un diagnostic."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled, canAsk = true }) {
   const demo = vm?.demo;
   const [msgs, setMsgs] = useState(() => (demo ? DEMO_START : []));
   const [status, setStatus] = useState("idle");
   const [input, setInput] = useState("");
+  const [notice, setNotice] = useState(null);
   const chatRef = useRef(null);
+  const muted = !demo && !canAsk;
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [msgs, status]);
 
-  const ask = (q) => {
-    const text = q.trim();
-    if (!text || status === "loading") return;
+  const ask = async (q) => {
+    const text = q.replace(/\s+/g, " ").trim();
+    if (!text || status === "loading" || muted) return;
+    if (demo) {
+      setMsgs((m) => [...m, { who: "user", text }]);
+      setStatus("loading");
+      const delay = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 200 : 1100;
+      setTimeout(() => {
+        setMsgs((m) => [...m, { who: "bot", ...route(text) }]);
+        setStatus("idle");
+      }, delay);
+      return;
+    }
+    const invalid = validateQuestion(text);
+    if (invalid) {
+      setNotice(invalid);
+      return;
+    }
+    setNotice(null);
     setMsgs((m) => [...m, { who: "user", text }]);
     setStatus("loading");
-    const delay = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 200 : 1100;
-    setTimeout(() => {
-      if (demo) {
-        setMsgs((m) => [...m, { who: "bot", ...route(text) }]);
+    try {
+      const answer = await askAssistant({ question: text, analysisId: vm.id });
+      setMsgs((m) => [...m, { who: "bot", real: answer }]);
+      setStatus("idle");
+    } catch (cause) {
+      const error = toAppError(cause);
+      // Refus du serveur (question invalide, droit retiré) : son message ; sinon, l'état « indisponible ».
+      if (error.status && error.status < 500 && error.status !== 408) {
+        setMsgs((m) => m.slice(0, -1));
+        setNotice(error.message);
         setStatus("idle");
       } else {
         setStatus("error");
       }
-    }, delay);
+    }
   };
 
   useEffect(() => {
@@ -242,6 +336,9 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled 
             <div key={i} className="msg user">
               <div className="bubble">{m.text}</div>
             </div>
+          ) : m.real ? (
+            // eslint-disable-next-line react/no-array-index-key
+            <RealBotMessage key={i} answer={m.real} />
           ) : (
             // eslint-disable-next-line react/no-array-index-key
             <BotMessage key={i} m={m} index={i} onFeedback={(idx, fb) => setMsgs((list) => list.map((x, k) => (k === idx ? { ...x, fb } : x)))} />
@@ -271,17 +368,29 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled 
           </div>
         ) : null}
       </div>
-      <div className="sugg" aria-label="Suggestions de questions">
-        {suggestions.map((q) => (
-          <button key={q} type="button" onClick={() => ask(q)}>
-            {q}
-          </button>
-        ))}
-      </div>
+      {muted ? (
+        <p className="chat-muted" role="note">
+          L&apos;assistant documentaire n&apos;est pas ouvert à votre rôle. Demandez à l&apos;administrateur si vous en avez besoin.
+        </p>
+      ) : (
+        <div className="sugg" aria-label="Suggestions de questions">
+          {suggestions.map((q) => (
+            <button key={q} type="button" onClick={() => ask(q)} disabled={status === "loading"}>
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+      {notice ? (
+        <p className="chat-notice" role="alert">
+          {notice}
+        </p>
+      ) : null}
       <form
         className="composer"
         onSubmit={(e) => {
           e.preventDefault();
+          if (status === "loading") return;
           ask(input);
           setInput("");
         }}
@@ -289,13 +398,24 @@ export function AssistantPane({ vm, current, pendingQuestion, onQuestionHandled 
         <label htmlFor="ask" className="sr-only">
           Votre question
         </label>
-        <input className="vinput" id="ask" autoComplete="off" placeholder="Posez une question sur cette analyse…" value={input} onChange={(e) => setInput(e.target.value)} />
-        <button type="submit" className="vbtn accent" aria-label="Envoyer">
+        <input
+          className="vinput"
+          id="ask"
+          autoComplete="off"
+          maxLength={1000}
+          placeholder={muted ? "Assistant non disponible pour votre rôle" : "Posez une question sur cette analyse…"}
+          value={input}
+          disabled={muted}
+          onChange={(e) => setInput(e.target.value)}
+        />
+        <button type="submit" className="vbtn accent" aria-label="Envoyer" disabled={muted || status === "loading"}>
           <Icon name="send" />
         </button>
       </form>
       <p className="composer-note">
-        L&apos;assistant explique, cite ses sources et ne pose jamais de diagnostic. Il n&apos;a accès qu&apos;aux détections de cette analyse, jamais à l&apos;image hors du serveur.
+        L&apos;assistant explique à partir de la base documentaire, cite ses sources et ne pose jamais de diagnostic. Il ne
+        reçoit que les détections retenues de cette analyse (type, dent, confiance) : ni l&apos;image, ni la référence, ni vos notes.
+        {demo ? null : " La conversation n’est pas conservée : elle s’efface en quittant la page."}
       </p>
     </>
   );

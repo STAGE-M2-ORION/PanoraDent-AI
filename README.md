@@ -178,7 +178,7 @@ Compose. Principes :
 | `backend` | `./backend` (python:3.11-slim) | `8000` | *aucun* |
 | `worker` | `./backend`, commande `python -m app.worker` | *aucun* | *aucun* (journal « Worker prêt. ») |
 | `inference` | `./inference` (python:3.11-slim) | `8001` | `/health`, 10 s, 5 essais |
-| `db` | `postgres:16-alpine` | `5432` | `pg_isready`, 5 s, 10 essais |
+| `db` | `pgvector/pgvector:0.8.0-pg16` (PostgreSQL 16 + pgvector) | `5432` | `pg_isready`, 5 s, 10 essais |
 | `minio` | `pgsty/minio:latest` | `9000`, `9001` | `mc ready local`, 5 s, 10 essais |
 
 **Ordre de démarrage** : `backend` attend `db` et `minio` *healthy*, mais
@@ -188,6 +188,20 @@ démarrer avant le chargement du modèle, sans conséquence. `frontend` dépend 
 
 **Volumes** : `db_data` et `minio_data`. `make clean` (`docker compose down -v`)
 les supprime — **données perdues**.
+
+**Passage de `postgres:16-alpine` à `pgvector/pgvector:0.8.0-pg16` (sprint 9).**
+Même version majeure : le volume `db_data` existant est repris tel quel. Mais
+l'ancienne image (musl) et la nouvelle (glibc) ne trient pas le texte de la
+même façon ; les index sur des colonnes de texte (adresses e-mail, journal…)
+doivent être reconstruits **une fois**, juste après le changement d'image :
+
+```bash
+docker compose up -d db
+docker compose exec db psql -U panoradent -d panoradent -c "REINDEX DATABASE panoradent;"
+docker compose up -d
+```
+
+Inutile sur une base neuve (CI, e2e, première installation).
 
 ---
 
@@ -727,6 +741,83 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
   route d'écriture hors son propre compte — une route ajoutée sans contrôle fait
   échouer la suite. Côté écran, aucune action d'écriture ne lui est proposée
   (parcours `parcours-lecteur.spec.js`).
+
+## Assistant documentaire (sprint 9)
+
+L'assistant répond aux questions du praticien **à partir des seuls documents
+de référence** déposés dans la base documentaire, en citant ses sources. Les
+modèles tournent dans le cabinet (Ollama) : aucune donnée ne sort.
+
+**Mise en route** (une fois ; plusieurs Go à télécharger) :
+
+```bash
+docker compose --profile assistant up -d
+docker compose exec ollama ollama pull bge-m3       # vectorisation, ~1,2 Go
+docker compose exec ollama ollama pull qwen2.5:3b   # rédaction, ~2 Go
+```
+
+**Ingestion d'un document** (`services/indexation.py`) :
+
+1. extraction du texte (`services/extraction_texte.py`) — Markdown : sections
+   tirées des titres (`Lésions › Signes`) ; PDF : une page par bloc, section
+   tirée du sommaire (signets). Un PDF scanné, sans texte, est refusé (pas d'OCR) ;
+2. découpage (`services/decoupage.py`) en passages d'environ **800 caractères**,
+   **120 de recouvrement**, coupés en fin de phrase, sans déborder d'une
+   section ni d'une page ;
+3. vectorisation (`services/vectorisation.py`) par `MODELE_VECTEURS`, par lots
+   de 16 ; le titre de section précède le texte vectorisé ;
+4. enregistrement : chaque passage garde le **modèle qui l'a vectorisé**.
+
+Réindexer un document ne touche que ses passages. Un échec (texte introuvable,
+Ollama absent) met le document à l'état `echec` avec son motif, sans effacer
+ses passages précédents. Si `MODELE_VECTEURS` change, les passages vectorisés
+avec l'ancien modèle sont **signalés périmés** (`etat_index`) et ne seront
+jamais comparés aux nouveaux.
+
+**Recherche et réponse** (`services/recherche.py`, `redaction.py`, `assistant.py`) :
+la question est comparée aux seuls passages vectorisés par le modèle courant ;
+si aucun ne passe le **seuil de similarité**, l'assistant refuse (« je ne
+trouve rien dans la documentation ») **sans appeler le modèle**. Sinon, le
+modèle rédige à partir des passages retenus et, si la question vient d'une
+analyse, de son **contexte anonyme** (version du modèle, type, dent et
+confiance des anomalies retenues — ni image, ni référence, ni note, ni
+conclusion, ni praticien). Chaque paragraphe doit citer un passage (`[1]`) :
+une réponse sans source valide est un échec, jamais affichée. Question,
+statut, réponse et sources sont inscrits au journal.
+
+**Routes et permissions** :
+
+| Route | Rôle | Permission |
+|---|---|---|
+| `POST /assistant/questions` | `{question, analyse_id?}` → réponse sourcée ou refus | `assistant:use` |
+| `GET` / `PUT /assistant/parametres` | passages (1–10) et seuil (0–1), journalisé | `document:manage` |
+| `GET /documents` | documents, état de l'index, réglages | `document:manage` |
+| `POST /documents` | dépôt (PDF ou Markdown, 20 Mo, doublon refusé) | `document:manage` |
+| `PUT /documents/{id}/fichier` | nouvelle version du fichier | `document:manage` |
+| `POST /documents/{id}/reindexation` | réindexer un document | `document:manage` |
+| `POST /documents/reindexation` | réindexer les périmés et les échecs | `document:manage` |
+| `DELETE /documents/{id}` | retirer un document et ses passages | `document:manage` |
+| `GET /documents/{id}/fichier` | ouvrir une source citée | `assistant:use` |
+
+`assistant:use` est accordée à l'administrateur et au praticien ; le lecteur,
+en lecture seule, ne pose pas de question (chaque question est journalisée).
+L'indexation est faite par le **worker**, jamais pendant la requête : un
+document déposé est « en attente », puis « indexé » ou « en échec » avec son
+motif ; les analyses passent toujours avant les documents. Écran :
+**Administration › Base documentaire**.
+
+**Dans la page d'analyse** (onglet *Assistant*) : la question part avec
+l'identifiant de l'analyse, le serveur y joint le contexte anonyme. La réponse
+s'affiche avec ses renvois `[1]` : un clic déplie la source (document,
+section, page, extrait) et mène au document — à la bonne page pour un PDF.
+Refus et échecs s'affichent comme tels, sans source. L'avertissement « pas de
+diagnostic » accompagne chaque réponse. Sans `assistant:use` (lecteur), le
+panneau le dit et reste fermé. La démonstration garde ses réponses fictives.
+La conversation n'est pas conservée : le fil par analyse arrive au sprint 10.
+
+**Tests et e2e** : `ASSISTANT_FOURNISSEUR=factice` remplace Ollama par un
+hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
+avec `APP_ENV=production`.
 
 ## Journal d'audit (administration)
 

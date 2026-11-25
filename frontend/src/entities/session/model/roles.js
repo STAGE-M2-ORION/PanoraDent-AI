@@ -34,6 +34,8 @@ export const Permission = {
   USER_MANAGE: "user:manage",
   ROLE_MANAGE: "role:manage",
   CABINET_MANAGE: "cabinet:manage",
+  ASSISTANT_USE: "assistant:use",
+  DOCUMENT_MANAGE: "document:manage",
 };
 
 /**

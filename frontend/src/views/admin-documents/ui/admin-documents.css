@@ -1,0 +1,18 @@
+/* Écran « admin-documents » — styles propres, confinés sous .v-admin-documents. */
+
+.v-admin-documents {
+  .doc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; margin-bottom: var(--space-4); }
+  .doc-grid form, .doc-grid section { display: grid; gap: var(--space-4); }
+  .doc-grid .card-head { margin-bottom: var(--space-2); }
+  .doc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
+  .doc-stats div { display: grid; gap: 2px; }
+  .doc-stats dt { font-size: var(--text-xs); color: var(--color-ink-muted, #64748b); }
+  .doc-stats dd { margin: 0; font-size: var(--text-lg); font-weight: 600; overflow-wrap: anywhere; }
+  .doc-error { color: var(--color-danger, #b91c1c); max-width: 40ch; }
+  .doc-empty { padding: var(--space-4); text-align: center; color: var(--color-ink-muted, #64748b); }
+
+  @media (max-width: 900px) {
+    .doc-grid { grid-template-columns: 1fr; }
+    .doc-stats { grid-template-columns: 1fr 1fr; }
+  }
+}

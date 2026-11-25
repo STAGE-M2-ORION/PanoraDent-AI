@@ -28,7 +28,7 @@ from ..models import Analysis, Detection, Verdict
 from ..schemas import _nom
 
 CATEGORIES = ("Connexions et sécurité", "Comptes et rôles", "Analyses", "Relecture", "Comptes rendus",
-              "Modèles", "Paramètres et exports")
+              "Assistant documentaire", "Modèles", "Paramètres et exports")
 
 # action -> (libellé, catégorie). Un test exige qu'aucune action journalisée n'en manque.
 ACTIONS = {
@@ -66,6 +66,14 @@ ACTIONS = {
     "verdict_ajouter": ("Détection ajoutée par le praticien", "Relecture"),
     "compte_rendu_genere": ("Compte rendu affiché", "Comptes rendus"),
     "compte_rendu_telecharge": ("Compte rendu téléchargé", "Comptes rendus"),
+    "question_assistant": ("Question à l’assistant documentaire", "Assistant documentaire"),
+    "document_depose": ("Document ajouté à la base documentaire", "Assistant documentaire"),
+    "document_remplace": ("Document de la base documentaire remplacé", "Assistant documentaire"),
+    "document_reindexation": ("Réindexation demandée", "Assistant documentaire"),
+    "document_supprime": ("Document retiré de la base documentaire", "Assistant documentaire"),
+    "document_indexe": ("Document indexé", "Assistant documentaire"),
+    "document_echec": ("Indexation d’un document échouée", "Assistant documentaire"),
+    "assistant_parametres": ("Réglages de la recherche de l’assistant", "Assistant documentaire"),
     "bascule_modele": ("Changement de la version du modèle", "Modèles"),
     "cabinet_parametres": ("Modification de l’en-tête du cabinet", "Paramètres et exports"),
     "cabinet_logo": ("Logo du cabinet", "Paramètres et exports"),
@@ -124,6 +132,23 @@ def motif_lisible(motif: str) -> str:
 
 def _precision(action: str, d: dict) -> str | None:
     """Détail lisible, à partir des seuls champs connus (jamais un jeton ni un mot de passe)."""
+    if action == "question_assistant":
+        question = str(d.get("question") or "")
+        question = question if len(question) <= 80 else question[:79].rstrip() + "…"
+        statut = {"reponse": "réponse", "refus": "sans réponse", "echec": "échec"}.get(d.get("statut"), "?")
+        n = len(d.get("sources") or [])
+        sources = f" · {n} source{'s' if n > 1 else ''}" if n else ""
+        return f"« {question} » · {statut}{sources}"
+    if action.startswith("document_") and d.get("titre"):
+        if action == "document_echec":
+            return f"« {d['titre']} » · {d.get('erreur') or 'échec'}"
+        if action == "document_indexe":
+            return f"« {d['titre']} » · {d.get('passages', 0)} passages"
+        return f"« {d['titre']} »"
+    if action == "document_reindexation" and "documents" in d:
+        return f"{d['documents']} document{'s' if d['documents'] > 1 else ''}"
+    if action == "assistant_parametres":
+        return f"{d.get('passages')} passages · seuil {d.get('seuil')}"
     if action == "connexion":
         mode = "Avec Google" if d.get("mode") == "google" else "Par e-mail et mot de passe"
         return f"{mode} · {motif_lisible(d['motif'])}" if d.get("motif") else mode   # refus : le motif
@@ -159,6 +184,8 @@ def _cible(cible: str | None, details: dict, references: dict, noms: dict, roles
         return f"Rôle « {roles.get(ident) or details.get('libelle') or '?'} »"
     if genre == "session":
         return None
+    if genre == "document":
+        return "Base documentaire"   # le titre figure dans le détail
     return cible
 
 
@@ -287,8 +314,11 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
         g["entrees"].append({k: x[k] for k in ("date", "action", "libelle", "categorie", "resultat", "ok", "cible",
                                                "precision", "ip")})
 
+    # À horodatage égal (horloge grossière, actions dans la même requête), la
+    # connexion ouvre la session et la déconnexion la ferme.
+    rang = {"connexion": 0, "deconnexion": 2}
     for g in groupes.values():
-        g["entrees"].sort(key=lambda x: x["date"])
+        g["entrees"].sort(key=lambda x: (x["date"], rang.get(x["action"], 1)))
         g["derniere"] = g["entrees"][-1]["date"]
     ordre = sorted(groupes.values(), key=lambda g: g["derniere"], reverse=True)
     presents = sorted({(x["utilisateur_id"], noms.get(x["utilisateur_id"])) for x in entrees if x["utilisateur_id"]},
