@@ -260,6 +260,15 @@
   .src b { display: block; font-size: var(--text-xs); color: var(--color-viewer-text); font-weight: 600; margin-bottom: 2px; }
   .src q { color: var(--color-viewer-muted); font-style: italic; }
   .src .origin { color: var(--color-viewer-muted); margin-top: 3px; display: block; }
+  /* Sources réelles (sprint 9) : dépliables, avec lien vers le document. */
+  details.src summary { cursor: pointer; list-style: none; }
+  details.src summary::-webkit-details-marker { display: none; }
+  details.src summary::after { content: "Voir l’extrait"; display: block; margin-top: 3px; color: var(--color-viewer-accent); font-size: 11px; }
+  details.src[open] summary::after { content: "Masquer l’extrait"; }
+  details.src q { display: block; margin-top: 6px; }
+  .src-link { display: inline-block; margin-top: 6px; color: var(--color-viewer-accent); font-size: var(--text-xs); }
+  .chat-muted, .chat-notice { margin: 0 12px; font-size: var(--text-xs); color: var(--color-viewer-muted); }
+  .chat-notice { color: #FBBF24; }
   .reminder { font-size: var(--text-xs); color: var(--color-viewer-muted); display: flex; gap: 6px; align-items: center; }
   .reminder svg { width: 13px; height: 13px; }
   .fb { display: flex; gap: 4px; align-items: center; font-size: var(--text-xs); color: var(--color-viewer-muted); }

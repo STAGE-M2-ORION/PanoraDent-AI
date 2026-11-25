@@ -85,7 +85,7 @@ def contexte_analyse(a: Analysis) -> dict:
 def _source(numero: int, trouve) -> dict:
     p, doc = trouve.passage, trouve.passage.document
     extrait = p.texte if len(p.texte) <= EXTRAIT_MAX else p.texte[:EXTRAIT_MAX].rsplit(" ", 1)[0] + "…"
-    return {"numero": numero, "document_id": doc.id, "titre": doc.titre, "section": p.section,
+    return {"numero": numero, "document_id": doc.id, "titre": doc.titre, "format": doc.format, "section": p.section,
             "page": p.page, "extrait": extrait, "passage_id": p.id, "similarite": round(trouve.score, 3)}
 
 

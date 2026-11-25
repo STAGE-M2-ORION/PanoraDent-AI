@@ -649,7 +649,7 @@ export function AnalysePage() {
               {vm ? <DetectionsPane vm={vm} state={{ ...ui, dets }} actions={actions} canReview={canReview} reviewerName={reviewerName} /> : null}
             </div>
             <div className="tabpane" id="paneChat" role="tabpanel" data-active={ui.tab === "chat" ? "true" : "false"}>
-              {vm ? <AssistantPane key={vm.id ?? "demo"} vm={vm} current={current} pendingQuestion={question} onQuestionHandled={() => setQuestion(null)} /> : null}
+              {vm ? <AssistantPane key={vm.id ?? "demo"} vm={vm} current={current} pendingQuestion={question} onQuestionHandled={() => setQuestion(null)} canAsk={can(Permission.ASSISTANT_USE)} /> : null}
             </div>
           </aside>
           <button type="button" className="reopen-panel" onClick={() => patch({ panelClosed: false })}>
