@@ -269,6 +269,13 @@
   .src-link { display: inline-block; margin-top: 6px; color: var(--color-viewer-accent); font-size: var(--text-xs); }
   .chat-muted, .chat-notice { margin: 0 12px; font-size: var(--text-xs); color: var(--color-viewer-muted); }
   .chat-notice { color: #FBBF24; }
+  /* Fil (sprint 10) : brouillon en cours, actions d'une réponse, effacement. */
+  .msg.bot.draft .body p:first-child { color: var(--color-viewer-muted); font-style: italic; }
+  .msg-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .msg-actions .vbtn { min-height: 30px; font-size: var(--text-xs); }
+  .chat-head { flex-wrap: wrap; }
+  .chat-clear { margin-left: auto; display: inline-flex; gap: 6px; font-size: var(--text-xs); min-height: 30px; }
+  .chat-flash { margin: 0 12px; font-size: var(--text-xs); color: var(--color-viewer-accent); }
   .reminder { font-size: var(--text-xs); color: var(--color-viewer-muted); display: flex; gap: 6px; align-items: center; }
   .reminder svg { width: 13px; height: 13px; }
   .fb { display: flex; gap: 4px; align-items: center; font-size: var(--text-xs); color: var(--color-viewer-muted); }

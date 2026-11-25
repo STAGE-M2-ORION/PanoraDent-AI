@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Processing, declareToothAbsent, postVerdict, withdrawToothAbsent } from "@/entities/analysis";
 import { Verdict, detectionType } from "@/entities/detection";
 import { Permission, displayName, useCurrentUser } from "@/entities/session";
-import { toAppError } from "@/shared/api";
+import { appendToConclusion } from "@/entities/assistant";
+import { AppError, ErrorCode, toAppError } from "@/shared/api";
 import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
@@ -27,6 +28,8 @@ import {
 import { POSITIONS, odontogramFileName, toSvgString, toothStates } from "../model/odontogram";
 import { makeReview, readResume, reviewSummary, verdictOfStatus, writeResume } from "../model/review-api";
 import { AssistantPane } from "./AssistantPane";
+
+const CONCLUSION_MAX = 4000; // borne du serveur (services/revue.py)
 import { ClosureModal } from "./ClosureModal";
 import { ToothCard } from "./ToothCard";
 import { ModelReplay } from "./ModelReplay";
@@ -86,6 +89,17 @@ export function AnalysePage() {
   // Sprint 7 : dent dont on choisit le nouveau numéro dans le schéma.
   const [choosing, setChoosing] = useState(null); // { toothId, fdi }
   const review = useMemo(() => makeReview(vm, reviewerName), [vm, reviewerName]);
+
+  // Réponse de l'assistant insérée dans la conclusion (sprint 10) : ajoutée à
+  // la suite, marquée, enregistrée ; le praticien la relit et la réécrit.
+  const insertInConclusion = async (block) => {
+    const next = appendToConclusion(closure.conclusion, block);
+    if (next.length > CONCLUSION_MAX) {
+      throw new AppError(ErrorCode.VALIDATION, `La conclusion dépasserait ${CONCLUSION_MAX} caractères : raccourcissez-la avant d’insérer cette réponse.`);
+    }
+    await review.saveConclusion(next);
+    setClosure((c) => ({ ...c, conclusion: next }));
+  };
   const pending = Boolean(vm && !vm.demo && vm.processing !== Processing.DONE);
   const backup = useRef(null);
   const toastTimer = useRef(null);
@@ -649,7 +663,11 @@ export function AnalysePage() {
               {vm ? <DetectionsPane vm={vm} state={{ ...ui, dets }} actions={actions} canReview={canReview} reviewerName={reviewerName} /> : null}
             </div>
             <div className="tabpane" id="paneChat" role="tabpanel" data-active={ui.tab === "chat" ? "true" : "false"}>
-              {vm ? <AssistantPane key={vm.id ?? "demo"} vm={vm} current={current} pendingQuestion={question} onQuestionHandled={() => setQuestion(null)} canAsk={can(Permission.ASSISTANT_USE)} /> : null}
+              {vm ? <AssistantPane key={vm.id ?? "demo"} vm={vm} current={current} pendingQuestion={question} onQuestionHandled={() => setQuestion(null)}
+                  canAsk={can(Permission.ASSISTANT_USE)}
+                  closed={ui.closed}
+                  onInsertConclusion={canReview && !ui.closed && !vm.demo ? insertInConclusion : undefined}
+                /> : null}
             </div>
           </aside>
           <button type="button" className="reopen-panel" onClick={() => patch({ panelClosed: false })}>
