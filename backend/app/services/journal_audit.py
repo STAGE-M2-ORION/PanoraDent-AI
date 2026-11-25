@@ -287,8 +287,11 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
         g["entrees"].append({k: x[k] for k in ("date", "action", "libelle", "categorie", "resultat", "ok", "cible",
                                                "precision", "ip")})
 
+    # À horodatage égal (horloge grossière, actions dans la même requête), la
+    # connexion ouvre la session et la déconnexion la ferme.
+    rang = {"connexion": 0, "deconnexion": 2}
     for g in groupes.values():
-        g["entrees"].sort(key=lambda x: x["date"])
+        g["entrees"].sort(key=lambda x: (x["date"], rang.get(x["action"], 1)))
         g["derniere"] = g["entrees"][-1]["date"]
     ordre = sorted(groupes.values(), key=lambda g: g["derniere"], reverse=True)
     presents = sorted({(x["utilisateur_id"], noms.get(x["utilisateur_id"])) for x in entrees if x["utilisateur_id"]},
