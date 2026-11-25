@@ -851,6 +851,26 @@ factice (`ASSISTANT_DELAI_FACTICE`) pour pouvoir l'arrêter.
 hachage des mots, déterministe — assez pour éprouver toute la chaîne. Refusé
 avec `APP_ENV=production`.
 
+## Performances du modèle (sprint 10)
+
+La page **Performance du modèle** affiche les mesures **publiées au registre**
+avec chaque version (`metrics` de `GET /model/versions`, écrites par
+`training/publish_model.py`), **telles quelles** : rien n'est recalculé à
+l'ouverture, une mesure absente reste absente (« non publiée »), aucune valeur
+fictive. Par défaut la version en service ; les autres se consultent.
+
+- **Mesures par classe** (jeu de test) : mAP@50, rappel, précision, nombre
+  d'anomalies, et par cliché la sensibilité et la spécificité ;
+- **Effet du seuil** : pour chaque classe, une phrase en clair (rappel,
+  précision, fausses alertes par cliché au seuil retenu, objectif atteint ou
+  non) et la **courbe précision-rappel de la validation** (un panneau par
+  classe ; survol ou focus d'un point : seuil, rappel, précision ; tableau des
+  données). Une version publiée sans seuils le dit, sans courbe inventée ;
+- **Matrice de confusion** (jeu de test), effectifs écrits dans les cases ;
+- **Comparaison de deux versions** : écart affiché seulement si les deux ont
+  été mesurées sur le même jeu de test (même empreinte du découpage) ; sinon,
+  signalé, colonnes côte à côte, sans conclusion.
+
 ## Journal d'audit (administration)
 
 `GET /api/v1/journal` (`user:manage`) lit le journal (table `journal`, en ajout

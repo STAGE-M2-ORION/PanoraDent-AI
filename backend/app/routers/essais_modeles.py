@@ -28,18 +28,24 @@ class Publication(BaseModel):
     map50: float | None = None
     # Seuils d'exploitation par classe, comme publish_model.py les écrit.
     seuils: dict[str, float] | None = None
+    # Mesures complètes (sprint 10, page Performances), au format de
+    # publish_model.py ; elles remplacent alors `map50`.
+    metrics: dict | None = None
+    # Empreinte du découpage : deux versions d'empreintes différentes ne se comparent pas.
+    empreinte: str | None = None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(publique)])
 def publier(p: Publication, db: Session = Depends(get_db)):
     if db.scalar(select(ModelVersion).where(ModelVersion.version == p.version)):
         raise ApiError(409, "deja_publiee", "Version déjà publiée.")
-    metrics = {"map50": p.map50, "partition": "test"} if p.map50 is not None else {}
+    metrics = p.metrics if p.metrics is not None else (
+        {"map50": p.map50, "partition": "test"} if p.map50 is not None else {})
     db.add(ModelVersion(
         version=p.version, dataset="Tests de bout en bout (modèles factices)",
         metrics_json=json.dumps(metrics), poids_dents=f"{p.version}/dents.pt",
         poids_anomalies=f"{p.version}/anomalies.pt", sha256_dents=p.sha_dents,
-        sha256_anomalies=p.sha_anomalies, empreinte_decoupage="e2e".ljust(64, "0"), seuils=p.seuils,
+        sha256_anomalies=p.sha_anomalies, empreinte_decoupage=(p.empreinte or "e2e").ljust(64, "0")[:64], seuils=p.seuils,
     ))
     db.commit()
     return {"version": p.version}

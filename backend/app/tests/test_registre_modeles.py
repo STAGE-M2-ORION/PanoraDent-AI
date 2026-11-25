@@ -132,6 +132,26 @@ def test_liste_des_versions(admin, db):
     assert not versions["v3"]["actif"] and not versions["v3"]["servable"]
 
 
+def test_mesures_rendues_telles_qu_ecrites_au_registre(admin, db):
+    """Page Performances (sprint 10) : la route rend les mesures du registre à
+    l'identique — rien de retiré, rien de recalculé à la lecture."""
+    import json
+
+    mesures = {
+        "map50": 0.5097, "precision": 0.5424, "recall": 0.5166, "test_images": 109, "partition": "test",
+        "anomalies": {"detection": {"par_classe": {"caries": {"instances": 332, "mAP50": 0.493}},
+                                    "confusion": {"etiquettes": ["caries", "fond"], "matrice": [[134, 130], [180, 0]]}}},
+        "seuils_exploitation": {"par_classe": {"caries": {"seuil": 0.1, "rappel": 0.597}},
+                                "courbes": {"caries": [[0.05, 0.71, 0.318], [0.1, 0.597, 0.37]]}},
+    }
+    mv = publier(db, "v1", actif=True)
+    mv.metrics_json = json.dumps(mesures)
+    mv.empreinte_decoupage = "f" * 64
+    db.commit()
+    (v,) = admin.get(f"{BASE}/model/versions").json()
+    assert v["metrics"] == mesures and v["empreinte_decoupage"] == "f" * 64
+
+
 # --- Épinglage : une analyse garde la version reçue à sa mise en file --------
 
 def test_analyse_en_file_garde_sa_version_apres_une_bascule(
