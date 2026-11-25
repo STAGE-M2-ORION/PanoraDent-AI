@@ -1,2 +1,2 @@
-export { httpClient, setSessionExpiredHandler } from "./client";
-export { AppError, ErrorCode, toAppError } from "./app-error";
+export { fetchWithSession, httpClient, setSessionExpiredHandler } from "./client";
+export { AppError, ErrorCode, errorFromResponse, toAppError } from "./app-error";

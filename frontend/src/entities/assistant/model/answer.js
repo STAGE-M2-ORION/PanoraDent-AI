@@ -7,9 +7,14 @@ import { API_BASE_URL } from "@/shared/config";
  * la documentation : l'assistant préfère se taire), `failure` (réponse sans
  * source valide, ou service indisponible). Seule la première porte des sources.
  */
-export const AnswerStatus = { ANSWER: "answer", REFUSAL: "refusal", FAILURE: "failure" };
+export const AnswerStatus = { ANSWER: "answer", REFUSAL: "refusal", FAILURE: "failure", INTERRUPTED: "interrupted" };
 
-const STATUSES = { reponse: AnswerStatus.ANSWER, refus: AnswerStatus.REFUSAL, echec: AnswerStatus.FAILURE };
+const STATUSES = {
+  reponse: AnswerStatus.ANSWER,
+  refus: AnswerStatus.REFUSAL,
+  echec: AnswerStatus.FAILURE,
+  interrompue: AnswerStatus.INTERRUPTED,
+};
 
 export const QUESTION_LIMITS = { min: 3, max: 1000 };
 

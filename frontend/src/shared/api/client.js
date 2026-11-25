@@ -86,3 +86,21 @@ httpClient.interceptors.response.use(
     return httpClient(config);
   },
 );
+
+/**
+ * `fetch` pour les réponses en flux (que le client axios ne sait pas lire au
+ * fil de l'eau dans un navigateur) : mêmes cookies, même rafraîchissement
+ * partagé de la session sur 401, une seule relance.
+ */
+export async function fetchWithSession(path, init = {}) {
+  const url = `${API_BASE_URL}${path}`;
+  const response = await fetch(url, { credentials: "include", ...init });
+  if (response.status !== 401) return response;
+  try {
+    await refreshSession();
+  } catch {
+    onSessionExpired();
+    return response;
+  }
+  return fetch(url, { credentials: "include", ...init });
+}
