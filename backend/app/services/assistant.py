@@ -10,6 +10,7 @@
 L'assistant explique, il ne diagnostique pas : cette frontière est tenue par
 le gabarit et par le contrôle des citations, pas par une consigne seule.
 """
+from contextlib import aclosing
 from dataclasses import dataclass, field
 
 from fastapi import Request
@@ -35,13 +36,14 @@ REFUS_HORS_DOCUMENTATION = ("Je ne trouve rien dans la documentation de référe
                             "document qui en traite.")
 REFUS_BASE_VIDE = ("La base documentaire est vide, ou doit être réindexée : l'assistant n'a aucun "
                    "passage sur lequel s'appuyer.")
+INTERROMPUE = "Réponse interrompue à votre demande : rien n'a été enregistré de son texte."
 ECHEC_SANS_SOURCE = ("L'assistant n'a pas pu appuyer sa réponse sur la documentation : elle n'est pas "
                      "affichée. Reformulez la question.")
 
 
 @dataclass
 class Reponse:
-    statut: str                      # « reponse », « refus » ou « echec »
+    statut: str                      # « reponse », « refus », « echec » ou « interrompue »
     texte: str                       # la réponse, ou le message de refus ou d'échec
     sources: list[dict] = field(default_factory=list)
     motif: str | None = None         # cause technique d'un échec (journal, jamais affichée seule)
@@ -89,51 +91,94 @@ def _source(numero: int, trouve) -> dict:
             "page": p.page, "extrait": extrait, "passage_id": p.id, "similarite": round(trouve.score, 3)}
 
 
-def repondre(db: Session, question: str, *, analyse: Analysis | None = None,
-             vectoriseur: Vectoriseur | None = None, redacteur: Redacteur | None = None,
-             nombre: int | None = None, seuil: float | None = None) -> Reponse:
+@dataclass
+class Preparation:
+    """Ce qui précède la rédaction : passages retrouvés et contexte anonyme ;
+    ou, si la question s'arrête là (base vide, rien de pertinent, service
+    absent), la réponse définitive."""
+    reponse: Reponse | None = None
+    trouves: list = field(default_factory=list)
+    extraits: list[Extrait] = field(default_factory=list)
+    contexte: dict | None = None
+
+
+def preparer(db: Session, question: str, *, analyse: Analysis | None = None,
+             vectoriseur: Vectoriseur | None = None, nombre: int | None = None,
+             seuil: float | None = None) -> Preparation:
     vectoriseur = vectoriseur or vectoriseur_courant()
-    redacteur = redacteur or redacteur_courant()
     nombre = settings.assistant_passages if nombre is None else nombre
     seuil = settings.assistant_seuil if seuil is None else seuil
 
     if passages_utilisables(db, vectoriseur.nom) == 0:
-        return Reponse("refus", REFUS_BASE_VIDE)
+        return Preparation(Reponse("refus", REFUS_BASE_VIDE))
     try:
         trouves = rechercher(db, vectoriseur.vectoriser([question])[0], modele=vectoriseur.nom,
                              nombre=nombre, seuil=seuil)
     except VectorisationImpossible as exc:
-        return Reponse("echec", f"L'assistant est indisponible : {exc}", motif=str(exc))
+        return Preparation(Reponse("echec", f"L'assistant est indisponible : {exc}", motif=str(exc)))
     if not trouves:
-        return Reponse("refus", REFUS_HORS_DOCUMENTATION)
-
+        return Preparation(Reponse("refus", REFUS_HORS_DOCUMENTATION))
     extraits = [Extrait(i, t.passage.document.titre, t.passage.section, t.passage.page, t.passage.texte)
                 for i, t in enumerate(trouves, start=1)]
-    contexte = contexte_analyse(analyse) if analyse is not None else None
-    try:
-        texte = redacteur.rediger(question, extraits, contexte)
-    except RedactionImpossible as exc:
-        return Reponse("echec", f"L'assistant est indisponible : {exc}.", motif=str(exc))
+    return Preparation(None, trouves, extraits, contexte_analyse(analyse) if analyse is not None else None)
 
-    controle = verifier(texte, len(extraits))
+
+def conclure(texte: str, prep: Preparation) -> Reponse:
+    """Contrôle de la réponse rédigée : sans citation valide, elle n'est pas montrée."""
+    controle = verifier(texte, len(prep.extraits))
     if controle.statut == "refus":
         return Reponse("refus", REFUS_HORS_DOCUMENTATION)
     if controle.statut == "echec":
         return Reponse("echec", ECHEC_SANS_SOURCE, motif=controle.motif)
-    return Reponse("reponse", texte.strip(), [_source(n, trouves[n - 1]) for n in controle.citees])
+    return Reponse("reponse", texte.strip(), [_source(n, prep.trouves[n - 1]) for n in controle.citees])
 
 
-def poser_question(db: Session, question: str, *, utilisateur_id, analyse: Analysis | None = None,
-                   request: Request | None = None, **reglages) -> Reponse:
-    """Question posée par un utilisateur : contrôle, réponse, journal."""
+def indisponible(exc: Exception) -> Reponse:
+    return Reponse("echec", f"L'assistant est indisponible : {exc}.", motif=str(exc))
+
+
+def repondre(db: Session, question: str, *, analyse: Analysis | None = None,
+             vectoriseur: Vectoriseur | None = None, redacteur: Redacteur | None = None,
+             nombre: int | None = None, seuil: float | None = None) -> Reponse:
+    prep = preparer(db, question, analyse=analyse, vectoriseur=vectoriseur, nombre=nombre, seuil=seuil)
+    if prep.reponse is not None:
+        return prep.reponse
+    redacteur = redacteur or redacteur_courant()
+    try:
+        texte = redacteur.rediger(question, prep.extraits, prep.contexte)
+    except RedactionImpossible as exc:
+        return indisponible(exc)
+    return conclure(texte, prep)
+
+
+async def rediger_en_flux(prep: Preparation, question: str, redacteur: Redacteur | None = None):
+    """Rédaction au fil de l'eau : (« fragment », texte) à mesure, puis
+    (« fin », Reponse) une fois le tout contrôlé. Fermer ce générateur (arrêt
+    demandé, navigateur parti) ferme aussi le flux du modèle : la génération
+    s'arrête côté serveur, elle ne continue pas dans le vide."""
+    redacteur = redacteur or redacteur_courant()
+    morceaux: list[str] = []
+    try:
+        async with aclosing(redacteur.flux(question, prep.extraits, prep.contexte)) as flux:
+            async for fragment in flux:
+                morceaux.append(fragment)
+                yield "fragment", fragment
+    except RedactionImpossible as exc:
+        yield "fin", indisponible(exc)
+        return
+    yield "fin", conclure("".join(morceaux), prep)
+
+
+def question_valide(question: str | None) -> str:
     question = " ".join((question or "").split())
     if not QUESTION_MIN <= len(question) <= QUESTION_MAX:
         raise ApiError(422, "question_invalide",
                        f"La question doit compter entre {QUESTION_MIN} et {QUESTION_MAX} caractères.")
-    p = parametres(db)
-    reglages.setdefault("nombre", p.passages)
-    reglages.setdefault("seuil", p.seuil)
-    reponse = repondre(db, question, analyse=analyse, **reglages)
+    return question
+
+
+def journaliser(db: Session, question: str, reponse: Reponse, *, utilisateur_id, analyse: Analysis | None,
+                request: Request | None, commit: bool = True) -> None:
     journal.inscrire(
         db, "question_assistant", journal.ECHEC if reponse.statut == "echec" else journal.SUCCES,
         request=request, utilisateur_id=utilisateur_id,
@@ -146,5 +191,17 @@ def poser_question(db: Session, question: str, *, utilisateur_id, analyse: Analy
                         for s in reponse.sources],
             **({"motif": reponse.motif} if reponse.motif else {}),
         },
+        commit=commit,
     )
+
+
+def poser_question(db: Session, question: str, *, utilisateur_id, analyse: Analysis | None = None,
+                   request: Request | None = None, **reglages) -> Reponse:
+    """Question posée par un utilisateur : contrôle, réponse, journal."""
+    question = question_valide(question)
+    p = parametres(db)
+    reglages.setdefault("nombre", p.passages)
+    reglages.setdefault("seuil", p.seuil)
+    reponse = repondre(db, question, analyse=analyse, **reglages)
+    journaliser(db, question, reponse, utilisateur_id=utilisateur_id, analyse=analyse, request=request)
     return reponse
