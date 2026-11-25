@@ -403,3 +403,41 @@ class ParametresAssistant(Base):
     )
 
     maj_par = relationship("Utilisateur", foreign_keys=[maj_par_id])
+
+
+class Conversation(Base):
+    """Fil de l'assistant (sprint 10) : un par couple analyse-auteur. Une
+    conversation est un raisonnement en cours, pas un compte rendu : deux
+    praticiens qui ouvrent la même analyse ont chacun le leur."""
+    __tablename__ = "conversations"
+    __table_args__ = (UniqueConstraint("analysis_id", "auteur_id", name="uq_conversations_analyse_auteur"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id", ondelete="CASCADE"), index=True)
+    auteur_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("utilisateur.id", ondelete="CASCADE"), index=True)
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    maj_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Message.rang",
+    )
+
+
+class Message(Base):
+    """Un message du fil : la question du praticien, ou la réponse vérifiée de
+    l'assistant (statut, texte, sources citées). Une réponse non sourcée n'est
+    jamais enregistrée : seul son message d'échec l'est."""
+    __tablename__ = "messages"
+    __table_args__ = (UniqueConstraint("conversation_id", "rang", name="uq_messages_conversation_rang"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    rang: Mapped[int] = mapped_column(Integer)
+    role: Mapped[str] = mapped_column(String(12))            # « question » ou « reponse »
+    statut: Mapped[str | None] = mapped_column(String(12), nullable=True)   # reponse, refus, echec, interrompue
+    texte: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
