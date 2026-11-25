@@ -23,9 +23,19 @@ Le seuil de confiance règle le nombre de propositions affichées.
 
 @pytest.fixture(autouse=True)
 def objets(monkeypatch):
-    """Stockage objet en mémoire."""
+    """Stockage objet en mémoire. Comme MinIO, il refuse d'écrire tant que le
+    bucket n'a pas été créé : sur une pile neuve, un document peut être le
+    premier fichier déposé."""
     memoire: dict[str, bytes] = {}
-    monkeypatch.setattr(storage, "put", lambda cle, donnees, type_: memoire.__setitem__(cle, donnees))
+    bucket = {"cree": False}
+
+    def put(cle, donnees, type_):
+        if not bucket["cree"]:
+            raise RuntimeError("NoSuchBucket")
+        memoire[cle] = donnees
+
+    monkeypatch.setattr(storage, "ensure_bucket", lambda: bucket.__setitem__("cree", True))
+    monkeypatch.setattr(storage, "put", put)
     monkeypatch.setattr(storage, "get", lambda cle: memoire[cle])
     monkeypatch.setattr(storage, "delete", lambda cle: memoire.pop(cle, None))
     return memoire

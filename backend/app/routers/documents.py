@@ -123,6 +123,7 @@ async def deposer(
 ):
     contenu, format, nom = await _lire(fichier)
     _doublon(db, contenu)
+    storage.ensure_bucket()   # pile neuve : un document peut être le premier fichier déposé
     cle = f"documents/{secrets.token_hex(16)}"
     storage.put(cle, contenu, TYPES_MIME[format])
     d = Document(titre=_titre(titre, nom), nom_fichier=nom, format=format, cle_stockage=cle,
@@ -157,6 +158,7 @@ async def remplacer(
     contenu, format, nom = await _lire(fichier)
     _doublon(db, contenu, sauf=d.id)
     ancienne, cle = d.cle_stockage, f"documents/{secrets.token_hex(16)}"
+    storage.ensure_bucket()
     storage.put(cle, contenu, TYPES_MIME[format])
     d.titre = _titre(titre, nom) if titre else d.titre
     d.nom_fichier, d.format, d.cle_stockage = nom, format, cle
