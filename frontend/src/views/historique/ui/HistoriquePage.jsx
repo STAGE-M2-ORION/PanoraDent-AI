@@ -5,14 +5,22 @@ import {
   ANALYSIS_STATUS,
   AnalysisStatus,
   EMPTY_HISTORY_FILTERS,
+  FDI_QUADRANTS,
   POLL_MS,
   deleteAnalysis,
+  deleteHistoryView,
   displayStatus,
   fetchHistory,
   fetchHistoryCsv,
+  fetchHistoryViews,
+  filtersToQuery,
   formatAnalysisNumber,
+  formatSort,
   historyParams,
   launchAnalysis,
+  parseSort,
+  queryToFilters,
+  saveHistoryView,
 } from "@/entities/analysis";
 import { ANOMALY_LABELS, DETECTION_TYPES, TypeChip } from "@/entities/detection";
 import { Permission, useCurrentUser } from "@/entities/session";
@@ -25,6 +33,20 @@ import { AnalysisTimeline } from "./AnalysisTimeline";
 
 const PAGE_SIZE = 10;
 const PERIOD = { today: "Aujourd’hui", 7: "7 jours", 30: "30 jours", custom: "Personnalisée" };
+const REPORT_FILTER = { telecharge: "Compte rendu téléchargé", non_telecharge: "Compte rendu pas encore téléchargé" };
+// Tri : colonne et sens, dans les termes de l'écran.
+const SORT_OPTIONS = [
+  ["date", true, "Date d’import, récentes d’abord"],
+  ["date", false, "Date d’import, anciennes d’abord"],
+  ["examen", true, "Date d’examen, récentes d’abord"],
+  ["examen", false, "Date d’examen, anciennes d’abord"],
+  ["reference", false, "Référence, A → Z"],
+  ["reference", true, "Référence, Z → A"],
+  ["statut", false, "État, dans l’ordre du traitement"],
+  ["statut", true, "État, ordre inverse"],
+];
+const sortValue = (k) => (k ? `${k.field}:${k.desc ? "desc" : "asc"}` : "");
+const sortKey = (v) => (v ? { field: v.split(":")[0], desc: v.endsWith(":desc") } : null);
 const STATUS_FILTER = { queued: "En file d’attente", running: "Analyse en cours", pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
 const isProcessing = (r) => r.status === AnalysisStatus.QUEUED || r.status === AnalysisStatus.RUNNING;
 const EMPTY_PAGE = { items: [], total: 0, next: null, depositors: [] };
@@ -70,18 +92,25 @@ export function HistoriquePage() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [timeline, setTimeline] = useState(null);
   const [exporting, setExporting] = useState(false);
-  // « Mes analyses » d'emblée pour qui en dépose, une fois la session connue
-  // (au premier rendu les permissions ne sont pas encore chargées).
-  const ownerDefaulted = useRef(false);
+  const [views, setViews] = useState([]);
+  const [viewName, setViewName] = useState("");
+  const [savingView, setSavingView] = useState(false);
+  // Filtres portés par l'adresse (sprint 12) : un lien partagé rouvre la même
+  // sélection, si le destinataire en a le droit — le serveur revérifie tout.
+  // Sans filtre dans l'adresse : « Mes analyses » d'emblée pour qui en dépose.
+  const initialised = useRef(false);
   useEffect(() => {
-    if (ownerDefaulted.current || !me) return;
-    ownerDefaulted.current = true;
-    if (canCreate) setF((v) => ({ ...v, owner: "mine" }));
-  }, [me, canCreate]);
-  // Recherche transmise par le tableau de bord (`?q=7F3A`).
+    if (initialised.current || !router.isReady || !me) return;
+    initialised.current = true;
+    const fromUrl = queryToFilters(router.query, me.id, ANOMALY_LABELS);
+    const empty = !Object.keys(filtersToQuery(fromUrl, me.id)).length;
+    setF(empty && canCreate ? { ...fromUrl, owner: "mine" } : fromUrl);
+  }, [router.isReady, router.query, me, canCreate]);
   useEffect(() => {
-    if (router.isReady && typeof router.query.q === "string") setF((v) => ({ ...v, q: router.query.q }));
-  }, [router.isReady, router.query.q]);
+    fetchHistoryViews()
+      .then(setViews)
+      .catch(() => setViews([]));
+  }, []);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(f);
@@ -90,6 +119,12 @@ export function HistoriquePage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
+  // L'adresse suit les filtres appliqués, sans recharger la page.
+  useEffect(() => {
+    if (!initialised.current) return;
+    router.replace({ pathname: router.pathname, query: filtersToQuery(query, me?.id) }, undefined, { shallow: true, scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const cursor = cursors[cursors.length - 1];
   useEffect(() => {
@@ -118,7 +153,43 @@ export function HistoriquePage() {
     return () => clearTimeout(timer);
   }, [page, processingCount]);
 
-  const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length);
+  const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length || f.tooth || f.report);
+  const sortKeys = parseSort(f.sort);
+  const setSort = (primary, secondary) => set({ sort: formatSort([primary, secondary].filter(Boolean)) });
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast("Lien copié : il rouvre cette sélection pour qui a le droit de la voir.");
+    } catch {
+      toast("Copie impossible : copiez l’adresse de la page.");
+    }
+  };
+  const saveView = async (event) => {
+    event.preventDefault();
+    const name = viewName.trim();
+    if (!name) return;
+    setSavingView(true);
+    try {
+      const saved = await saveHistoryView(name, f);
+      setViews((list) => [...list.filter((v) => v.id !== saved.id && v.name !== saved.name), saved].sort((a, b) => a.name.localeCompare(b.name)));
+      setViewName("");
+      toast(`Vue « ${saved.name} » enregistrée.`);
+    } catch (cause) {
+      toast(toAppError(cause).message);
+    } finally {
+      setSavingView(false);
+    }
+  };
+  const removeView = async (view) => {
+    try {
+      await deleteHistoryView(view.id);
+      setViews((list) => list.filter((v) => v.id !== view.id));
+      toast(`Vue « ${view.name} » supprimée.`);
+    } catch (cause) {
+      toast(toAppError(cause).message);
+    }
+  };
   const set = (patch) => setF((v) => ({ ...v, ...patch }));
   const ownerLabel = (o) => (o === "mine" ? "Mes analyses" : `Déposées par ${page.depositors.find((d) => d.id === o)?.name ?? "un praticien"}`);
 
@@ -128,6 +199,8 @@ export function HistoriquePage() {
   if (f.period !== "all") chips.push(["period", `Période : ${PERIOD[f.period]}`, { period: "all", from: "", to: "" }]);
   if (f.status !== "all") chips.push(["status", `Statut : ${STATUS_FILTER[f.status]}`, { status: "all" }]);
   f.types.forEach((t) => chips.push([`type:${t}`, `Anomalie : ${DETECTION_TYPES[t].label}`, { types: f.types.filter((x) => x !== t) }]));
+  if (f.tooth) chips.push(["tooth", `Dent ${f.tooth}`, { tooth: "" }]);
+  if (f.report) chips.push(["report", REPORT_FILTER[f.report], { report: "" }]);
 
   const exportCsv = async () => {
     setExporting(true);
@@ -364,15 +437,67 @@ export function HistoriquePage() {
         </div>
       </div>
 
+      <section className="card card-pad views-bar" aria-label="Vues enregistrées">
+        <div className="field">
+          <label className="label" htmlFor="vue">
+            Vues enregistrées
+          </label>
+          <select
+            className="select"
+            id="vue"
+            value=""
+            onChange={(e) => {
+              const v = views.find((x) => x.id === e.target.value);
+              if (v) setF({ ...v.filters, types: [...v.filters.types] });
+            }}
+          >
+            <option value="">{views.length ? "Appliquer une vue…" : "Aucune vue enregistrée"}</option>
+            {views.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <form className="views-save" onSubmit={saveView}>
+          <div className="field">
+            <label className="label" htmlFor="vue-nom">
+              Enregistrer la sélection sous le nom
+            </label>
+            <input className="input" id="vue-nom" maxLength={80} placeholder="Par exemple : mes caries à relire" value={viewName} onChange={(e) => setViewName(e.target.value)} />
+          </div>
+          <Button type="submit" variant="secondary" disabled={!viewName.trim() || savingView}>
+            <Icon name="plus" />
+            Enregistrer la vue
+          </Button>
+        </form>
+        <Button variant="ghost" onClick={copyLink}>
+          <Icon name="copy" />
+          Copier le lien
+        </Button>
+        {views.length ? (
+          <ul className="views-list" aria-label="Vos vues">
+            {views.map((v) => (
+              <li key={v.id}>
+                <button type="button" className="link-btn" onClick={() => setF({ ...v.filters, types: [...v.filters.types] })}>
+                  {v.name}
+                </button>
+                <IconAction icon="trash" danger label={`Supprimer la vue ${v.name}`} title="Supprimer la vue" onClick={() => removeView(v)} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
       <section className="card card-pad filters" aria-label="Recherche et filtres" style={{ opacity: error || (!isLoading && rows.length === 0 && !hasFilters && !everHadRows) ? 0.5 : undefined }}>
         <div className="filters-row">
           <div className="field search-wrap-col">
             <label className="label" htmlFor="q">
-              Référence anonyme ou n° d’analyse
+              Référence, n°, note ou conclusion
             </label>
             <div className="search-wrap">
               <Icon name="search" />
-              <input className="input" id="q" type="search" placeholder="Par exemple : PDX-2026-0042 ou 0042" autoComplete="off" value={f.q} onChange={(e) => set({ q: e.target.value })} />
+              <input className="input" id="q" type="search" placeholder="Par exemple : PDX-2026-0042, 0042 ou lésion" autoComplete="off" value={f.q} onChange={(e) => set({ q: e.target.value })} />
             </div>
           </div>
           <div className="field">
@@ -418,12 +543,62 @@ export function HistoriquePage() {
             </select>
           </div>
           <div className="field">
-            <label className="label" htmlFor="sort">
-              Tri
+            <label className="label" htmlFor="dent">
+              Dent
             </label>
-            <select className="select" id="sort" value={f.sort} onChange={(e) => set({ sort: e.target.value })}>
-              <option value="recent">Plus récentes d’abord</option>
-              <option value="ancien">Plus anciennes d’abord</option>
+            <select className="select" id="dent" value={f.tooth} onChange={(e) => set({ tooth: e.target.value })}>
+              <option value="">Toutes les dents</option>
+              {FDI_QUADRANTS.map(({ quadrant, teeth }) => (
+                <optgroup key={quadrant} label={`Quadrant ${quadrant}`}>
+                  {teeth.map((n) => (
+                    <option key={n} value={String(n)}>
+                      {n}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="cr">
+              Compte rendu
+            </label>
+            <select className="select" id="cr" value={f.report} onChange={(e) => set({ report: e.target.value })}>
+              <option value="">Avec ou sans</option>
+              <option value="telecharge">Téléchargé</option>
+              <option value="non_telecharge">Pas encore téléchargé</option>
+            </select>
+          </div>
+        </div>
+        <div className="filters-row sort-row">
+          <div className="field">
+            <label className="label" htmlFor="sort">
+              Trier par
+            </label>
+            <select className="select" id="sort" value={sortValue(sortKeys[0])} onChange={(e) => setSort(sortKey(e.target.value), sortKeys[1])}>
+              {SORT_OPTIONS.map(([field, desc, label]) => (
+                <option key={`${field}:${desc}`} value={sortValue({ field, desc })}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="sort2">
+              Puis par
+            </label>
+            <select
+              className="select"
+              id="sort2"
+              value={sortValue(sortKeys[1])}
+              onChange={(e) => setSort(sortKeys[0], e.target.value ? sortKey(e.target.value) : null)}
+            >
+              <option value="">—</option>
+              {SORT_OPTIONS.filter(([field]) => field !== sortKeys[0]?.field).map(([field, desc, label]) => (
+                <option key={`${field}:${desc}`} value={sortValue({ field, desc })}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

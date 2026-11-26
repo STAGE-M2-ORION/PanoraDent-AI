@@ -50,4 +50,12 @@
 .timeline .tl-when { font-size: var(--text-xs); color: var(--color-muted); white-space: nowrap; }
 .timeline .tl-detail { margin: 2px 0 0; font-size: var(--text-sm); }
 .timeline .tl-who { margin: 2px 0 0; font-size: var(--text-xs); color: var(--color-muted); }
-.timeline .tl-cancelled b { text-decoration: line-through; }
+.timeline .tl-cancelled b { text-decoration: line-through;   /* Sprint 12 : vues enregistrées, tri sur deux colonnes. */
+  .views-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-4); margin-bottom: var(--space-4); }
+  .views-bar > .field { min-width: 220px; }
+  .views-save { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+  .views-save .field { min-width: 260px; }
+  .views-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); width: 100%; }
+  .views-list li { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px var(--space-3); border: 1px solid var(--color-border); border-radius: 999px; font-size: var(--text-sm); }
+  .sort-row { grid-template-columns: repeat(2, minmax(0, 320px)); }
+}
