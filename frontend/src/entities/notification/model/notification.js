@@ -6,12 +6,14 @@ export const NotificationType = Object.freeze({
   ANALYSIS_DONE: "analyse_terminee",
   ANALYSIS_FAILED: "analyse_echouee",
   ANALYSIS_REOPENED: "analyse_rouverte",
+  ACCESS_REQUEST: "demande_acces",
 });
 
 const TONES = {
   [NotificationType.ANALYSIS_DONE]: { icon: "check", tone: "success" },
   [NotificationType.ANALYSIS_FAILED]: { icon: "alert", tone: "danger" },
   [NotificationType.ANALYSIS_REOPENED]: { icon: "refresh", tone: "warning" },
+  [NotificationType.ACCESS_REQUEST]: { icon: "users", tone: "info" },
 };
 
 export function normalizeNotification(dto) {
@@ -24,7 +26,8 @@ export function normalizeNotification(dto) {
     reference: dto.reference ?? null,
     createdAt: dto.cree_le,
     read: Boolean(dto.lue),
-    href: dto.analyse_id ? `/analyse?id=${encodeURIComponent(dto.analyse_id)}` : null,
+    // Page de l'application donnée par le serveur (demande d'accès), sinon l'analyse.
+    href: dto.lien && dto.lien.startsWith("/") ? dto.lien : dto.analyse_id ? `/analyse?id=${encodeURIComponent(dto.analyse_id)}` : null,
     ...(TONES[dto.type] ?? { icon: "bell", tone: "info" }),
   };
 }

@@ -11,6 +11,10 @@ describe("notifications", () => {
     expect(p.next).toBe("c");
     expect(p.items[0]).toMatchObject({ id: "n1", title: "Analyse PDX-1 échouée", read: false, href: "/analyse?id=a%20b", tone: "danger" });
     expect(normalizePage({}).items).toEqual([]);
+    const demande = normalizePage({ notifications: [{ ...dto, type: "demande_acces", analyse_id: null, lien: "/admin/demandes-acces?demande=x" }] }).items[0];
+    expect(demande).toMatchObject({ href: "/admin/demandes-acces?demande=x", icon: "users" });
+    // Jamais un lien hors de l'application.
+    expect(normalizePage({ notifications: [{ ...dto, analyse_id: null, lien: "https://ailleurs.example" }] }).items[0].href).toBeNull();
   });
 
   it("messages du flux", () => {
