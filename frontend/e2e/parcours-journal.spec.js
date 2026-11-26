@@ -58,6 +58,25 @@ test("journal d'audit : sessions, tentatives, filtres et export", async ({ page,
     .toBe(true);
   await page.locator("#f-typ").selectOption("");
 
+  // Sprint 11 : filtre par action, puis détail d'une entrée, avec sa session.
+  await page.getByLabel("Action", { exact: true }).selectOption("connexion");
+  await page.getByRole("button", { name: "Tout déplier" }).click();
+  await expect.poll(async () => new Set(await page.locator(".tl li").evaluateAll((li) => li.map((x) => x.dataset.action)))).toEqual(new Set(["connexion"]));
+  await page.locator("[data-action=connexion] .tl-open").first().click();
+  const detail = page.getByTestId("journal-detail");
+  await expect(detail.getByRole("heading", { name: "Connexion" })).toBeVisible();
+  await expect(detail).toContainText(ADMIN_EMAIL);
+  await expect(detail).toContainText("Session");
+  await expect(detail).toContainText("cette entrée ne peut être ni modifiée ni supprimée");
+  await detail.getByRole("button", { name: "Fermer" }).click();
+  await page.getByLabel("Action", { exact: true }).selectOption("");
+
+  // Recherche par cible : une cible inconnue ne ramène rien.
+  await page.getByLabel("Cible").fill("cible-introuvable-xyz");
+  await expect(page.getByText("Aucune entrée ne correspond à ces filtres.")).toBeVisible();
+  await page.getByLabel("Cible").fill("");
+  await expect(page.getByTestId("journal-total")).toContainText(/[1-9]\d* entrées?/);
+
   // Export CSV, puis l'export lui-même au journal.
   const telechargement = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exporter (CSV)" }).click();

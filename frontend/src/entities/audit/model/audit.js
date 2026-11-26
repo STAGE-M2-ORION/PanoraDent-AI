@@ -3,14 +3,21 @@
  * modèle. Le serveur lit le journal et les verdicts, et regroupe les actions
  * par session (`GET /journal`).
  */
-export const EMPTY_AUDIT_FILTERS = { period: "7", author: "", category: "", result: "" };
+export const EMPTY_AUDIT_FILTERS = { period: "7", author: "", category: "", result: "", action: "", target: "" };
 
-/** Filtres → paramètres de `GET /journal` (et de l'export CSV). */
-export function auditParams({ period, author, category, result }) {
+/**
+ * Filtres de l'écran → paramètres de `GET /journal` (et de l'export CSV).
+ * `cursor` : curseur (date, identifiant) de la dernière entrée déjà affichée,
+ * pour charger les entrées plus anciennes (pagination par clé).
+ */
+export function auditParams({ period, author, category, result, action, target }, cursor = null) {
   const p = { jours: Number(period) || 7 };
   if (author) p.auteur = author;
   if (category) p.categorie = category;
   if (result) p.resultat = result === "ok" ? "succes" : "echec";
+  if (action) p.action = action;
+  if (target && target.trim()) p.cible = target.trim();
+  if (cursor) p.avant = cursor;
   return p;
 }
 
@@ -21,7 +28,9 @@ export function normalizeAudit(dto) {
     days: dto.jours,
     total: dto.total ?? 0,
     truncated: Boolean(dto.tronque),
+    next: dto.suivant ?? null,
     categories: dto.categories ?? [],
+    actions: (dto.actions ?? []).map((a) => ({ code: a.code, label: a.libelle, category: a.categorie })),
     authors: (dto.auteurs ?? []).map((a) => ({ id: a.id, name: a.nom || "—" })),
     groups: (dto.sessions ?? []).map((g) => ({
       id: g.id,
@@ -35,6 +44,7 @@ export function normalizeAudit(dto) {
       closedAt: g.fermee_le ?? null,
       lastAt: g.derniere,
       entries: (g.entrees ?? []).map((e) => ({
+        id: e.id,
         at: e.date,
         action: e.action,
         label: e.libelle,
@@ -59,4 +69,53 @@ export function spanLabel(from, to) {
 export function localDay(iso) {
   const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(String(iso)) ? iso : `${iso}Z`);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const ORDER = { connexion: 0, deconnexion: 2 };
+const chrono = (a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (ORDER[a.action] ?? 1) - (ORDER[b.action] ?? 1));
+
+/**
+ * Page suivante (entrées plus anciennes) ajoutée à ce qui est affiché : une
+ * session à cheval sur deux pages reste UN groupe, ses entrées réunies dans
+ * l'ordre chronologique.
+ */
+export function mergeAudit(current, older) {
+  const byId = new Map(current.groups.map((g) => [g.id, { ...g, entries: [...g.entries] }]));
+  for (const g of older.groups) {
+    const known = byId.get(g.id);
+    if (known) {
+      const seen = new Set(known.entries.map((e) => e.id));
+      known.entries = [...g.entries.filter((e) => !seen.has(e.id)), ...known.entries].sort(chrono);
+    } else {
+      byId.set(g.id, { ...g, entries: [...g.entries] });
+    }
+  }
+  const groups = [...byId.values()].sort((a, b) => (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0));
+  const authors = [...new Map([...current.authors, ...older.authors].map((a) => [a.id, a])).values()];
+  return { ...current, total: current.total + older.total, truncated: older.truncated, next: older.next, groups, authors };
+}
+
+/** `GET /journal/entrees/{id}` → détail d'une entrée, avec son contexte. */
+export function normalizeAuditEntry(dto) {
+  return {
+    id: dto.id,
+    source: dto.source,
+    at: dto.date,
+    action: dto.action,
+    label: dto.libelle,
+    category: dto.categorie,
+    ok: Boolean(dto.ok),
+    author: dto.auteur ? { name: dto.auteur.nom || "—", email: dto.auteur.email } : null,
+    target: dto.cible ?? null,
+    rawTarget: dto.cible_brute ?? null,
+    detail: dto.precision ?? null,
+    ip: dto.ip ?? null,
+    session: dto.session
+      ? { id: dto.session.id, device: dto.session.poste, ip: dto.session.ip, openedAt: dto.session.ouverte_le, closedAt: dto.session.fermee_le }
+      : null,
+    // Contexte brut, tel que le journal l'a gardé : clé → valeur lisible.
+    context: Object.entries(dto.details ?? {})
+      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => [k.replace(/_/g, " "), typeof v === "object" ? JSON.stringify(v) : String(v)]),
+  };
 }
