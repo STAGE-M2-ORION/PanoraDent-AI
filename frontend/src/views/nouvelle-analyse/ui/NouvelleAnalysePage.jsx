@@ -165,7 +165,7 @@ export function NouvelleAnalysePage() {
         </ol>
       </nav>
 
-      <input ref={inputRef} type="file" id="file" className="sr-only" accept={ACCEPT} onChange={(e) => (pick(e.target.files[0]), (e.target.value = ""))} />
+      <input ref={inputRef} type="file" id="file" className="sr-only" accept={ACCEPT} aria-label="Choisir la radiographie panoramique (DICOM, PNG ou JPEG)" onChange={(e) => (pick(e.target.files[0]), (e.target.value = ""))} />
 
       <div className="layout">
         <div className="stack" aria-live="polite">

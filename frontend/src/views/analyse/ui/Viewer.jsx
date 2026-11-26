@@ -187,7 +187,7 @@ export const Viewer = forwardRef(function Viewer(
           <span className="hide-sm">Déplacer</span>
         </button>
         <span className="adjust">
-          <button type="button" className="vbtn" aria-expanded={adjust.open} aria-controls="adjPop" onClick={() => setAdjust((a) => ({ ...a, open: !a.open }))}>
+          <button type="button" className="vbtn" aria-expanded={adjust.open} aria-controls="adjPop" aria-label="Luminosité / contraste" title="Luminosité / contraste" onClick={() => setAdjust((a) => ({ ...a, open: !a.open }))}>
             <Icon name="sun" />
             <span className="hide-sm">Luminosité / contraste</span>
           </button>
