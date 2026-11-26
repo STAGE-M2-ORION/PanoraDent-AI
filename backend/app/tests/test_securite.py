@@ -10,10 +10,21 @@ from app.config import settings
 from .conftest import BASE, MDP, connexion_mdp
 
 
+def figer_le_compteur(monkeypatch, instant: float = 1_800_000_030.0) -> None:
+    """Le compteur seul compte à un instant fixe ; le reste de l'application
+    (expiration des jetons…) garde l'heure réelle."""
+    compter = securite.COMPTEUR.compter
+    monkeypatch.setattr(securite.COMPTEUR, "compter",
+                        lambda regle, adresse, limite, maintenant=None: compter(regle, adresse, limite, maintenant=instant))
+
+
 @pytest.fixture()
 def limites(monkeypatch):
-    """Rallume la limitation (coupée pour les autres tests), compteurs neufs."""
+    """Rallume la limitation (coupée pour les autres tests), compteurs neufs.
+    L'horloge du limiteur est figée au milieu d'une minute : sinon un test
+    qui chevauche le changement de minute voit son compteur repartir à zéro."""
     securite.COMPTEUR.vider()
+    figer_le_compteur(monkeypatch)
 
     def _regler(**valeurs):
         for nom, valeur in valeurs.items():
