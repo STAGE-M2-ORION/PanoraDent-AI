@@ -375,7 +375,9 @@ def fiche(analysis_id: str, _: Utilisateur = Depends(exiger(ANALYSIS_READ)), db:
 # donne accès à rien — l'historique revérifie les droits à chaque lecture.
 
 VUES_MAX = 20
-CLES_FILTRES = {"q", "deposant", "etat", "du", "au", "types", "dent", "compte_rendu", "tri"}
+CLES_FILTRES = {"q", "deposant", "etat", "du", "au", "types", "dent", "compte_rendu", "tri", "periode"}
+# Période relative : recalculée à chaque usage de la vue, jamais figée en dates.
+PERIODES = ("today", "7", "30")
 
 
 class VueIn(BaseModel):
@@ -395,6 +397,8 @@ def _filtres_valides(filtres: dict) -> dict:
                     au=date.fromisoformat(f["au"]) if f.get("au") else None,
                     types=[str(t) for t in f.get("types", [])], dent=int(f["dent"]) if f.get("dent") else None,
                     compte_rendu=str(f.get("compte_rendu", "")), tri=str(f.get("tri", "recent")))
+        if f.get("periode") and f["periode"] not in PERIODES:
+            raise ApiError(422, "filtre_invalide", f"Période inconnue : {f['periode']}.")
         if f.get("etat") and f["etat"] not in ETATS:
             raise ApiError(422, "filtre_invalide", f"État inconnu : {f['etat']}.")
         inconnus = set(f.get("types", [])) - set(LABELS) | ({LABEL_DENT} & set(f.get("types", [])))

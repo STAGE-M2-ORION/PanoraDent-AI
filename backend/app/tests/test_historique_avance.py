@@ -157,10 +157,16 @@ def test_vues_enregistrees_propres_a_leur_auteur(admin, connecte, jeu, db):
 
 
 @pytest.mark.parametrize("filtres", [{"inconnu": 1}, {"etat": "perdu"}, {"dent": 99}, {"tri": "prix"},
-                                     {"types": ["tooth"]}, {"du": "pas une date"}])
+                                     {"types": ["tooth"]}, {"du": "pas une date"}, {"periode": "hier"}])
 def test_vue_aux_filtres_invalides_refusee(admin, filtres):
     r = admin.post(VUES, json={"nom": "Vue", "filtres": filtres})
     assert (r.status_code, r.json()["code"]) == (422, "filtre_invalide")
+
+
+def test_vue_a_periode_relative(admin):
+    """« 7 derniers jours » reste relatif : la vue ne fige pas de dates."""
+    r = admin.post(VUES, json={"nom": "Semaine", "filtres": {"periode": "7", "deposant": "moi"}})
+    assert r.status_code == 201 and r.json()["filtres"] == {"periode": "7", "deposant": "moi"}
 
 
 def test_nombre_de_vues_borne(admin):
