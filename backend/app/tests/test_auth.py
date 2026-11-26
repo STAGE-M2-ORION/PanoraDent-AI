@@ -422,9 +422,13 @@ def test_production_exige_secret_client_google_et_smtp():
         app_env="production", identity_provider="google", jwt_secret="x" * 40,
         google_client_id="a", google_client_secret="b", bcrypt_cout=12,
         courriel_mode="smtp", smtp_hote="smtp.example.org", assistant_fournisseur="ollama",
+        # Les tests coupent la limitation de débit (conftest) : la production l'exige.
+        limite_connexion_minute=10, limite_oubli_minute=5, limite_api_minute=600,
     )
     Settings(**valide)
     for defaut in (
+        {"limite_connexion_minute": 0},
+        {"limite_api_minute": 0},
         {"google_client_id": ""},
         {"jwt_secret": "court"},
         {"courriel_mode": "console"},

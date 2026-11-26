@@ -35,6 +35,7 @@ ACTIONS = {
     "connexion": ("Connexion", "Connexions et sécurité"),
     "deconnexion": ("Déconnexion", "Connexions et sécurité"),
     "verrouillage": ("Compte verrouillé après des échecs de connexion", "Connexions et sécurité"),
+    "limite_depassee": ("Trop de demandes depuis un poste : demandes refusées une minute", "Connexions et sécurité"),
     "rattachement_google": ("Compte Google rattaché", "Connexions et sécurité"),
     "demande_reinitialisation": ("Demande de réinitialisation du mot de passe", "Connexions et sécurité"),
     "changement_mot_de_passe": ("Changement de mot de passe", "Connexions et sécurité"),

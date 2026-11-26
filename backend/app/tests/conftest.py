@@ -21,6 +21,11 @@ os.environ["BCRYPT_COUT"] = "4"
 os.environ["COURRIEL_MODE"] = "memoire"
 # Assistant sans modèle : vecteurs et réponses factices (Ollama n'est jamais appelé).
 os.environ["ASSISTANT_FOURNISSEUR"] = "factice"
+# Limitation de débit coupée : les tests ouvrent des dizaines de sessions depuis
+# la même adresse. `test_securite.py` la rallume, règle par règle.
+os.environ["LIMITE_CONNEXION_MINUTE"] = "0"
+os.environ["LIMITE_OUBLI_MINUTE"] = "0"
+os.environ["LIMITE_API_MINUTE"] = "0"
 
 from urllib.parse import parse_qs, urlparse
 
