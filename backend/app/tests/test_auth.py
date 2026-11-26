@@ -402,6 +402,7 @@ def test_routes_publiques_attendues():
         "/api/v1/auth/rafraichir", "/api/v1/auth/deconnexion", "/api/v1/auth/connexion",
         "/api/v1/auth/mot-de-passe/oubli", "/api/v1/auth/mot-de-passe/reinitialiser",
         "/api/v1/auth/premiere-connexion",
+        "/api/v1/demandes-acces",  # demande d'accès depuis la page d'accueil (sprint 13)
         "/api/v1/auth/fake/autoriser", "/api/v1/auth/fake/valider",
         "/api/v1/test/courriels",  # montée seulement avec APP_ENV=test
         "/api/v1/test/modeles",    # idem : publication factice pour Playwright
