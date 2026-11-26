@@ -324,6 +324,10 @@
     .reopen-panel { display: none !important; }
     #panelToggle { display: none; }
     .strip .trace { margin-left: 0; width: 100%; flex-basis: 100%; text-align: left; }
+    /* Page empilée : la hauteur n'est plus comptée, les légendes passent à la
+       ligne au lieu de défiler hors de l'écran (repères invisibles sur mobile). */
+    .odonto-legends { flex-wrap: wrap; overflow-x: visible; row-gap: var(--space-2); }
+    .odonto-legends .odonto-legend { flex-wrap: wrap; white-space: normal; }
   }
   @media (max-width: 700px) {
     .head-actions { width: 100%; flex-direction: column; }
