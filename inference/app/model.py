@@ -13,7 +13,14 @@ _model = None
 _mode = "mock"
 
 
-def load_model():
+def load_model(installees: list[str] | None = None):
+    """`installees` : versions publiées présentes dans le dossier des poids.
+
+    Mode strict (production) sans le fichier unique historique : le service
+    démarre en mode « registre » s'il a au moins une paire publiée ; il ne
+    sert alors QUE des versions demandées, jamais de détections factices.
+    Sans aucune paire, il refuse de démarrer.
+    """
     global _model, _mode
     if os.path.exists(config.MODEL_WEIGHTS_PATH):
         try:
@@ -28,14 +35,18 @@ def load_model():
                 ) from exc
             print(f"[inference] échec du chargement du modèle, bascule en mock : {exc}")
             _mode = "mock"
+    elif config.MODEL_STRICT and installees:
+        _mode = "registre"
     else:
         if config.MODEL_STRICT:
             raise RuntimeError(
-                f"MODEL_STRICT=1 : aucun poids à {config.MODEL_WEIGHTS_PATH}. "
-                f"Déposer model.pt ou désactiver MODEL_STRICT."
+                f"MODEL_STRICT=1 : aucune version publiée dans {config.MODEL_WEIGHTS_DIR} "
+                f"(<version>/dents.pt et anomalies.pt) ni de poids à {config.MODEL_WEIGHTS_PATH}. "
+                f"Refus de servir des détections factices."
             )
         _mode = "mock"
-    print(f"[inference] mode={_mode} version={config.MODEL_VERSION}")
+    print(f"[inference] mode={_mode} version={config.MODEL_VERSION}"
+          + (f" installées={','.join(installees)}" if _mode == "registre" else ""))
 
 
 def mode() -> str:

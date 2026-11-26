@@ -155,6 +155,30 @@ def test_infer_sans_version_reste_le_mode_historique(client):
     assert r.json()["mode"] == "mock"                # aucun model.pt dans le conteneur de test
 
 
+def test_mode_strict_demarre_sur_les_versions_publiees(tmp_path, monkeypatch):
+    """Production : aucun model.pt historique, une paire publiée. Le service
+    démarre, ne sert que des versions demandées, jamais le mock."""
+    monkeypatch.setattr(config, "MODEL_STRICT", True)
+    monkeypatch.setattr(config, "MODEL_WEIGHTS_PATH", str(tmp_path / "absent.pt"))
+    reg = Registre(dossier=tmp_path)
+    assert reg.installees() == []
+    with pytest.raises(RuntimeError, match="aucune version publiée"):
+        model.load_model(reg.installees())
+
+    poser(tmp_path, "dentex-2026.11")
+    (tmp_path / "incomplete").mkdir()
+    (tmp_path / "incomplete" / "dents.pt").write_bytes(b"x")     # paire incomplète : ignorée
+    assert reg.installees() == ["dentex-2026.11"]
+    model.load_model(reg.installees())
+    assert model.mode() == "registre"
+    try:
+        r = TestClient(main.app).post("/infer", files={"file": ("x.png", png(), "image/png")})
+        assert r.status_code == 503 and r.json()["code"] == "aucune_version_active"
+    finally:
+        monkeypatch.setattr(config, "MODEL_STRICT", False)
+        model.load_model()                                         # retour au mock pour les autres tests
+
+
 def test_charger_avant_bascule(client, tmp_path):
     empreintes = poser(tmp_path)
     r = client.post("/charger", json={"version": "v1", "sha_dents": empreintes["dents"]})
