@@ -34,6 +34,9 @@ SANS_PERMISSION = {
     # Vues enregistrées de l'historique (sprint 12) : réglage personnel, comme les préférences.
     ("GET", "/api/v1/moi/vues-historique"), ("POST", "/api/v1/moi/vues-historique"),
     ("DELETE", "/api/v1/moi/vues-historique/{vue_id}"),
+    # Notifications (sprint 13) : chacun les siennes seulement.
+    ("GET", "/api/v1/moi/notifications"), ("POST", "/api/v1/moi/notifications/{notification_id}/lue"),
+    ("POST", "/api/v1/moi/notifications/lues"),
 }
 
 

@@ -20,10 +20,10 @@ from ..auth_deps import exiger
 from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
-from ..models import Analysis, Detection
+from ..models import Analysis, Detection, TypeNotification
 from ..permissions import ANALYSIS_REOPEN, DETECTION_REVIEW
 from ..schemas import AnalysisOut, DetectionOut, analyse_out, detection_out
-from ..services import numerotation, revue
+from ..services import notifications, numerotation, revue
 
 router = APIRouter(prefix="/analyses", tags=["relecture"])
 
@@ -183,7 +183,10 @@ def rouvrir(
     db: Session = Depends(get_db),
 ):
     a = _analyse(db, analysis_id, verrou=True)
+    clotureur = a.cloturee_par_id          # effacé par la réouverture : lu avant
     motif = revue.rouvrir(a, corps.motif)
+    notifications.notifier(db, clotureur, TypeNotification.ANALYSE_ROUVERTE, a,
+                           auteur_id=utilisateur.id, motif=motif)
     journal.inscrire(
         db, "reouverture_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
         cible=f"analyse:{a.id}", details={"reference": a.reference, "motif": motif}, commit=False,

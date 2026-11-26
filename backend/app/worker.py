@@ -33,8 +33,8 @@ from . import auth_models  # noqa: F401  (enregistre les tables liées : utilisa
 from . import journal
 from .config import settings
 from .database import SessionLocal
-from .models import Analysis, Detection, StatutAnalyse
-from .services import indexation, inference_client, registre_modeles, storage
+from .models import Analysis, Detection, StatutAnalyse, TypeNotification
+from .services import indexation, inference_client, notifications, registre_modeles, storage
 
 logger = logging.getLogger("panoradent.worker")
 
@@ -184,6 +184,9 @@ def traiter(db: Session, analyse: Analysis) -> None:
     analyse.duree_ms = int((time.monotonic() - debut) * 1000)
     # Fiche d'historique (sprint 8) : le traitement, réussi ou non, est au journal.
     termine = analyse.statut == StatutAnalyse.TERMINEE
+    # Sprint 13 : le déposant est prévenu, dans la même transaction.
+    notifications.notifier(db, analyse.utilisateur_id,
+                           TypeNotification.ANALYSE_TERMINEE if termine else TypeNotification.ANALYSE_ECHOUEE, analyse)
     journal.inscrire(
         db, "analyse_traitee" if termine else "analyse_echouee", journal.SUCCES if termine else journal.ECHEC,
         cible=f"analyse:{analyse.id}", commit=False,
