@@ -133,6 +133,20 @@ services:
       timeout: 5s
       retries: 10
 
+  # Boîte de réception de DÉVELOPPEMENT (profil « courriel », facultatif) :
+  # l'application lui envoie réellement ses e-mails par SMTP (port 1025, réseau
+  # Docker seulement) et on les lit dans une page web, http://localhost:8025.
+  # Rien ne sort du poste, aucun compte chez un fournisseur. Jamais en
+  # production : là, le serveur d'envoi du cabinet (voir docs/DEPLOIEMENT.md).
+  # Dans .env : COURRIEL_MODE=smtp, SMTP_HOTE=mailpit, SMTP_PORT=1025,
+  # SMTP_STARTTLS=false ; puis `docker compose --profile courriel up -d`.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    profiles: ["courriel"]
+    ports:
+      # Interface web sur ce poste seulement, pas sur le réseau.
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+
   backend:
     build: ./backend
     environment: *backend-env

@@ -246,6 +246,7 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` | `80` / `443` | Production : ports publiés par Caddy |
 | `DB_PORT` | `5432` | Port PostgreSQL publié sur l'hôte (`5433` si un PostgreSQL local occupe déjà 5432) |
 | `LIMITE_CONNEXION_MINUTE` / `LIMITE_OUBLI_MINUTE` / `LIMITE_API_MINUTE` | `10` / `5` / `600` | Limitation de débit par poste et par minute (connexion et liens ; mot de passe oublié ; reste de l'API). `0` coupe une limite, refusé en production |
+| `MAILPIT_PORT` | `8025` | Développement : port de la page de Mailpit (profil `courriel`), publié sur ce poste seulement |
 | `NOTIF_COURRIEL_GRACE_S` / `NOTIF_COURRIEL_INTERVALLE_S` | `120` / `300` | E-mails de notification : délai de grâce (lue dans l'application avant, pas d'e-mail) et intervalle minimal entre deux e-mails par destinataire |
 
 **Écrites en dur dans [docker-compose.yml](docker-compose.yml)**, non
@@ -1025,6 +1026,29 @@ vitrine (`/decouvrir`) envoie une demande que l'administrateur examine.
 
 Table `demandes_acces` (migration `0021`), qui ajoute aussi `notifications.lien`
 (page visée quand une notification ne porte pas sur une analyse).
+
+## E-mails en développement : Mailpit
+
+Par défaut (`COURRIEL_MODE=console`), les e-mails ne partent pas : ils sont écrits
+dans `docker compose logs backend` (et `logs worker` pour les notifications). Pour
+les **lire comme dans une vraie boîte**, le profil facultatif `courriel` ajoute
+[Mailpit](https://mailpit.axllent.org/), une boîte de réception de test :
+l'application lui envoie réellement ses e-mails par SMTP, et on les lit sur
+**http://localhost:8025**. Rien ne sort du poste, aucun compte n'est à créer.
+
+Dans `.env` :
+
+```bash
+COURRIEL_MODE=smtp
+SMTP_HOTE=mailpit
+SMTP_PORT=1025
+SMTP_STARTTLS=false
+```
+
+puis `docker compose --profile assistant --profile courriel up -d`. La page web
+n'est publiée que sur ce poste (`127.0.0.1`) ; le port SMTP reste interne au
+réseau Docker. Mailpit n'existe ni en production (serveur d'envoi du cabinet, voir
+[DEPLOIEMENT](docs/DEPLOIEMENT.md)) ni dans les tests e2e (boîte en mémoire).
 
 ## Tests et CI
 
