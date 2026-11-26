@@ -44,11 +44,10 @@ def _uuid(valeur) -> uuid.UUID:
         raise _non_authentifie() from exc
 
 
-def session_ouverte(request: Request, db: Session = Depends(get_db)) -> Utilisateur:
-    """Décode le jeton d'accès, vérifie que sa session n'est pas révoquée et
-    charge l'utilisateur, qui doit être actif. Les permissions sont relues en
-    base : un changement de rôle s'applique sans attendre l'expiration."""
-    jeton = request.cookies.get(COOKIE_ACCES)
+def utilisateur_du_jeton(db: Session, jeton: str | None) -> tuple[Utilisateur, uuid.UUID]:
+    """(utilisateur, session) d'un jeton d'accès : jeton valide, session non
+    révoquée, utilisateur actif ; sinon 401. Partagé par les requêtes HTTP et
+    le flux des notifications (WebSocket, sprint 13)."""
     if not jeton:
         raise _non_authentifie()
     try:
@@ -62,7 +61,23 @@ def session_ouverte(request: Request, db: Session = Depends(get_db)) -> Utilisat
     utilisateur = db.get(Utilisateur, _uuid(payload["sub"]))
     if utilisateur is None or utilisateur.id != session.utilisateur_id or not utilisateur.actif:
         raise _non_authentifie()
-    request.state.session_id = session.id
+    return utilisateur, session.id
+
+
+def session_encore_valide(db: Session, session_id: uuid.UUID, utilisateur_id: uuid.UUID) -> bool:
+    """Revérifiée pendant une connexion longue : déconnexion, session fermée
+    par l'administrateur ou compte désactivé y mettent fin."""
+    session = db.get(SessionUtilisateur, session_id)
+    utilisateur = db.get(Utilisateur, utilisateur_id)
+    return bool(session and session.valide() and utilisateur and utilisateur.actif)
+
+
+def session_ouverte(request: Request, db: Session = Depends(get_db)) -> Utilisateur:
+    """Décode le jeton d'accès, vérifie que sa session n'est pas révoquée et
+    charge l'utilisateur, qui doit être actif. Les permissions sont relues en
+    base : un changement de rôle s'applique sans attendre l'expiration."""
+    utilisateur, session_id = utilisateur_du_jeton(db, request.cookies.get(COOKIE_ACCES))
+    request.state.session_id = session_id
     return utilisateur
 
 

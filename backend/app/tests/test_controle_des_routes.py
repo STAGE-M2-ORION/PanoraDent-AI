@@ -95,3 +95,16 @@ def test_le_lecteur_consulte_sans_rien_produire(connecte, admin, db):
     # Produire un compte rendu reste réservé (report:generate), même en brouillon.
     r = lecteur.get(f"{BASE}/analyses/{a.id}/compte-rendu", params={"brouillon": "true"})
     assert r.status_code == 403 and r.json()["code"] == "acces_refuse"
+
+
+# Les routes WebSocket échappent aux dépendances `exiger` : elles authentifient
+# elles-mêmes (sprint 13). Liste fermée : une nouvelle doit être relue et testée
+# (session et origine), comme le flux des notifications dans test_notifications.py.
+WEBSOCKETS = {"/api/v1/moi/notifications/flux"}
+
+
+def test_routes_websocket_liste_fermee():
+    from fastapi.routing import APIWebSocketRoute
+
+    trouvees = {r.path for r in app.routes if isinstance(r, APIWebSocketRoute)}
+    assert trouvees == WEBSOCKETS, f"Route WebSocket ajoutée ou retirée : {sorted(trouvees ^ WEBSOCKETS)}"

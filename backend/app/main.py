@@ -90,6 +90,25 @@ if settings.app_env.lower() == "test":
     app.include_router(essais_modeles.router, prefix=API_V1)
 
 
+@app.on_event("startup")
+def _ecouter_les_notifications():
+    """Temps réel des notifications (sprint 13) : un fil écoute PostgreSQL."""
+    from .database import engine
+    from .services import diffusion
+
+    if engine.dialect.name == "postgresql":
+        app.state.ecouteur = diffusion.Ecouteur(
+            engine.url.set(drivername="postgresql").render_as_string(hide_password=False))
+        app.state.ecouteur.start()
+
+
+@app.on_event("shutdown")
+def _arreter_l_ecoute():
+    ecouteur = getattr(app.state, "ecouteur", None)
+    if ecouteur is not None:
+        ecouteur.arreter()
+
+
 @app.get("/", dependencies=[Depends(publique)])
 def root():
     return {"service": "panoradent-backend", "docs": "/docs"}

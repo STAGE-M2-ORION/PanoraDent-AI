@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..auth_models import Utilisateur
 from ..models import Analysis, Notification, TypeNotification
-from . import revue
+from . import diffusion, revue
 
 MOTIF_MAX = 200
 LIMITE_MAX = 50
@@ -70,6 +70,8 @@ def notifier(db: Session, destinataire_id: uuid.UUID | None, type_: str, analyse
         cree_le=datetime.utcnow(),
     )
     db.add(n)
+    # Temps réel (lot B) : annoncée au commit de cette même transaction.
+    diffusion.annoncer(db, destinataire_id, n.id)
     return n
 
 

@@ -134,3 +134,94 @@ def test_la_notification_survit_a_la_suppression_de_l_analyse(db, connecte):
     db.expire_all()
     restante = db.get(Notification, n.id)
     assert restante is not None and restante.reference == "PDX-2026-0903"
+
+
+# --- Flux temps réel (lot B) ---------------------------------------------------------------
+
+import pytest  # noqa: E402
+from starlette.websockets import WebSocketDisconnect  # noqa: E402
+
+from app.routers import notifications as routeur  # noqa: E402
+from app.services import diffusion  # noqa: E402
+
+FLUX = "wss://testserver/api/v1/moi/notifications/flux"   # wss : les cookies Secure partent
+ORIGINE = {"origin": "https://testserver"}
+
+
+def _notifier(db, email, reference="PDX-2026-0950"):
+    a = Analysis(reference=reference, image_key="k", width=1, height=1)
+    db.add(a)
+    db.flush()
+    n = notifications.notifier(db, _id(db, email), "analyse_terminee", a)
+    db.commit()
+    return n
+
+
+def test_flux_refuse_une_autre_origine(connecte):
+    rabe = connecte("dr.rabe@cabinet.example.org")
+    for entetes in ({}, {"origin": "https://site-malveillant.example"}, {"origin": "https://testserver.example"}):
+        with pytest.raises(WebSocketDisconnect) as refus:
+            with rabe.websocket_connect(FLUX, headers=entetes):
+                pass
+        assert refus.value.code == 1008
+
+
+def test_flux_sans_session(client):
+    with client.websocket_connect(FLUX, headers=ORIGINE) as ws:
+        with pytest.raises(WebSocketDisconnect) as fin:
+            ws.receive_json()
+    assert fin.value.code == 4401
+
+
+def test_flux_remet_ses_notifications_seulement(connecte, db):
+    rabe = connecte("dr.rabe@cabinet.example.org")
+    connecte("dr.voisin@cabinet.example.org")
+    _notifier(db, "dr.rabe@cabinet.example.org", "PDX-2026-0951")         # avant connexion : comptée
+    with rabe.websocket_connect(FLUX, headers=ORIGINE) as ws:
+        assert ws.receive_json() == {"type": "etat", "non_lues": 1}
+        _notifier(db, "dr.voisin@cabinet.example.org", "PDX-2026-0952")   # pas pour lui
+        _notifier(db, "dr.rabe@cabinet.example.org", "PDX-2026-0953")
+        m = ws.receive_json()
+        assert m["type"] == "notification" and m["non_lues"] == 2
+        assert m["notification"]["reference"] == "PDX-2026-0953"
+
+
+def test_flux_ferme_quand_la_session_est_fermee(connecte, monkeypatch):
+    monkeypatch.setattr(routeur, "CONTROLE_S", 0.2)
+    rabe = connecte("dr.rabe@cabinet.example.org")
+    with rabe.websocket_connect(FLUX, headers=ORIGINE) as ws:
+        assert ws.receive_json()["type"] == "etat"
+        assert rabe.post(f"{BASE}/auth/deconnexion").status_code == 204
+        with pytest.raises(WebSocketDisconnect) as fin:
+            while True:
+                ws.receive_json()
+    assert fin.value.code == 4401
+
+
+def test_flux_borne_le_nombre_d_onglets(connecte, monkeypatch):
+    monkeypatch.setattr(diffusion, "ONGLETS_MAX", 1)
+    rabe = connecte("dr.rabe@cabinet.example.org")
+    with rabe.websocket_connect(FLUX, headers=ORIGINE) as premier:
+        assert premier.receive_json()["type"] == "etat"
+        with rabe.websocket_connect(FLUX, headers=ORIGINE) as second:
+            with pytest.raises(WebSocketDisconnect) as fin:
+                second.receive_json()
+        assert fin.value.code == 4429
+
+
+def test_une_notification_annulee_n_est_pas_annoncee(db, connecte):
+    connecte("dr.rabe@cabinet.example.org")
+    remises = []
+    a = Analysis(reference="PDX-2026-0954", image_key="k", width=1, height=1)
+    db.add(a)
+    db.flush()
+    origine = diffusion.DIFFUSEUR.publier
+    diffusion.DIFFUSEUR.publier = lambda u, n: remises.append(n)
+    try:
+        notifications.notifier(db, _id(db, "dr.rabe@cabinet.example.org"), "analyse_terminee", a)
+        db.rollback()
+        assert remises == []
+        n = _notifier(db, "dr.rabe@cabinet.example.org", "PDX-2026-0955")
+        assert remises == [n.id]
+    finally:
+        diffusion.DIFFUSEUR.publier = origine
