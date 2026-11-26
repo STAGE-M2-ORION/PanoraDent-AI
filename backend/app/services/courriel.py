@@ -35,7 +35,9 @@ class Courriel:
 BOITE: list[Courriel] = []
 
 
-def envoyer(courriel: Courriel) -> None:
+def envoyer(courriel: Courriel, lever: bool = False) -> None:
+    """`lever=True` : l'échec remonte à l'appelant (notifications, qui
+    l'inscrivent au journal) ; sinon il est seulement journalisé."""
     mode = settings.courriel_mode.lower()
     try:
         if mode == "memoire":
@@ -47,6 +49,8 @@ def envoyer(courriel: Courriel) -> None:
                 "[courriel] À : %s | Objet : %s\n%s", courriel.destinataire, courriel.sujet, courriel.texte
             )
     except Exception:  # noqa: BLE001 — l'envoi ne doit jamais faire tomber la requête
+        if lever:
+            raise
         logger.exception("[courriel] échec de l'envoi à %s (%s)", courriel.destinataire, courriel.sujet)
 
 

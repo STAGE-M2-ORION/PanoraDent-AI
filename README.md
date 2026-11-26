@@ -245,6 +245,8 @@ Copier [`.env.example`](.env.example) en `.env` (jamais committé).
 | `PANORADENT_HOTE` | `panoradent.local` | Production : nom sous lequel les postes joignent le serveur, certificat émis par Caddy pour ce nom |
 | `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` | `80` / `443` | Production : ports publiés par Caddy |
 | `DB_PORT` | `5432` | Port PostgreSQL publié sur l'hôte (`5433` si un PostgreSQL local occupe déjà 5432) |
+| `LIMITE_CONNEXION_MINUTE` / `LIMITE_OUBLI_MINUTE` / `LIMITE_API_MINUTE` | `10` / `5` / `600` | Limitation de débit par poste et par minute (connexion et liens ; mot de passe oublié ; reste de l'API). `0` coupe une limite, refusé en production |
+| `NOTIF_COURRIEL_GRACE_S` / `NOTIF_COURRIEL_INTERVALLE_S` | `120` / `300` | E-mails de notification : délai de grâce (lue dans l'application avant, pas d'e-mail) et intervalle minimal entre deux e-mails par destinataire |
 
 **Écrites en dur dans [docker-compose.yml](docker-compose.yml)**, non
 surchargeables : `DATABASE_URL`, `S3_ENDPOINT` (`http://minio:9000`),
@@ -935,6 +937,55 @@ purgés.
 - Ni le praticien ni le lecteur n'atteignent l'administration : un test calcule
   les routes qui exigent une permission d'administration et vérifie le refus
   sur chacune, pour les deux rôles.
+
+## Notifications (sprint 13)
+
+Chacun est prévenu de ce qui le concerne, **dans l'application en temps réel**
+et, pour deux événements, **par e-mail**.
+
+| Événement | Qui | Application | E-mail |
+|---|---|---|---|
+| Analyse terminée | le déposant | ✅ | — (quelques secondes après le dépôt) |
+| Analyse échouée | le déposant | ✅ | ✅ selon sa préférence |
+| Analyse rouverte, avec le motif | celui qui l'avait clôturée | ✅ | ✅ selon sa préférence |
+
+**Règles.** Jamais de sa propre action ; rien pour un compte désactivé ; seule la
+**référence anonyme** de l'analyse (ni image, ni note, ni conclusion). Les
+notifications sont conservées en base (table `notifications`, migration `0020`) :
+celles reçues hors connexion attendent l'ouverture de la session.
+
+**Temps réel.** L'événement émet `pg_notify` dans sa propre transaction : il n'est
+livré qu'au commit, quel que soit le processus (le worker compris). Un fil du
+backend écoute PostgreSQL et réveille les WebSocket ouverts du destinataire —
+sans Redis ni courtier. Le flux `WS /api/v1/moi/notifications/flux` :
+
+- contrôle l'**origine** de la page avant la poignée de main (même hôte ou
+  `ALLOWED_ORIGINS`) : un autre site reçoit `403`, même avec les cookies ;
+- vérifie le **jeton** comme une requête ordinaire, puis la **session** toutes les
+  30 s (fermeture `4401` à la déconnexion ou à la désactivation) ; 10 onglets au
+  plus par personne (`4429`) ;
+- envoie `{"type": "etat", "non_lues": n}` à l'ouverture puis toutes les 30 s, et
+  `{"type": "notification", …}` à chaque arrivée.
+
+nginx a une section dédiée au passage en WebSocket ; Caddy le gère seul.
+Côté interface, **une seule connexion** pour toute l'application (fournisseur
+global) : cloche avec le compte des non lues, panneau, message éphémère,
+reconnexion à délai croissant puis relecture de la liste.
+
+**E-mails** (envoyés par le worker, toutes les 10 s) : selon les cases de
+Profil › Préférences ; **délai de grâce** `NOTIF_COURRIEL_GRACE_S` (120 s) : lue
+dans l'application avant, pas d'e-mail ; **pas de rafale** : au plus un e-mail
+toutes les `NOTIF_COURRIEL_INTERVALLE_S` (300 s) par destinataire, les suivantes
+partent ensemble. Chaque notification donne lieu à au plus un e-mail ; envoi
+inscrit au journal (« Notifications envoyées par e-mail ») ; un échec SMTP est
+journalisé, sans nouvel essai.
+
+| Méthode | Route | Description |
+|---|---|---|
+| `GET` | `/api/v1/moi/notifications` | Les plus récentes, `non_lues`, pagination par clé (`?avant=`) — session ouverte |
+| `POST` | `/api/v1/moi/notifications/{id}/lue` | Marque lue ; celle d'un autre répond `404` comme une inexistante |
+| `POST` | `/api/v1/moi/notifications/lues` | Toutes lues |
+| `WS` | `/api/v1/moi/notifications/flux` | Arrivée en temps réel |
 
 ## Tests et CI
 

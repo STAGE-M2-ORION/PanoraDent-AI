@@ -255,7 +255,8 @@ function PreferencesCard() {
         theme: prefs.theme,
         langue: prefs.langue,
         seuil_confiance_defaut: Number(prefs.seuil_confiance_defaut),
-        notifications: Boolean(prefs.notifications),
+        courriel_analyse_echouee: Boolean(prefs.courriel_analyse_echouee),
+        courriel_analyse_rouverte: Boolean(prefs.courriel_analyse_rouverte),
       });
       setUser({ ...user, preferences });
       setMsg({ tone: "success", text: "Préférences enregistrées. Elles s’appliquent sur tous vos postes." });
@@ -307,10 +308,21 @@ function PreferencesCard() {
             <output htmlFor="p-seuil">{seuil}&nbsp;%</output>
           </div>
         </Field>
-        <label className="check">
-          <input type="checkbox" checked={Boolean(prefs.notifications)} onChange={(e) => set("notifications", e.target.checked)} />
-          Recevoir les notifications par e-mail
-        </label>
+        <fieldset className="choices">
+          <legend>Recevoir par e-mail</legend>
+          <label className="check">
+            <input type="checkbox" checked={Boolean(prefs.courriel_analyse_echouee)} onChange={(e) => set("courriel_analyse_echouee", e.target.checked)} />
+            Une de mes analyses a échoué
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={Boolean(prefs.courriel_analyse_rouverte)} onChange={(e) => set("courriel_analyse_rouverte", e.target.checked)} />
+            Une analyse que j’avais clôturée a été rouverte
+          </label>
+          <p className="hint">
+            Toutes les notifications arrivent aussi dans l’application (cloche). L’e-mail ne part que si vous ne les avez pas lues dans les 2 minutes, au plus un toutes les 5 minutes,
+            avec la seule référence anonyme de l’analyse.
+          </p>
+        </fieldset>
         <Msg msg={msg} />
         <div>
           <Button type="submit" disabled={busy}>
@@ -541,7 +553,7 @@ function SecurityTab() {
 
 /**
  * Profil en trois onglets : Informations (photo, identité, signature),
- * Préférences (thème, langue, seuil, notifications) et Sécurité (modes de
+ * Préférences (thème, langue, seuil, e-mails de notification) et Sécurité (modes de
  * connexion, mot de passe, sessions ouvertes). L'onglet est dans l'URL
  * (`?onglet=`) : le retour du rattachement Google ouvre « Sécurité ».
  */

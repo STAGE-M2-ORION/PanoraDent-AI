@@ -34,6 +34,9 @@ SANS_PERMISSION = {
     # Vues enregistrées de l'historique (sprint 12) : réglage personnel, comme les préférences.
     ("GET", "/api/v1/moi/vues-historique"), ("POST", "/api/v1/moi/vues-historique"),
     ("DELETE", "/api/v1/moi/vues-historique/{vue_id}"),
+    # Notifications (sprint 13) : chacun les siennes seulement.
+    ("GET", "/api/v1/moi/notifications"), ("POST", "/api/v1/moi/notifications/{notification_id}/lue"),
+    ("POST", "/api/v1/moi/notifications/lues"),
 }
 
 
@@ -92,3 +95,16 @@ def test_le_lecteur_consulte_sans_rien_produire(connecte, admin, db):
     # Produire un compte rendu reste réservé (report:generate), même en brouillon.
     r = lecteur.get(f"{BASE}/analyses/{a.id}/compte-rendu", params={"brouillon": "true"})
     assert r.status_code == 403 and r.json()["code"] == "acces_refuse"
+
+
+# Les routes WebSocket échappent aux dépendances `exiger` : elles authentifient
+# elles-mêmes (sprint 13). Liste fermée : une nouvelle doit être relue et testée
+# (session et origine), comme le flux des notifications dans test_notifications.py.
+WEBSOCKETS = {"/api/v1/moi/notifications/flux"}
+
+
+def test_routes_websocket_liste_fermee():
+    from fastapi.routing import APIWebSocketRoute
+
+    trouvees = {r.path for r in app.routes if isinstance(r, APIWebSocketRoute)}
+    assert trouvees == WEBSOCKETS, f"Route WebSocket ajoutée ou retirée : {sorted(trouvees ^ WEBSOCKETS)}"

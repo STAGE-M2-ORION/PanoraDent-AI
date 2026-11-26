@@ -57,9 +57,13 @@ services:
       LIMITE_API_MINUTE: "6000"
 
   # Le worker indexe les documents : même vectoriseur factice que le backend.
+  # Il envoie aussi les e-mails de notification (sprint 13) : délai de grâce et
+  # intervalle ramenés à quelques secondes pour le parcours.
   worker:
     environment:
       ASSISTANT_FOURNISSEUR: factice
+      NOTIF_COURRIEL_GRACE_S: "2"
+      NOTIF_COURRIEL_INTERVALLE_S: "0"
 
   frontend:
     ports: !override

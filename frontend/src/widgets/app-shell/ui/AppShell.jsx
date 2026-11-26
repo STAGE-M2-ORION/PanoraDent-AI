@@ -9,6 +9,7 @@ import { cx, useAppTheme } from "@/shared/lib";
 import { Avatar, Button, Card, Icon, Logo, UserPhoto } from "@/shared/ui";
 
 import { visibleNavigation } from "../model/navigation";
+import { NotificationBell } from "./NotificationBell";
 import { ServiceAlerts } from "./ServiceAlerts";
 
 function Sidebar({ page, open, rail, onNavigate }) {
@@ -120,6 +121,7 @@ function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
       <div className="spacer" />
       {headerActions}
       <div className="top-tools">
+        <NotificationBell />
         <button type="button" className="btn btn-ghost btn-sm theme-toggle" aria-label={themeLabel} title={themeLabel} onClick={switchTheme}>
           <Icon name={dark ? "sun" : "contrast"} />
         </button>

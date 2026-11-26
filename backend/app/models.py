@@ -463,3 +463,34 @@ class VueHistorique(Base):
     nom: Mapped[str] = mapped_column(String(80))
     filtres: Mapped[dict] = mapped_column(JSON, default=dict)
     cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TypeNotification:
+    """Événements notifiés (sprint 13). Une notification ne porte que la
+    référence anonyme de l'analyse : jamais d'image, de note ni de conclusion."""
+    ANALYSE_TERMINEE = "analyse_terminee"
+    ANALYSE_ECHOUEE = "analyse_echouee"
+    ANALYSE_ROUVERTE = "analyse_rouverte"
+    TOUS = (ANALYSE_TERMINEE, ANALYSE_ECHOUEE, ANALYSE_ROUVERTE)
+
+
+class Notification(Base):
+    """Notification adressée à un utilisateur (sprint 13), conservée en base :
+    celles reçues hors connexion l'attendent à l'ouverture de sa session."""
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_destinataire_date", "utilisateur_id", "cree_le"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    utilisateur_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("utilisateur.id", ondelete="CASCADE"))
+    type: Mapped[str] = mapped_column(String(40))
+    titre: Mapped[str] = mapped_column(String(200))
+    message: Mapped[str] = mapped_column(Text, default="")
+    # Analyse visée (lien depuis le panneau) ; la notification survit à sa suppression.
+    analyse_id: Mapped[str | None] = mapped_column(String, ForeignKey("analyses.id", ondelete="SET NULL"),
+                                                   nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lue_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # E-mail : None tant que rien n'est décidé (voir services/courriels_notifications.py).
+    courriel_statut: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    courriel_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

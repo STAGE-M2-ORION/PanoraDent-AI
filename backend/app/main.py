@@ -8,7 +8,7 @@ from .auth_deps import publique
 from .config import settings
 from .routers import (
     administration, analyses, assistant, auth, boite_courriels, cabinet, compte_rendu, conversations, documents, essais_modeles, fake_idp, health,
-    historique, journal_audit, model, moi, photos, revue, roles, stockage, users,
+    historique, journal_audit, model, moi, notifications, photos, revue, roles, stockage, users,
 )
 from .services.anonymize import TAILLE_MAX
 
@@ -70,7 +70,7 @@ app.add_middleware(
 errors.install(app)
 
 for module in (health, analyses, revue, model, users, roles, photos, moi, stockage, cabinet, compte_rendu, historique,
-               journal_audit, documents, assistant, conversations, administration):
+               journal_audit, documents, assistant, conversations, administration, notifications):
     app.include_router(module.router, prefix=API_V1)
 app.include_router(auth.router, prefix=API_V1)
 app.include_router(auth.router_moi, prefix=API_V1)
@@ -88,6 +88,25 @@ if settings.courriel_mode.lower() == "memoire":
 if settings.app_env.lower() == "test":
     # Publication de versions factices pour le parcours Playwright du registre.
     app.include_router(essais_modeles.router, prefix=API_V1)
+
+
+@app.on_event("startup")
+def _ecouter_les_notifications():
+    """Temps réel des notifications (sprint 13) : un fil écoute PostgreSQL."""
+    from .database import engine
+    from .services import diffusion
+
+    if engine.dialect.name == "postgresql":
+        app.state.ecouteur = diffusion.Ecouteur(
+            engine.url.set(drivername="postgresql").render_as_string(hide_password=False))
+        app.state.ecouteur.start()
+
+
+@app.on_event("shutdown")
+def _arreter_l_ecoute():
+    ecouteur = getattr(app.state, "ecouteur", None)
+    if ecouteur is not None:
+        ecouteur.arreter()
 
 
 @app.get("/", dependencies=[Depends(publique)])
