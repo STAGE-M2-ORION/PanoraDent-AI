@@ -58,7 +58,7 @@ docker compose up --build   # ou : make up
 
 ```bash
 curl http://localhost:8000/api/v1/health
-# {"status":"ok","inference_reachable":true,"inference_mode":"mock"}
+# {"statut":"ok","services":{"base":"ok","stockage":"ok","file":"ok","inference":"ok"}}
 ```
 
 En mode `mock`, le poste de lecture affiche « Mode démonstration du modèle » et la
@@ -267,7 +267,7 @@ Authentification, comptes et rôles : voir [Authentification et rôles](#authent
 
 | Méthode | Route | Description |
 |---|---|---|
-| `GET` | `/api/v1/health` | État backend + joignabilité et mode de l'inférence (timeout 3 s, erreurs absorbées) |
+| `GET` | `/api/v1/health` | Publique : un état par service (base, stockage, file, inférence), sondes bornées à 2 s ; 503 si la base est injoignable |
 | `POST` | `/api/v1/analyses/apercu` | Contrôle et anonymisation, **sans rien stocker** : aperçu avant / après (data URL JPEG) et zones masquées. Champs `fichier`, `masques` (JSON) — `analysis:create` |
 | `POST` | `/api/v1/analyses` | Confirmation : même fichier + `masques`, `date_examen`, `note` ; ré-anonymisation, stockage de la seule image masquée, **mise en file**, `201` immédiat (statut `en_file`) — `analysis:create` |
 | `GET` | `/api/v1/analyses` | Analyses du cabinet, plus récentes d'abord ; `?mine=true` : les siennes — `analysis:read` |
@@ -886,6 +886,52 @@ traitements du worker un groupe « Traitements de la plateforme ».
 `GET /api/v1/journal.csv` exporte les mêmes entrées ; l'export est lui-même
 journalisé. Écran : Administration › Journal d'audit.
 
+**Sprint 11.** Filtres par **action** et par **cible** (référence d'analyse,
+compte, rôle…) ; `GET /journal/entrees/{id}` rend une entrée avec tout son
+contexte (fenêtre de détail à l'écran). Pagination **par clé** : `avant` est le
+curseur (date, identifiant) de la dernière entrée lue, `suivant` celui de la
+page d'après (« Charger les entrées plus anciennes ») — jamais de décalage.
+
+**Écriture seule.** Aucune route ne modifie ni ne supprime une entrée, aucun
+code non plus : deux tests le vérifient (routes et code source). Seule
+exception, déclarée : la **purge par rétention** (`services/retention.py`).
+La durée de conservation se règle dans Administration › Cabinet (365 jours par
+défaut, de 180 à 3650, contrainte en base) ; `POST /journal/purge`, confirmé,
+supprime les seules entrées plus anciennes et s'inscrit lui-même au journal
+(nombre de lignes, date limite). Il est **refusé dans la session qui vient
+d'abaisser la durée** — abaisser puis purger dans la foulée est le geste par
+lequel on efface une trace. Les verdicts, données cliniques, ne sont jamais
+purgés.
+
+## Supervision et administration (sprint 11)
+
+- **Page de santé publique** `GET /health` : un état par service (`ok`,
+  `degrade`, `panne`) et un statut global, rien d'autre (ni version, ni trace,
+  ni nom de machine) ; 503 seulement si la base est injoignable. Quatre sondes
+  en parallèle, **2 s chacune, en échec seules** : base, stockage, file (une
+  analyse qui attend plus de 10 min la dégrade), inférence (le modèle factice
+  n'est « dégradé » qu'en production).
+- **Supervision** (`GET /supervision`, `user:manage`) : latence et explication
+  de chaque sonde, analyses par jour, durée moyenne, taux d'échec ; écran
+  Administration › Supervision, relu toutes les 30 s.
+- **Bandeau** sur toutes les pages, pour tous, dès qu'un service est dégradé :
+  une phrase qui dit ce que l'incident change (« Le service d'analyse est
+  indisponible : les nouvelles analyses attendront dans la file. »).
+- **Tableau de bord de l'administrateur** (`GET /administration/indicateurs`) :
+  comptes par rôle, jamais connectés, connexions et échecs de la semaine,
+  analyses du mois, nouveaux comptes par mois, espace occupé, dernières
+  actions sur les comptes. Aucune donnée fictive.
+- **Comptes** : export CSV de la liste (`GET /utilisateurs.csv`, journalisé),
+  renvoi groupé du lien de première connexion aux comptes actifs jamais
+  connectés (`POST /utilisateurs/renvoyer-liens`).
+- **Écart assumé avec le plan** : pas de « seuil de confiance par défaut » dans
+  les paramètres du cabinet ; chaque classe a son seuil d'exploitation, choisi
+  sur la validation et publié avec le modèle (sprint 7), et chaque praticien
+  garde son seuil d'affichage dans son profil.
+- Ni le praticien ni le lecteur n'atteignent l'administration : un test calcule
+  les routes qui exigent une permission d'administration et vérifie le refus
+  sur chacune, pour les deux rôles.
+
 ## Tests et CI
 
 ```bash
@@ -1212,7 +1258,7 @@ mode réel emprunte la déduction géométrique.
 | Symptôme | Cause et remède |
 |---|---|
 | Bandeau « backend indisponible » | Migrations en cours : `docker compose logs -f backend` |
-| `inference_reachable: false` | Conteneur `inference` crashé : `docker compose logs inference` |
+| `"inference": "panne"` dans `/api/v1/health` | Conteneur `inference` arrêté : `docker compose logs inference` ; le détail est dans Administration › Supervision |
 | Mode toujours `mock` après ajout des poids | Poids absents, `ultralytics`/`torch` non décommentés, ou échec de chargement (chercher `échec du chargement` dans les logs). Rebuild requis. Poser `MODEL_STRICT=1` transforme cette bascule en erreur de démarrage |
 | Erreur 500 à l'upload | DICOM sans `pixel_array` exploitable, ou format illisible par Pillow |
 | « Image indisponible » / lien PDF mort | URL présignée non relayée : vérifier `S3_PUBLIC_URL=/storage` (backend) et `location /storage/` dans [nginx.conf](frontend/nginx.conf) |
