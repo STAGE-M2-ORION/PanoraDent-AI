@@ -31,9 +31,18 @@ def _filtres(
     auteur: str = "",
     categorie: str = "",
     resultat: str = "",
+    action: str = "",
+    cible: str = Query(default="", max_length=120),
+    avant: str = "",
 ) -> dict:
     if categorie and categorie not in journal_audit.CATEGORIES:
         raise ApiError(422, "filtre_invalide", f"Catégorie inconnue : {categorie}.")
+    if action and action not in journal_audit.ACTIONS:
+        raise ApiError(422, "filtre_invalide", f"Action inconnue : {action}.")
+    try:
+        journal_audit.lire_curseur(avant)
+    except ValueError as exc:
+        raise ApiError(422, "filtre_invalide", "Curseur de pagination invalide.") from exc
     if resultat not in ("", "succes", "echec"):
         raise ApiError(422, "filtre_invalide", "Résultat : « succes » ou « echec ».")
     try:
@@ -42,7 +51,8 @@ def _filtres(
         raise ApiError(422, "filtre_invalide", "Auteur inconnu.") from exc
     depuis = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=jours)
     return {"jours": jours, "depuis": depuis, "auteur": auteur_id, "categorie": categorie or None,
-            "echecs": None if not resultat else resultat == "echec"}
+            "echecs": None if not resultat else resultat == "echec", "action": action or None,
+            "cible": cible.strip() or None, "avant": avant or None}
 
 
 @router.get("")
@@ -52,8 +62,22 @@ def lire_journal(
     db: Session = Depends(get_db),
 ):
     resultat = journal_audit.lire(db, depuis=f["depuis"], auteur=f["auteur"], categorie=f["categorie"],
-                                  echecs=f["echecs"])
+                                  echecs=f["echecs"], action=f["action"], cible=f["cible"], avant=f["avant"])
     return {"jours": f["jours"], **resultat}
+
+
+@router.get("/entrees/{ident}")
+def lire_entree(
+    ident: str,
+    _: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Détail d'une entrée, avec son contexte complet. Le journal ne se lit
+    qu'en lecture : aucune route ne modifie ni ne supprime une entrée."""
+    entree = journal_audit.detail(db, ident)
+    if entree is None:
+        raise ApiError(404, "introuvable", "Entrée du journal introuvable.")
+    return entree
 
 
 @router.get(".csv")
@@ -64,7 +88,7 @@ def exporter_journal(
     db: Session = Depends(get_db),
 ):
     lu = journal_audit.lire(db, depuis=f["depuis"], auteur=f["auteur"], categorie=f["categorie"],
-                            echecs=f["echecs"], limite=20000)
+                            echecs=f["echecs"], action=f["action"], cible=f["cible"], limite=20000)
     sortie = io.StringIO()
     ecrivain = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
     ecrivain.writerow(["Date (UTC)", "Auteur", "Action", "Catégorie", "Cible", "Détail", "Résultat",
