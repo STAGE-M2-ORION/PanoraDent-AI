@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_AUDIT_FILTERS, auditParams, mergeAudit, normalizeAudit, normalizeAuditEntry, spanLabel } from "./audit";
+import { EMPTY_AUDIT_FILTERS, auditParams, mergeAudit, normalizeAudit, normalizeAuditEntry, normalizeRetention, spanLabel } from "./audit";
 
 describe("journal d'audit", () => {
   it("filtres → paramètres du serveur", () => {
@@ -62,5 +62,12 @@ describe("journal d'audit : consultation (sprint 11)", () => {
       libelle: "Analyse par le modèle terminée", categorie: "Analyses", ok: true, cible: "Analyse PDX-1",
       details: { modele: "v1", detections: 3, vide: "", cadre: { x: 0.1 } }, session: null });
     expect(d.context).toEqual([["modele", "v1"], ["detections", "3"], ["cadre", '{"x":0.1}']]);
+  });
+});
+
+describe("rétention du journal", () => {
+  it("aperçu de la purge", () => {
+    expect(normalizeRetention({ retention_jours: 365, date_limite: "2025-11-26T10:00:00", lignes: 12, purge_bloquee: true }))
+      .toMatchObject({ days: 365, limitDate: "2025-11-26T10:00:00", purgeable: 12, blocked: true });
   });
 });

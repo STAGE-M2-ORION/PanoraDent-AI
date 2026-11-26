@@ -1,6 +1,6 @@
 import { httpClient } from "@/shared/api";
 
-import { normalizeAudit, normalizeAuditEntry } from "../model/audit";
+import { normalizeAudit, normalizeAuditEntry, normalizeRetention } from "../model/audit";
 
 /** `GET /api/v1/journal` — journal d'audit groupé par session (`user:manage`). */
 export async function fetchAudit(params) {
@@ -19,4 +19,16 @@ export async function fetchAuditCsv(params) {
 export async function fetchAuditEntry(id) {
   const { data } = await httpClient.get(`/journal/entrees/${encodeURIComponent(id)}`);
   return normalizeAuditEntry(data);
+}
+
+/** `GET /api/v1/journal/retention` — ce que la purge effacerait. */
+export async function fetchRetention() {
+  const { data } = await httpClient.get("/journal/retention");
+  return normalizeRetention(data);
+}
+
+/** `POST /api/v1/journal/purge` — définitif, borné par la rétention, journalisé. */
+export async function purgeJournal() {
+  const { data } = await httpClient.post("/journal/purge", { confirmer: true });
+  return { removed: data.lignes, limitDate: data.date_limite };
 }

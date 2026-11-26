@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { EMPTY_AUDIT_FILTERS, auditParams, fetchAudit, fetchAuditCsv, fetchAuditEntry, localDay, mergeAudit, spanLabel } from "@/entities/audit";
+import {
+  EMPTY_AUDIT_FILTERS, auditParams, fetchAudit, fetchAuditCsv, fetchAuditEntry, fetchRetention, localDay, mergeAudit, purgeJournal, spanLabel,
+} from "@/entities/audit";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
 import { formatDate, formatTime, initials } from "@/shared/lib";
-import { Alert, Badge, Button, GoogleMark, Icon, Modal, useToast } from "@/shared/ui";
+import { Alert, Badge, Button, ConfirmDialog, GoogleMark, Icon, Modal, useToast } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
 const small = { width: 13, height: 13 };
@@ -223,6 +225,57 @@ function EntryDetail({ state, onClose }) {
 }
 
 /**
+ * Conservation et purge (sprint 11) : la seule suppression possible, bornée par
+ * la durée de conservation (réglée dans les paramètres du cabinet), confirmée,
+ * et elle-même inscrite au journal. Refusée dans la session qui vient
+ * d'abaisser la durée.
+ */
+function RetentionCard({ retention, onPurge }) {
+  const [confirm, setConfirm] = useState(false);
+  if (!retention) return null;
+  const r = retention;
+  const n = r.purgeable;
+  return (
+    <section className="card card-pad journal-retention" aria-labelledby="h-retention">
+      <div className="journal-retention-text">
+        <h3 id="h-retention">Conservation et purge</h3>
+        <p className="muted">
+          Les entrées sont conservées <strong>{r.days} jours</strong> (paramètres du cabinet).{" "}
+          {n
+            ? `${n} entrée${n > 1 ? "s" : ""} antérieure${n > 1 ? "s" : ""} au ${formatDate(r.limitDate)} peu${n > 1 ? "vent" : "t"} être purgée${n > 1 ? "s" : ""}.`
+            : "Aucune entrée n’a dépassé cette durée."}
+        </p>
+        {r.blocked ? (
+          <Alert tone="warning" role="note">
+            Vous avez abaissé la durée de conservation dans cette session : la purge n’y est pas possible. Elle le reste depuis une autre session.
+          </Alert>
+        ) : null}
+      </div>
+      <Button variant="secondary" disabled={!n || r.blocked} onClick={() => setConfirm(true)}>
+        <Icon name="trash" />
+        Purger les entrées anciennes
+      </Button>
+      <ConfirmDialog
+        open={confirm}
+        title={`Purger ${n} entrée${n > 1 ? "s" : ""} du journal ?`}
+        confirmLabel="Purger définitivement"
+        tone="danger"
+        onConfirm={async () => {
+          await onPurge();
+          setConfirm(false);
+        }}
+        onClose={() => setConfirm(false)}
+      >
+        <p>
+          Les entrées antérieures au {formatDate(r.limitDate)} seront supprimées définitivement. La purge est elle-même inscrite au journal, avec le
+          nombre d’entrées et la date limite.
+        </p>
+      </ConfirmDialog>
+    </section>
+  );
+}
+
+/**
  * Journal d'audit, lu sur le serveur : entrées du journal et verdicts de la
  * relecture, groupés par session d'utilisateur (poste, méthode de connexion,
  * état). Le journal est en ajout seul : rien ne s'y modifie ni ne s'y efface.
@@ -243,6 +296,20 @@ export function AdminAuditPage() {
   const [targetDraft, setTargetDraft] = useState("");
   const [detail, setDetail] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [retention, setRetention] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    fetchRetention()
+      .then(setRetention)
+      .catch(() => setRetention(null));
+  }, [reloadKey]);
+
+  const purge = async () => {
+    const { removed } = await purgeJournal();
+    toast(`${removed} entrée${removed > 1 ? "s" : ""} purgée${removed > 1 ? "s" : ""}. La purge est inscrite au journal.`);
+    setReloadKey((k) => k + 1);
+  };
 
   // Recherche par cible : appliquée après une courte pause de frappe.
   useEffect(() => {
@@ -288,7 +355,7 @@ export function AdminAuditPage() {
     return () => {
       cancelled = true;
     };
-  }, [f]);
+  }, [f, reloadKey]);
 
   const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }));
   const groups = data?.groups ?? [];
@@ -490,6 +557,7 @@ export function AdminAuditPage() {
           </div>
         ) : null}
       </div>
+      <RetentionCard retention={retention} onPurge={purge} />
       <EntryDetail state={detail} onClose={() => setDetail(null)} />
     </AppShell>
   );

@@ -14,7 +14,20 @@ export function normalizeCabinet(dto = {}) {
     logoUrl: dto.logo && dto.logo_version ? `${API_BASE_URL}/cabinet/logo?v=${encodeURIComponent(dto.logo_version)}` : null,
     updatedAt: dto.maj_le ?? null,
     updatedBy: dto.maj_par_nom ?? null,
+    retentionDays: dto.retention_jours ?? 365,
   };
+}
+
+/** Durée de conservation du journal d'audit (sprint 11) : de 6 mois à 10 ans. */
+export const RETENTION_LIMITS = { min: 180, max: 3650, default: 365 };
+
+/** Saisie → nombre de jours, ou message d'erreur. */
+export function parseRetention(value) {
+  const n = Number(String(value).trim());
+  if (!Number.isInteger(n) || n < RETENTION_LIMITS.min || n > RETENTION_LIMITS.max) {
+    return { error: `Durée de conservation : un nombre entier de jours, de ${RETENTION_LIMITS.min} (6 mois) à ${RETENTION_LIMITS.max} (10 ans).` };
+  }
+  return { days: n };
 }
 
 /** Modèle → corps de `PUT /cabinet`. */

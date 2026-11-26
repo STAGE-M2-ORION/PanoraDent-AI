@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { CABINET_LIMITS, fetchCabinet, removeCabinetLogo, saveCabinet, uploadCabinetLogo, validateCabinet, validateLogoFile } from "@/entities/cabinet";
+import {
+  CABINET_LIMITS, RETENTION_LIMITS, fetchCabinet, parseRetention, removeCabinetLogo, saveCabinet, saveRetention, uploadCabinetLogo,
+  validateCabinet, validateLogoFile,
+} from "@/entities/cabinet";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
 import { formatDateTime, useAsyncResource } from "@/shared/lib";
@@ -48,11 +51,26 @@ export function AdminCabinetPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
+  const [retention, setRetention] = useState("");
   const data = cabinet.data;
 
   useEffect(() => {
-    if (data) setValues({ name: data.name, address: data.address, notes: data.notes });
+    if (data) {
+      setValues({ name: data.name, address: data.address, notes: data.notes });
+      setRetention(String(data.retentionDays));
+    }
   }, [data]);
+
+  const saveRetentionDays = (event) => {
+    event.preventDefault();
+    const parsed = parseRetention(retention);
+    if (parsed.error) {
+      setError(parsed.error);
+      return;
+    }
+    run(() => saveRetention(parsed.days), "Durée de conservation du journal enregistrée.");
+  };
+  const lowering = Boolean(data) && Number(retention) < data.retentionDays;
 
   const set = (key) => (event) => setValues((v) => ({ ...v, [key]: event.target.value }));
   const dirty = Boolean(data) && (values.name !== data.name || values.address !== data.address || values.notes !== data.notes);
@@ -161,6 +179,38 @@ export function AdminCabinetPage() {
             ) : null}
           </div>
         </section>
+
+        <form className="card card-pad form" onSubmit={saveRetentionDays} aria-labelledby="h-retention" noValidate>
+          <div className="card-head">
+            <h3 id="h-retention">Conservation du journal d’audit</h3>
+          </div>
+          <Field
+            label="Durée de conservation (jours)"
+            htmlFor="cab-retention"
+            hint={`De ${RETENTION_LIMITS.min} jours (6 mois) à ${RETENTION_LIMITS.max} jours (10 ans) ; ${RETENTION_LIMITS.default} par défaut. Au-delà, les entrées peuvent être purgées depuis le journal d’audit.`}
+          >
+            <Input
+              id="cab-retention"
+              type="number"
+              min={RETENTION_LIMITS.min}
+              max={RETENTION_LIMITS.max}
+              step={1}
+              value={retention}
+              onChange={(e) => setRetention(e.target.value)}
+              disabled={!data || busy}
+            />
+          </Field>
+          {lowering ? (
+            <Alert tone="warning" role="note">
+              Abaisser la durée rend purgeables des entrées plus récentes. Par sécurité, la purge ne sera pas possible dans cette session.
+            </Alert>
+          ) : null}
+          <div className="btn-row">
+            <Button type="submit" disabled={!data || busy || String(data.retentionDays) === retention}>
+              Enregistrer la durée
+            </Button>
+          </div>
+        </form>
 
         <section className="card card-pad cab-wide" aria-labelledby="h-apercu">
           <div className="card-head">

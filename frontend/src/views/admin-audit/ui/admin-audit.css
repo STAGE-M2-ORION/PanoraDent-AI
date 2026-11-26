@@ -20,3 +20,10 @@
 .journal-kv dd { margin: 0; overflow-wrap: anywhere; }
 .journal-ctx-t { font-size: var(--text-base); margin: 0 0 var(--space-2); }
 .journal-ctx-v { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+/* Conservation et purge (sprint 11). */
+.v-admin-audit .journal-retention { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-6); }
+/* Classe dédiée : un sélecteur « > div » atteindrait aussi le fond de la fenêtre de confirmation. */
+.v-admin-audit .journal-retention-text { display: grid; gap: var(--space-2); max-width: 70ch; }
+.v-admin-audit .journal-retention h3 { font-size: var(--text-lg); margin: 0; }
+.v-admin-audit .journal-retention p { margin: 0; font-size: var(--text-sm); }

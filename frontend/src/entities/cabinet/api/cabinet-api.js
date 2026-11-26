@@ -27,3 +27,9 @@ export async function removeCabinetLogo() {
   await httpClient.delete("/cabinet/logo");
   return fetchCabinet();
 }
+
+/** `PUT /api/v1/cabinet/retention` — durée de conservation du journal, journalisée. */
+export async function saveRetention(days) {
+  const { data } = await httpClient.put("/cabinet/retention", { jours: days });
+  return normalizeCabinet(data);
+}

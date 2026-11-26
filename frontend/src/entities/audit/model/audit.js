@@ -119,3 +119,15 @@ export function normalizeAuditEntry(dto) {
       .map(([k, v]) => [k.replace(/_/g, " "), typeof v === "object" ? JSON.stringify(v) : String(v)]),
   };
 }
+
+/** `GET /journal/retention` → durée, date limite, entrées purgeables, purge bloquée. */
+export function normalizeRetention(dto) {
+  return {
+    days: dto.retention_jours,
+    limitDate: dto.date_limite,
+    purgeable: dto.lignes ?? 0,
+    oldest: dto.plus_ancienne ?? null,
+    loweredAt: dto.abaissee_le ?? null,
+    blocked: Boolean(dto.purge_bloquee),
+  };
+}
