@@ -40,7 +40,8 @@ test("tableau de bord réel, export des comptes et renvoi groupé des liens", as
   await expect(indicateurs).toContainText("Jamais connectés");
   await expect(indicateurs).toContainText("Connexions cette semaine");
   await expect(page.locator("main").getByText(/démonstration|données fictives|Demandes d’accès|Double vérification/)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Notifications/ })).toHaveCount(0);
+  // La cloche est celle des vraies notifications (sprint 13), plus le menu de démonstration.
+  await expect(page.getByRole("button", { name: /^Notifications : / })).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Espace occupé" })).toBeVisible();
   const dernieres = page.getByRole("table", { name: "Dernières actions sur les comptes et les rôles, 30 jours" });
   await expect(dernieres).toContainText("Création d’un compte");
