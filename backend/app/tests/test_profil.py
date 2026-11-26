@@ -55,20 +55,34 @@ def test_preferences_par_defaut_puis_mise_a_jour_partielle(client, compte_mdp):
     compte_mdp(EMAIL)
     connexion_mdp(client, EMAIL)
     assert client.get(f"{BASE}/moi").json()["preferences"] == {
-        "theme": "systeme", "langue": "fr", "seuil_confiance_defaut": 0.5, "notifications": True,
+        "theme": "systeme", "langue": "fr", "seuil_confiance_defaut": 0.5,
+        "courriel_analyse_echouee": True, "courriel_analyse_rouverte": True,
     }
     r = client.patch(f"{BASE}/moi/preferences", json={"theme": "sombre", "seuil_confiance_defaut": 0.4})
     assert r.status_code == 200
-    assert r.json() == {"theme": "sombre", "langue": "fr", "seuil_confiance_defaut": 0.4, "notifications": True}
-    r = client.patch(f"{BASE}/moi/preferences", json={"notifications": False})
-    assert r.json()["theme"] == "sombre" and r.json()["notifications"] is False
+    assert r.json() == {"theme": "sombre", "langue": "fr", "seuil_confiance_defaut": 0.4,
+                        "courriel_analyse_echouee": True, "courriel_analyse_rouverte": True}
+    r = client.patch(f"{BASE}/moi/preferences", json={"courriel_analyse_rouverte": False})
+    assert r.json()["theme"] == "sombre" and r.json()["courriel_analyse_rouverte"] is False
+    assert r.json()["courriel_analyse_echouee"] is True
     assert client.get(f"{BASE}/moi").json()["preferences"]["theme"] == "sombre"
+
+
+def test_l_ancienne_case_decochee_coupe_les_courriels(client, compte_mdp, db):
+    """Avant le sprint 13 : une seule case « notifications par e-mail »."""
+    u = compte_mdp(EMAIL)
+    u.preferences = {"notifications": False}
+    db.commit()
+    connexion_mdp(client, EMAIL)
+    prefs = client.get(f"{BASE}/moi").json()["preferences"]
+    assert prefs["courriel_analyse_echouee"] is False and prefs["courriel_analyse_rouverte"] is False
+    assert "notifications" not in prefs
 
 
 def test_preferences_invalides_422(client, compte_mdp):
     compte_mdp(EMAIL)
     connexion_mdp(client, EMAIL)
-    for corps in ({"theme": "rose"}, {"seuil_confiance_defaut": 1.5}, {"inconnu": 1}):
+    for corps in ({"theme": "rose"}, {"seuil_confiance_defaut": 1.5}, {"inconnu": 1}, {"notifications": False}):
         assert client.patch(f"{BASE}/moi/preferences", json=corps).status_code == 422, corps
 
 

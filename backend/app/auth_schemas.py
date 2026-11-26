@@ -14,12 +14,20 @@ PREFERENCES_DEFAUT = {
     "theme": "systeme",
     "langue": "fr",
     "seuil_confiance_defaut": 0.5,
-    "notifications": True,
+    # E-mails de notification, par type (sprint 13). « Analyse terminée » ne
+    # s'envoie pas par e-mail : elle arrive quelques secondes après le dépôt.
+    "courriel_analyse_echouee": True,
+    "courriel_analyse_rouverte": True,
 }
 
 
 def preferences_completes(preferences: dict | None) -> dict:
-    stockees = preferences or {}
+    stockees = dict(preferences or {})
+    # Avant le sprint 13, une seule case « notifications par e-mail » (qui ne
+    # déclenchait rien) : qui l'avait décochée ne reçoit aucun e-mail.
+    if stockees.get("notifications") is False:
+        stockees.setdefault("courriel_analyse_echouee", False)
+        stockees.setdefault("courriel_analyse_rouverte", False)
     return {cle: stockees.get(cle, defaut) for cle, defaut in PREFERENCES_DEFAUT.items()}
 
 
@@ -155,7 +163,8 @@ class PreferencesModification(BaseModel):
     langue: Literal["fr", "en"] | None = None
     # Seuil appliqué à l'ouverture d'une analyse.
     seuil_confiance_defaut: float | None = Field(default=None, ge=0.05, le=0.95)
-    notifications: bool | None = None
+    courriel_analyse_echouee: bool | None = None
+    courriel_analyse_rouverte: bool | None = None
 
 
 class ChangementMotDePasse(BaseModel):
