@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 
 import { fetchActivity, formatDuration, periodDelta, weekLabels } from "@/entities/activity";
 import { fetchAdminIndicators, weekDelta } from "@/entities/administration";
-import { ANALYSIS_STATUS, fetchAnalyses, formatAnalysisNumber } from "@/entities/analysis";
+import { ANALYSIS_STATUS, Processing, fetchAnalyses, formatAnalysisNumber } from "@/entities/analysis";
 import { fetchAudit } from "@/entities/audit";
 import { DETECTION_TYPES } from "@/entities/detection";
 import { Permission, displayName, screenProfile, useCurrentUser } from "@/entities/session";
@@ -16,6 +16,8 @@ import { AppShell } from "@/widgets/app-shell";
 
 const MONTHS = lastMonths(12);
 const noData = () => Promise.resolve(null);
+// Le praticien voit SES analyses (comme ses indicateurs) ; lecteur et administrateur, celles du cabinet.
+const fetchMyAnalyses = () => fetchAnalyses({ mine: true });
 
 /** Nombre d'analyses par mois sur 24 mois glissants : [année précédente, 12 derniers mois]. */
 function monthlyCounts(analyses) {
@@ -275,7 +277,9 @@ export function TableauDeBordPage() {
   const router = useRouter();
   const { user, can } = useCurrentUser();
   const profile = screenProfile(user);
-  const analysesRes = useAsyncResource(can(Permission.ANALYSIS_READ) ? fetchAnalyses : noData);
+  const analysesRes = useAsyncResource(
+    !can(Permission.ANALYSIS_READ) ? noData : profile === "practitioner" ? fetchMyAnalyses : fetchAnalyses,
+  );
   const usersRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchUsers : noData);
   const indicatorsRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchAdminIndicators : noData);
   const storageRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchStorage : noData);
@@ -297,6 +301,8 @@ export function TableauDeBordPage() {
     [profile, user, analysesRes.data, usersRes.data, indicatorsRes.data, storageRes.data, activityRes.data],
   );
   const recent = analysesRes.data ?? [];
+  // À relire : traitées, pas encore clôturées (la plus récente d'abord).
+  const toReview = recent.filter((a) => a.processing === Processing.DONE && !a.closed);
   const sl = (a) => a.slice(a.length - period);
   const nb = period === 12 ? 12 : period === 6 ? 8 : 4;
 
@@ -401,27 +407,29 @@ export function TableauDeBordPage() {
                 <div className="dcard-h">
                   <h3 id="l-relire">À relire</h3>
                   <Badge tone="warning">
-                    {recent.length} analyse{recent.length > 1 ? "s" : ""}
+                    {toReview.length} analyse{toReview.length > 1 ? "s" : ""}
                   </Badge>
                 </div>
                 <ul className="list">
-                  {recent.slice(0, 2).map((a, i) => (
+                  {toReview.slice(0, 2).map((a, i) => (
                     <li key={a.id}>
                       <div className="who">
                         <strong>
                           Analyse n° <span className="mono">{formatAnalysisNumber(a.number)}</span> · ID <span className="mono">{a.ref}</span>
                         </strong>
                         <span>
-                          À relire · {a.detectionCount} détection{a.detectionCount > 1 ? "s" : ""}
+                          {a.toReview
+                            ? `${a.toReview} détection${a.toReview > 1 ? "s" : ""} à revoir sur ${a.detectionCount}`
+                            : `${a.detectionCount} détection${a.detectionCount > 1 ? "s" : ""} · prête à clôturer`}
                         </span>
                       </div>
                       <Button size="sm" variant={i === 0 ? "primary" : "secondary"} href={`/analyse?id=${a.id}`}>
-                        {i === 0 ? "Reprendre" : "Commencer"}
+                        {a.reviewed > 0 ? "Reprendre" : "Commencer"}
                         <span className="sr-only"> la relecture de l’analyse n° {formatAnalysisNumber(a.number)}</span>
                       </Button>
                     </li>
                   ))}
-                  {recent.length === 0 && !analysesRes.isLoading ? <li className="muted">Aucune analyse à relire.</li> : null}
+                  {toReview.length === 0 && !analysesRes.isLoading ? <li className="muted">Aucune analyse à relire.</li> : null}
                 </ul>
               </section>
               <section className="dcard span-7" aria-labelledby="l-dernieres">
