@@ -293,6 +293,7 @@ export function TableauDeBordPage() {
                 year={sl(MONTHS.year)}
                 summary={C.line.summary}
                 series={C.line.series.map((s) => ({ ...s, values: sl(s.values) }))}
+                fictive={!C.line.real}
               />
             )}
           </DashCard>
@@ -300,7 +301,7 @@ export function TableauDeBordPage() {
             {() => <Gauge value={C.gauge.value} label={C.gauge.title} caption={C.gauge.caption} icon={C.gauge.icon} />}
           </DashCard>
           <DashCard span="span-5" title={C.prog.title} sub={C.prog.sub}>
-            {(ref) => <ProgressList exportRef={ref} title={C.prog.title} items={C.prog.items} />}
+            {(ref) => <ProgressList exportRef={ref} title={C.prog.title} items={C.prog.items} fictive={!C.prog.real} />}
           </DashCard>
           <DashCard span="span-7" title={C.bars.title} sub={C.bars.sub}>
             {(ref) => (
@@ -313,6 +314,7 @@ export function TableauDeBordPage() {
                 name={C.bars.name}
                 trendName={C.bars.trendName}
                 summary={C.bars.summary}
+                fictive={!C.bars.real}
               />
             )}
           </DashCard>

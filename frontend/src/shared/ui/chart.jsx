@@ -280,7 +280,7 @@ export function KpiRing({ label, value, unit, ring, ringText, delta, dir, good, 
  * `labels[]`, `year[]` (optionnel), `series: [{ name, values[], role: "accent" | "context" }]`.
  * `exportRef` : ref d'un bouton existant qui déclenchera l'export CSV.
  */
-export function LineChart({ title, summary, labels, year, series, unit, exportRef }) {
+export function LineChart({ title, summary, labels, year, series, unit, exportRef, fictive = false }) {
   const plotRef = useRef(null);
   const width = useWidth(plotRef);
   const nav = useIndexNav(labels.length);
@@ -393,7 +393,7 @@ export function LineChart({ title, summary, labels, year, series, unit, exportRe
         </svg>
         <Tooltip hostRef={plotRef} tip={tip} />
       </div>
-      <DataDetails caption={`${title} (données fictives)`} head={head} rows={rows} />
+      <DataDetails caption={fictive ? `${title} (données fictives)` : title} head={head} rows={rows} />
     </div>
   );
 }
@@ -447,7 +447,7 @@ export function Gauge({ value, label, caption, icon = "check" }) {
 /* ------------------------------------------------------------------------ */
 
 /** `items: [{ name, abbr, cls (det-*), value (0-100), detail }]`. */
-export function ProgressList({ title, items, exportRef }) {
+export function ProgressList({ title, items, exportRef, fictive = false }) {
   const head = ["Élément", "Part"];
   const rows = items.map((it) => [it.name, `${formatNumber(it.value)} %`]);
   useExportButton(exportRef, title, head, rows);
@@ -473,7 +473,7 @@ export function ProgressList({ title, items, exportRef }) {
           </li>
         ))}
       </ul>
-      <DataDetails caption={`${title} (données fictives)`} head={head} rows={rows} />
+      <DataDetails caption={fictive ? `${title} (données fictives)` : title} head={head} rows={rows} />
     </>
   );
 }
@@ -482,7 +482,7 @@ export function ProgressList({ title, items, exportRef }) {
 /* 5. Histogramme + moyenne mobile                                            */
 /* ------------------------------------------------------------------------ */
 
-export function BarChart({ title, summary, labels, year, values, name, trendName, unit, exportRef }) {
+export function BarChart({ title, summary, labels, year, values, name, trendName, unit, exportRef, fictive = false }) {
   const plotRef = useRef(null);
   const width = useWidth(plotRef);
   const nav = useIndexNav(values.length);
@@ -606,7 +606,7 @@ export function BarChart({ title, summary, labels, year, values, name, trendName
         </svg>
         <Tooltip hostRef={plotRef} tip={tip} />
       </div>
-      <DataDetails caption={`${title} (données fictives)`} head={head} rows={rows} />
+      <DataDetails caption={fictive ? `${title} (données fictives)` : title} head={head} rows={rows} />
     </div>
   );
 }
