@@ -80,6 +80,8 @@ ACTIONS = {
     "cabinet_logo": ("Logo du cabinet", "Paramètres et exports"),
     "export_historique": ("Export de l’historique des analyses (CSV)", "Paramètres et exports"),
     "export_journal": ("Export du journal d’audit (CSV)", "Paramètres et exports"),
+    "retention_journal": ("Durée de conservation du journal modifiée", "Paramètres et exports"),
+    "purge_journal": ("Purge du journal (rétention)", "Paramètres et exports"),
 }
 TYPES_FR = {"tooth": "dent", "caries": "carie", "deep_caries": "carie profonde",
             "periapical_lesion": "lésion péri-apicale", "impacted_tooth": "dent incluse"}
@@ -149,6 +151,10 @@ def _precision(action: str, d: dict) -> str | None:
         return f"« {d['titre']} »"
     if action == "document_reindexation" and "documents" in d:
         return f"{d['documents']} document{'s' if d['documents'] > 1 else ''}"
+    if action == "retention_journal" and "apres" in d:
+        return f"{d.get('avant')} → {d['apres']} jours"
+    if action == "purge_journal" and "lignes" in d:
+        return f"{d['lignes']} entrée{'s' if d['lignes'] > 1 else ''} antérieure{'s' if d['lignes'] > 1 else ''} au {d.get('date_limite', '?')[:10]} · conservation {d.get('retention_jours')} jours"
     if action == "conversation_effacee" and "messages" in d:
         return f"{d['messages']} message{'s' if d['messages'] > 1 else ''}"
     if action == "assistant_parametres":

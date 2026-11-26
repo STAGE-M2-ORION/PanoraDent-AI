@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import journal
@@ -21,7 +22,8 @@ from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
 from ..permissions import USER_MANAGE
-from ..services import journal_audit
+from ..services import journal_audit, retention
+from .cabinet import parametres
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -104,3 +106,34 @@ def exporter_journal(
     nom = f"journal-audit-{datetime.now(timezone.utc):%Y-%m-%d}.csv"
     return Response("﻿" + sortie.getvalue(), media_type="text/csv; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="{nom}"', "Cache-Control": "no-store"})
+
+
+@router.get("/retention")
+def lire_retention(
+    request: Request,
+    _: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Durée de conservation, date limite et nombre d'entrées purgeables."""
+    p = parametres(db)
+    db.commit()
+    return retention.apercu(db, p, getattr(request.state, "session_id", None))
+
+
+class PurgeIn(BaseModel):
+    confirmer: bool = False
+
+
+@router.post("/purge")
+def purger(
+    corps: PurgeIn,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Purge par rétention : la seule suppression d'entrées possible, bornée
+    par la durée de conservation, confirmée, et elle-même journalisée."""
+    if not corps.confirmer:
+        raise ApiError(422, "confirmation_requise", "La purge est définitive : confirmez-la.")
+    return retention.purger(db, parametres(db), utilisateur_id=utilisateur.id,
+                            session_id=getattr(request.state, "session_id", None), request=request)

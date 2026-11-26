@@ -144,12 +144,13 @@ def test_detail_introuvable_ou_refuse(admin, connecte):
 def test_aucune_route_ne_modifie_ni_ne_supprime_une_entree():
     ecritures = sorted((m, r.path) for r in app.routes if isinstance(r, APIRoute) and "/journal" in r.path
                        for m in r.methods if m in {"POST", "PUT", "PATCH", "DELETE"})
-    assert ecritures == [], f"Route d'écriture sur le journal : {ecritures}"
+    # Seule exception : la purge par rétention (bornée, confirmée, journalisée).
+    assert ecritures == [("POST", "/api/v1/journal/purge")], f"Route d'écriture sur le journal : {ecritures}"
 
 
 # Seul endroit où des entrées peuvent disparaître : la purge par rétention (lot D),
 # bornée et elle-même journalisée.
-PURGE_AUTORISEE: set[str] = set()
+PURGE_AUTORISEE: set[str] = {"services/retention.py"}
 
 
 def test_aucun_code_ne_modifie_ni_ne_supprime_une_entree():

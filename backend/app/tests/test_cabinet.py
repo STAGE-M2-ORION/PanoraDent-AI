@@ -31,7 +31,8 @@ def test_seul_l_administrateur_gere_le_cabinet():
 
 def test_lecture_vide_puis_modification_journalisee(admin, db):
     assert admin.get(URL).json() == {"nom": "", "adresse": "", "mentions": "", "logo": False,
-                                     "logo_version": None, "maj_le": None, "maj_par_nom": None}
+                                     "logo_version": None, "maj_le": None, "maj_par_nom": None,
+                                     "retention_jours": 365}
     r = admin.put(URL, json={"nom": "  Cabinet du Lac  ", "adresse": "Rue 12\n301 Fianarantsoa",
                              "mentions": "Document destiné au dossier du patient."})
     assert r.status_code == 200, r.text

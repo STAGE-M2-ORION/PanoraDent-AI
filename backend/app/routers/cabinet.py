@@ -26,7 +26,7 @@ from ..errors import ApiError
 from ..models import ParametresCabinet
 from ..permissions import CABINET_MANAGE
 from ..schemas import _nom
-from ..services import storage
+from ..services import retention, storage
 
 router = APIRouter(prefix="/cabinet", tags=["cabinet"])
 
@@ -59,6 +59,7 @@ def cabinet_out(p: ParametresCabinet) -> dict:
         # Change à chaque import : l'URL du logo peut être mise en cache.
         "logo_version": p.logo_cle.rsplit("/", 1)[-1].removesuffix(".png") if p.logo_cle else None,
         "maj_le": p.maj_le, "maj_par_nom": _nom(p.maj_par),
+        "retention_jours": p.retention_jours or retention.RETENTION_DEFAUT,
     }
 
 
@@ -174,3 +175,24 @@ def lire_logo(_: Utilisateur = Depends(session_ouverte), db: Session = Depends(g
         raise ApiError(404, "introuvable", "Logo indisponible.") from exc
     return Response(contenu, media_type="image/png",
                     headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
+
+
+class RetentionIn(BaseModel):
+    jours: int
+
+
+@router.put("/retention")
+def modifier_retention(
+    corps: RetentionIn,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(CABINET_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Durée de conservation du journal d'audit (6 mois à 10 ans), journalisée.
+    Un abaissement interdit la purge dans la même session."""
+    p = parametres(db)
+    retention.modifier(db, p, corps.jours, utilisateur_id=utilisateur.id,
+                       session_id=getattr(request.state, "session_id", None), request=request)
+    db.commit()
+    db.refresh(p)
+    return cabinet_out(p)
