@@ -109,7 +109,9 @@ test.describe.serial("parcours du sprint 2 : rôles, permissions et comptes", ()
     const row = page.getByRole("row").filter({ hasText: holder.email });
     await row.getByRole("button", { name: /Modifier .* ou changer son rôle/ }).click();
     const dialog = page.getByRole("dialog", { name: "Modifier le compte" });
-    await dialog.getByLabel("Rôle").selectOption({ label: roleName });
+    // Libellé exact : « Motif du changement de rôle » contient aussi « rôle ».
+    await expect(dialog.getByLabel("Motif du changement de rôle")).toHaveCount(0);   // pas de motif avant tout changement
+    await dialog.getByLabel("Rôle", { exact: true }).selectOption({ label: roleName });
     await dialog.getByRole("button", { name: "Enregistrer" }).click();
     await expect(dialog.getByRole("alert")).toContainText("motif");
     await dialog.getByLabel("Motif du changement de rôle").fill("Affectée à l'accueil");

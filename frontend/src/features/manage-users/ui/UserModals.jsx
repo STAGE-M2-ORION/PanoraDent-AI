@@ -189,12 +189,17 @@ export function CreateUserModal({ open, roles, onClose, onCreated }) {
  * tels quels.
  */
 export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
-  const [form, setForm] = useState({ prenom: "", nom: "", roleId: "", reason: "" });
+  // `userId` : le compte dont le formulaire porte les valeurs. Tant que l'effet
+  // ne l'a pas rempli (premier affichage, ou autre compte ouvert), le formulaire
+  // n'est pas « à jour » : sinon le motif apparaissait un instant à l'ouverture.
+  const [form, setForm] = useState({ userId: null, prenom: "", nom: "", roleId: "", reason: "" });
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
+  const aJour = Boolean(user) && form.userId === user.id;
+  const roleChange = aJour && String(form.roleId) !== String(user.roleId);
 
   useEffect(() => {
-    if (user) setForm({ prenom: user.prenom, nom: user.nom, roleId: user.roleId, reason: "" });
+    if (user) setForm({ userId: user.id, prenom: user.prenom, nom: user.nom, roleId: user.roleId, reason: "" });
     setError(null);
   }, [user]);
 
@@ -202,10 +207,11 @@ export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!aJour) return;
     const patch = {};
     if (form.prenom.trim() !== user.prenom) patch.prenom = form.prenom.trim();
     if (form.nom.trim() !== user.nom) patch.nom = form.nom.trim();
-    if (String(form.roleId) !== String(user.roleId)) {
+    if (roleChange) {
       if (!form.reason.trim()) {
         setError("Indiquez le motif du changement de rôle : il est inscrit au journal.");
         return;
@@ -258,7 +264,7 @@ export function EditUserModal({ user, roles, lastAdmin, onClose, onSaved }) {
               C’est le dernier administrateur actif : le serveur refusera de lui retirer ce rôle.
             </p>
           </div>
-          {user && String(form.roleId) !== String(user.roleId) ? (
+          {roleChange ? (
             <div className="field">
               <label className="label" htmlFor="e-motif">
                 Motif du changement de rôle
