@@ -1,4 +1,4 @@
-.PHONY: up down build logs migrate seed fmt test clean sauvegarder restaurer demo
+.PHONY: up down build logs migrate seed fmt test clean sauvegarder restaurer demo modele-exporter modele-installer
 
 up:            ## Démarre toute la stack (CPU)
 	docker compose up --build
@@ -31,3 +31,9 @@ restaurer:     ## Restaure une sauvegarde (REMPLACE la base) : SAUVEGARDE=sauveg
 
 demo:          ## Jeu de démonstration (refusé en production)
 	scripts/demo.sh
+
+modele-exporter: ## Paquet d'une version publiée : VERSION=dentex-2026.11
+	scripts/modele.sh exporter $(VERSION)
+
+modele-installer: ## Installe un paquet modèle (non actif) : PAQUET=…/dentex-2026.11
+	scripts/modele.sh installer $(PAQUET)

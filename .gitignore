@@ -39,3 +39,5 @@ runs/
 
 # Logs des services lances en local
 .*.log
+# Paquets modèle (poids) : jamais dans le dépôt.
+paquets-modeles/
