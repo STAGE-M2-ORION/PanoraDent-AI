@@ -6,15 +6,22 @@ export const OFFLINE_STATUS = {
   backendStatus: "backend indisponible",
   inferenceReachable: false,
   inferenceMode: null,
+  services: {},
 };
 
-/** DTO `/api/health` → modèle applicatif. */
+/**
+ * DTO `/api/health` → modèle applicatif. Depuis le sprint 11, la page de santé
+ * ne donne qu'un état par service (`ok`, `degrade`, `panne`) : plus de mode du
+ * modèle en public. Elle répond 503 quand la base est injoignable.
+ */
 export function normalizeSystemStatus(dto) {
+  const services = dto.services ?? {};
   return {
-    isOnline: dto.status === "ok",
-    backendStatus: dto.status,
-    inferenceReachable: Boolean(dto.inference_reachable),
-    inferenceMode: dto.inference_mode ?? null,
+    isOnline: dto.statut === "ok" || dto.statut === "degrade",
+    backendStatus: dto.statut,
+    inferenceReachable: Boolean(services.inference) && services.inference !== "panne",
+    inferenceMode: null,
+    services,
   };
 }
 

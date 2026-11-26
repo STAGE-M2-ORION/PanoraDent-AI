@@ -22,7 +22,7 @@ async function probe() {
 function servicesFrom(result) {
   const { status, ms } = result;
   const api = status?.isOnline ? "ok" : "down";
-  const inference = !status ? "down" : !status.inferenceReachable ? "down" : status.inferenceMode === "mock" ? "deg" : "ok";
+  const inference = !status ? "down" : !status.inferenceReachable ? "down" : status.services?.inference === "degrade" ? "deg" : "ok";
   return [
     { k: "api", name: "API", icon: "server", st: api, ms: ms != null ? `${ms} ms` : "Aucune réponse", detail: api === "ok" ? "Requêtes traitées normalement." : "Le service ne répond pas. Les fonctions qui en dépendent sont indisponibles." },
     {

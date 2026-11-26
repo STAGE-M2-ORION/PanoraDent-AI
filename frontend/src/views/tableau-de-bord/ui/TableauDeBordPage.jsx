@@ -182,7 +182,7 @@ const SERVICE_BADGE = { ok: ["success", "Opérationnel"], slow: ["warning", "Mod
 function ServiceStatus() {
   const status = useSystemStatus();
   const api = status?.isOnline ? "ok" : "down";
-  const inference = !status?.inferenceReachable ? "down" : status.inferenceMode === "mock" ? "slow" : "ok";
+  const inference = !status?.inferenceReachable ? "down" : status.services?.inference === "degrade" ? "slow" : "ok";
   const rows = [
     ["server", "API", status ? api : null],
     ["cpu", "Inférence", status ? inference : null],
