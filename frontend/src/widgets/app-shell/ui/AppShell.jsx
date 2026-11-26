@@ -10,6 +10,7 @@ import { cx, useAppTheme } from "@/shared/lib";
 import { Avatar, Button, Card, Icon, Logo, UserPhoto } from "@/shared/ui";
 
 import { visibleNavigation } from "../model/navigation";
+import { ServiceAlerts } from "./ServiceAlerts";
 
 function Sidebar({ page, open, rail, onNavigate }) {
   const { user, can, canAny, logout } = useCurrentUser();
@@ -280,6 +281,7 @@ export function AppShell({ page, title, crumbs = "Application", docTitle, permis
             headerActions={allowed ? headerActions : undefined}
             onMenu={() => setMenuOpen((v) => !v)}
           />
+          <ServiceAlerts />
           {allowed && bare ? children : <main className="page">{allowed ? children : <Forbidden />}</main>}
           <footer className="app-foot">
             <Icon name="info" />
