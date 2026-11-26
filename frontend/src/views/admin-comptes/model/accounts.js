@@ -44,3 +44,11 @@ export function accountStats(users) {
     disabled: users.filter((u) => !u.isActive).length,
   };
 }
+
+/**
+ * Comptes à qui renvoyer le lien de première connexion (même règle que le
+ * serveur) : actifs, jamais connectés, sans mot de passe encore choisi.
+ */
+export function accountsToRelaunch(users = []) {
+  return users.filter((u) => u.isActive && !u.lastLoginAt && !(u.loginModes?.includes("mot_de_passe") && u.hasPassword));
+}

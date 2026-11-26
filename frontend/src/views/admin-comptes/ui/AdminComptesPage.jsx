@@ -3,14 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 
 import { fetchRoles } from "@/entities/role";
 import { Permission, SystemRole, displayName, useCurrentUser } from "@/entities/session";
-import { fetchUsers, updateUser } from "@/entities/user";
+import { exportUsersCsv, fetchUsers, resendAllFirstLogins, updateUser } from "@/entities/user";
 import { AccountSheet, CreateUserModal, EditUserModal } from "@/features/manage-users";
 import { toAppError } from "@/shared/api";
 import { formatDate, formatTime, useAsyncResource } from "@/shared/lib";
 import { Alert, Badge, Button, ConfirmDialog, DateCell, GoogleMark, Icon, IconAction, KpiRing, Pager, UserPhoto, paginate } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
-import { PAGE_SIZE, accountStats, filterAccounts, sortAccounts } from "../model/accounts";
+import { PAGE_SIZE, accountStats, accountsToRelaunch, filterAccounts, sortAccounts } from "../model/accounts";
 
 const loadAll = () => Promise.all([fetchUsers(), fetchRoles()]);
 
@@ -73,6 +73,29 @@ export function AdminComptesPage() {
   const list = useMemo(() => sortAccounts(filterAccounts(users, filters), sort), [users, filters, sort]);
   const { items: visible, pageCount } = paginate(list, Math.min(page, Math.max(1, Math.ceil(list.length / PAGE_SIZE))), PAGE_SIZE);
   const stats = useMemo(() => accountStats(users), [users]);
+  const toRelaunch = useMemo(() => accountsToRelaunch(users), [users]);
+  const [relaunching, setRelaunching] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const exportList = async () => {
+    setExporting(true);
+    try {
+      const { blob, fileName } = await exportUsersCsv();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      say("success", "Export prêt", "La liste des comptes est téléchargée. L’export est inscrit au journal d’audit.");
+    } catch (cause) {
+      say("danger", "Export impossible", toAppError(cause).message);
+    } finally {
+      setExporting(false);
+    }
+  };
   useEffect(() => setPage(1), [filters, sort]);
   const onSort = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
 
@@ -157,11 +180,38 @@ export function AdminComptesPage() {
           <h2>Comptes</h2>
           <p>Il n’existe pas d’inscription publique : seuls les administrateurs créent les comptes et choisissent, compte par compte, les modes de connexion autorisés.</p>
         </div>
-        <Button onClick={() => setModal((m) => ({ ...m, create: true }))} disabled={!roles.length}>
-          <Icon name="plus" />
-          Créer un compte
-        </Button>
+        <div className="btn-row">
+          <Button variant="secondary" onClick={exportList} disabled={exporting || !users.length}>
+            <Icon name="download" />
+            {exporting ? "Export…" : "Exporter (CSV)"}
+          </Button>
+          <Button variant="secondary" onClick={() => setRelaunching(true)} disabled={!toRelaunch.length}>
+            <Icon name="mail" />
+            Renvoyer les liens ({toRelaunch.length})
+          </Button>
+          <Button onClick={() => setModal((m) => ({ ...m, create: true }))} disabled={!roles.length}>
+            <Icon name="plus" />
+            Créer un compte
+          </Button>
+        </div>
       </div>
+      <ConfirmDialog
+        open={relaunching}
+        title={`Renvoyer le lien de première connexion à ${toRelaunch.length} compte${toRelaunch.length > 1 ? "s" : ""} ?`}
+        confirmLabel="Renvoyer les liens"
+        onConfirm={async () => {
+          const { sent } = await resendAllFirstLogins();
+          setRelaunching(false);
+          say("success", "Liens renvoyés", `${sent} lien${sent > 1 ? "s" : ""} de première connexion envoyé${sent > 1 ? "s" : ""}. Les liens précédents ne sont plus valables.`);
+          reload();
+        }}
+        onClose={() => setRelaunching(false)}
+      >
+        <p>
+          Comptes actifs qui ne se sont jamais connectés et n’ont pas encore choisi de mot de passe :{" "}
+          {toRelaunch.map((u) => u.email).join(", ")}. Chaque renvoi est inscrit au journal d’audit.
+        </p>
+      </ConfirmDialog>
 
       <div aria-live="polite" style={{ display: "grid", gap: "var(--space-3)" }}>
         {feedback ? (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { accountStats, filterAccounts, sortAccounts } from "./accounts";
+import { accountStats, accountsToRelaunch, filterAccounts, sortAccounts } from "./accounts";
 
 const u = (fullName, role, { isActive = true, lastLoginAt = null, roleId = role } = {}) => ({
   fullName, email: `${fullName.toLowerCase().replace(/\s/g, ".")}@cabinet.fr`, role, roleId, isActive,
@@ -38,5 +38,14 @@ describe("liste des comptes", () => {
       neverLoggedIn: 1,
       disabled: 1,
     });
+  });
+});
+
+describe("renvoi groupé des liens", () => {
+  it("comptes actifs jamais connectés, sans mot de passe choisi", () => {
+    const u = (over) => ({ email: "x", isActive: true, lastLoginAt: null, loginModes: ["mot_de_passe", "google"], hasPassword: false, ...over });
+    const list = [u({ email: "a" }), u({ email: "b", hasPassword: true }), u({ email: "c", isActive: false }),
+      u({ email: "d", lastLoginAt: new Date() }), u({ email: "e", loginModes: ["google"], hasPassword: true })];
+    expect(accountsToRelaunch(list).map((x) => x.email)).toEqual(["a", "e"]);
   });
 });

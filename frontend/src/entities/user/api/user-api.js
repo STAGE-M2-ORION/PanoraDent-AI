@@ -64,3 +64,16 @@ export async function resendFirstLogin(userId) {
 export async function resetUserPassword(userId) {
   await httpClient.post(`/utilisateurs/${userId}/reinitialiser-mot-de-passe`);
 }
+
+/** `GET /api/v1/utilisateurs.csv` — liste des comptes, export journalisé. */
+export async function exportUsersCsv() {
+  const { data, headers } = await httpClient.get("/utilisateurs.csv", { responseType: "blob" });
+  const m = /filename="?([^";]+)"?/i.exec(headers?.["content-disposition"] ?? "");
+  return { blob: data, fileName: m ? m[1] : "comptes.csv" };
+}
+
+/** `POST /api/v1/utilisateurs/renvoyer-liens` — à tous les comptes actifs jamais connectés. */
+export async function resendAllFirstLogins() {
+  const { data } = await httpClient.post("/utilisateurs/renvoyer-liens");
+  return { sent: data.envoyes, emails: data.comptes ?? [] };
+}
