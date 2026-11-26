@@ -80,6 +80,7 @@ ACTIONS = {
     "cabinet_logo": ("Logo du cabinet", "Paramètres et exports"),
     "export_historique": ("Export de l’historique des analyses (CSV)", "Paramètres et exports"),
     "export_journal": ("Export du journal d’audit (CSV)", "Paramètres et exports"),
+    "export_comptes": ("Export de la liste des comptes (CSV)", "Paramètres et exports"),
     "retention_journal": ("Durée de conservation du journal modifiée", "Paramètres et exports"),
     "purge_journal": ("Purge du journal (rétention)", "Paramètres et exports"),
 }
