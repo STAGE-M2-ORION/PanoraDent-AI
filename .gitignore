@@ -28,6 +28,8 @@ inference/weights/*/
 training/*.pt
 /*.pt
 data/
+# Sauvegardes : données de santé, jamais dans le dépôt.
+sauvegardes/
 *.dcm
 runs/
 .venv-train/
