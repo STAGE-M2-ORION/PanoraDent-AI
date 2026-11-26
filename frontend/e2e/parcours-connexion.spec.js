@@ -87,6 +87,8 @@ test.describe.serial("parcours du sprint 1 : deux modes de connexion", () => {
     await dialog.getByRole("button", { name: "Créer le compte" }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "Compte créé" })).toContainText("lien de première connexion");
+    // Liste paginée : on cherche le compte plutôt que de compter sur la première page.
+    await page.getByLabel("Rechercher un compte").fill(practitioner.email);
     const row = page.getByRole("row").filter({ hasText: practitioner.email });
     await expect(row).toContainText("Praticien");
     await signOut(page);

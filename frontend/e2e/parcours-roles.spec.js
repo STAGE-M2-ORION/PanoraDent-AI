@@ -104,6 +104,8 @@ test.describe.serial("parcours du sprint 2 : rôles, permissions et comptes", ()
   test("l'administrateur attribue le rôle, avec un motif obligatoire", async ({ page }) => {
     await signInWithGoogle(page, ADMIN_EMAIL);
     await page.waitForURL(/\/admin\/comptes/);
+    // La liste est paginée (10 par page) et la suite crée d'autres comptes : on cherche celui-ci.
+    await page.getByLabel("Rechercher un compte").fill(holder.email);
     const row = page.getByRole("row").filter({ hasText: holder.email });
     await row.getByRole("button", { name: /Modifier .* ou changer son rôle/ }).click();
     const dialog = page.getByRole("dialog", { name: "Modifier le compte" });
@@ -131,6 +133,8 @@ test.describe.serial("parcours du sprint 2 : rôles, permissions et comptes", ()
   test("désactivation avec motif : le compte ne peut plus se connecter", async ({ page, browser }) => {
     await signInWithGoogle(page, ADMIN_EMAIL);
     await page.waitForURL(/\/admin\/comptes/);
+    // La liste est paginée (10 par page) et la suite crée d'autres comptes : on cherche celui-ci.
+    await page.getByLabel("Rechercher un compte").fill(holder.email);
     const row = page.getByRole("row").filter({ hasText: holder.email });
     await row.getByRole("button", { name: /^Désactiver/ }).click();
     const dialog = page.getByRole("dialog", { name: /Désactiver le compte/ });
