@@ -101,3 +101,28 @@ test("demande d'accès : prévenu en direct, acceptée avec le rôle choisi, ou 
   const visibles = await (await page.request.get("/api/v1/administration/demandes-acces", { params: { statut: "en_attente" } })).json();
   expect(visibles.demandes.some((d) => d.email === hery.email)).toBe(false);
 });
+
+test("au clavier, chaque champ garde le focus pendant la frappe", async ({ page }) => {
+  // Régression : le focus revenait sur « Nom et prénom » à chaque frappe dans un
+  // autre champ (effet de la fenêtre modale relancé à chaque rendu).
+  await page.goto("/decouvrir");
+  await page.getByRole("button", { name: "Demander un accès" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Nom et prénom")).toBeFocused();
+  await page.keyboard.type("Lionel Ark");
+  await page.keyboard.press("Tab");                       // Profil
+  await page.keyboard.press("Tab");                       // Cabinet ou établissement
+  await page.keyboard.type("Cabinet du Port");
+  await dialog.getByLabel("Ville").click();
+  await page.keyboard.type("Toliara");
+  await dialog.getByLabel("E-mail professionnel").click();
+  await page.keyboard.type("lionel@example.org");
+  await expect(dialog.getByLabel("E-mail professionnel")).toBeFocused();
+  await expect(dialog.getByLabel("Nom et prénom")).toHaveValue("Lionel Ark");
+  await expect(dialog.getByLabel("Cabinet ou établissement")).toHaveValue("Cabinet du Port");
+  await expect(dialog.getByLabel("Ville")).toHaveValue("Toliara");
+  await expect(dialog.getByLabel("E-mail professionnel")).toHaveValue("lionel@example.org");
+  // Échap ferme toujours la fenêtre.
+  await page.keyboard.press("Escape");
+  await expect(dialog.getByLabel("Nom et prénom")).toHaveCount(0);
+});

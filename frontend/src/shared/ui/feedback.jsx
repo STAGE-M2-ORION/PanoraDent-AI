@@ -80,20 +80,25 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
  */
 export function Modal({ open, onClose, labelledBy, className, children, wide }) {
   const boxRef = useRef(null);
+  // Les écrans passent souvent `onClose` comme une fonction recréée à chaque
+  // rendu : en dépendre relançait l'effet à chaque frappe, et le focus revenait
+  // sur le premier champ. La référence garde la dernière version sans relancer.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
     const previous = document.activeElement;
     boxRef.current?.querySelector(FOCUSABLE)?.focus();
     const onKey = (event) => {
-      if (event.key === "Escape") onClose?.();
+      if (event.key === "Escape") onCloseRef.current?.();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
       if (previous instanceof HTMLElement) previous.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <div
