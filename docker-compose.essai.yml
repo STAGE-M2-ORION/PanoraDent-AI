@@ -1,0 +1,18 @@
+# Pile d'ESSAI de restauration (guide d'exploitation) : à côté de la production,
+# sur le même serveur, sans publier aucun port sur le réseau du cabinet.
+#
+#   docker compose -p panoradent-essai -f docker-compose.yml -f docker-compose.essai.yml …
+#
+# Ses volumes sont distincts de ceux de la production (autre nom de projet) ;
+# `down -v` la supprime sans rien toucher d'autre.
+services:
+  db:
+    ports: !reset []
+  minio:
+    ports: !reset []
+  inference:
+    ports: !reset []
+  backend:
+    ports: !reset []
+  frontend:
+    ports: !reset []
