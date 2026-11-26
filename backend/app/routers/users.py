@@ -162,3 +162,63 @@ def reinitialiser_mot_de_passe(
     db.commit()
     taches.add_task(courriel.envoyer, message)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Sprint 11 : export de la liste, renvoi groupé des liens ---------------------
+
+@router.get(".csv")
+def exporter_comptes(
+    request: Request,
+    auteur: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Liste des comptes au format CSV (tableur) ; l'export est journalisé.
+    Ni mot de passe, ni jeton, ni photo : identité, rôle, état, dates."""
+    import csv
+    import io
+    from datetime import datetime, timezone
+
+    comptes = db.scalars(select(Utilisateur).order_by(Utilisateur.nom, Utilisateur.prenom, Utilisateur.email)).all()
+    sortie = io.StringIO()
+    ecrivain = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
+    ecrivain.writerow(["Nom", "Prénom", "Adresse e-mail", "Rôle", "État", "Modes de connexion",
+                       "Créé le (UTC)", "Dernière connexion (UTC)"])
+    for u in comptes:
+        ecrivain.writerow([
+            u.nom, u.prenom, u.email, u.role.libelle if u.role else "", "Actif" if u.actif else "Désactivé",
+            " et ".join("mot de passe" if m == "mot_de_passe" else "Google" for m in u.modes_connexion or []),
+            en_utc(u.cree_le).strftime("%Y-%m-%d %H:%M") if u.cree_le else "",
+            en_utc(u.derniere_connexion).strftime("%Y-%m-%d %H:%M") if u.derniere_connexion else "Jamais",
+        ])
+    journal.inscrire(db, "export_comptes", journal.SUCCES, request=request, utilisateur_id=auteur.id,
+                     details={"lignes": len(comptes)})
+    nom = f"comptes-{datetime.now(timezone.utc):%Y-%m-%d}.csv"
+    return Response("﻿" + sortie.getvalue(), media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="{nom}"', "Cache-Control": "no-store"})
+
+
+def a_relancer(u: Utilisateur) -> bool:
+    """Compte actif, jamais connecté, qui n'a pas encore de quoi se connecter."""
+    return u.actif and u.derniere_connexion is None and not (
+        u.autorise(auth_service.MODE_MOT_DE_PASSE) and u.mot_de_passe is not None)
+
+
+@router.post("/renvoyer-liens")
+def renvoyer_liens(
+    request: Request,
+    taches: BackgroundTasks,
+    auteur: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Renvoi groupé du lien de première connexion à tous les comptes actifs
+    jamais connectés qui n'ont pas encore choisi de mot de passe. Chaque
+    renvoi est journalisé, comme un renvoi à l'unité."""
+    cibles = [u for u in db.scalars(select(Utilisateur)).all() if a_relancer(u)]
+    messages = []
+    for u in cibles:
+        messages.append(auth_service.renvoyer_premier_acces(db, u))
+        _journaliser(db, request, auteur, "renvoi_lien", u, {"groupe": True})
+    db.commit()
+    for m in messages:
+        taches.add_task(courriel.envoyer, m)
+    return {"envoyes": len(cibles), "comptes": sorted(u.email for u in cibles)}

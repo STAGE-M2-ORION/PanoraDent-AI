@@ -1,8 +1,10 @@
 export {
   createUser,
+  exportUsersCsv,
   fetchUserSessions,
   fetchUsers,
   normalizeManagedUser,
+  resendAllFirstLogins,
   resendFirstLogin,
   resetUserPassword,
   revokeUserSessions,

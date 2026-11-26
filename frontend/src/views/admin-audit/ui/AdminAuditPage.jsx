@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { EMPTY_AUDIT_FILTERS, auditParams, fetchAudit, fetchAuditCsv, localDay, spanLabel } from "@/entities/audit";
+import {
+  EMPTY_AUDIT_FILTERS, auditParams, fetchAudit, fetchAuditCsv, fetchAuditEntry, fetchRetention, localDay, mergeAudit, purgeJournal, spanLabel,
+} from "@/entities/audit";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
 import { formatDate, formatTime, initials } from "@/shared/lib";
-import { Alert, Badge, Button, GoogleMark, Icon, useToast } from "@/shared/ui";
+import { Alert, Badge, Button, ConfirmDialog, GoogleMark, Icon, Modal, useToast } from "@/shared/ui";
 import { AppShell } from "@/widgets/app-shell";
 
 const small = { width: 13, height: 13 };
@@ -54,7 +56,7 @@ function dayLabel(day) {
   return day === today ? `Aujourd’hui · ${date}` : day === yesterday ? `Hier · ${date}` : date;
 }
 
-function SessionCard({ g, open, onToggle }) {
+function SessionCard({ g, open, onToggle, onDetail }) {
   const first = g.entries[0];
   const last = g.entries[g.entries.length - 1];
   const ko = g.entries.filter((e) => !e.ok).length;
@@ -106,11 +108,13 @@ function SessionCard({ g, open, onToggle }) {
       </summary>
       <ol className="tl" aria-label="Actions de la session, de la première à la dernière">
         {g.entries.map((r, i) => (
-          <li key={`${r.at}-${r.action}-${i}`} className={r.ok ? "" : "ko"} data-action={r.action}>
+          <li key={r.id ?? `${r.at}-${r.action}-${i}`} className={r.ok ? "" : "ko"} data-action={r.action}>
             <span className="tl-t mono">{formatTime(r.at)}</span>
             <span className="tl-dot" aria-hidden="true" />
             <span className="tl-body">
-              <strong>{r.label}</strong>
+              <button type="button" className="link-btn tl-open" onClick={() => onDetail(r.id)} aria-label={`Détail : ${r.label}, ${formatTime(r.at)}`}>
+                <strong>{r.label}</strong>
+              </button>
               <span className="sub">
                 {[r.target, r.detail, r.category].filter(Boolean).join(" · ")}
               </span>
@@ -135,6 +139,142 @@ function SessionCard({ g, open, onToggle }) {
   );
 }
 
+/** Détail d'une entrée : tout ce que le journal a gardé, en lecture seule. */
+function EntryDetail({ state, onClose }) {
+  const e = state?.entry;
+  return (
+    <Modal open={Boolean(state)} onClose={onClose} labelledBy="journal-detail-t">
+      <div style={{ display: "grid", gap: "var(--space-4)" }} data-testid="journal-detail">
+        <h2 id="journal-detail-t">{e ? e.label : "Détail de l’entrée"}</h2>
+        {state?.error ? (
+          <Alert tone="danger" role="alert">
+            {state.error}
+          </Alert>
+        ) : !e ? (
+          <p className="muted">Lecture…</p>
+        ) : (
+          <>
+            <dl className="kv journal-kv">
+              <dt>Date</dt>
+              <dd>
+                {formatDate(e.at)} à {formatTime(e.at)}
+              </dd>
+              <dt>Résultat</dt>
+              <dd>{e.ok ? "Succès" : "Échec"}</dd>
+              <dt>Catégorie</dt>
+              <dd>{e.category}</dd>
+              <dt>Auteur</dt>
+              <dd>{e.author ? `${e.author.name} (${e.author.email})` : "Plateforme ou personne non authentifiée"}</dd>
+              {e.target ? (
+                <>
+                  <dt>Cible</dt>
+                  <dd>{e.target}</dd>
+                </>
+              ) : null}
+              {e.detail ? (
+                <>
+                  <dt>Précision</dt>
+                  <dd>{e.detail}</dd>
+                </>
+              ) : null}
+              {e.ip ? (
+                <>
+                  <dt>Adresse IP</dt>
+                  <dd className="mono">{e.ip}</dd>
+                </>
+              ) : null}
+              {e.session ? (
+                <>
+                  <dt>Session</dt>
+                  <dd>
+                    {e.session.device}
+                    {e.session.ip ? ` · ${e.session.ip}` : ""} · ouverte le {formatDate(e.session.openedAt)} à {formatTime(e.session.openedAt)}
+                    {e.session.closedAt ? `, fermée à ${formatTime(e.session.closedAt)}` : ""}
+                  </dd>
+                </>
+              ) : null}
+              <dt>Identifiant</dt>
+              <dd className="mono">{e.id}</dd>
+            </dl>
+            {e.context.length ? (
+              <section aria-label="Contexte enregistré">
+                <h3 className="journal-ctx-t">Contexte enregistré</h3>
+                <dl className="kv journal-kv">
+                  {e.context.map(([k, v]) => (
+                    <div key={k} style={{ display: "contents" }}>
+                      <dt>{k}</dt>
+                      <dd className="journal-ctx-v">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ) : null}
+            <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
+              Le journal est en ajout seul : cette entrée ne peut être ni modifiée ni supprimée.
+            </p>
+          </>
+        )}
+        <div className="btn-row">
+          <Button variant="secondary" onClick={onClose}>
+            Fermer
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Conservation et purge (sprint 11) : la seule suppression possible, bornée par
+ * la durée de conservation (réglée dans les paramètres du cabinet), confirmée,
+ * et elle-même inscrite au journal. Refusée dans la session qui vient
+ * d'abaisser la durée.
+ */
+function RetentionCard({ retention, onPurge }) {
+  const [confirm, setConfirm] = useState(false);
+  if (!retention) return null;
+  const r = retention;
+  const n = r.purgeable;
+  return (
+    <section className="card card-pad journal-retention" aria-labelledby="h-retention">
+      <div className="journal-retention-text">
+        <h3 id="h-retention">Conservation et purge</h3>
+        <p className="muted">
+          Les entrées sont conservées <strong>{r.days} jours</strong> (paramètres du cabinet).{" "}
+          {n
+            ? `${n} entrée${n > 1 ? "s" : ""} antérieure${n > 1 ? "s" : ""} au ${formatDate(r.limitDate)} peu${n > 1 ? "vent" : "t"} être purgée${n > 1 ? "s" : ""}.`
+            : "Aucune entrée n’a dépassé cette durée."}
+        </p>
+        {r.blocked ? (
+          <Alert tone="warning" role="note">
+            Vous avez abaissé la durée de conservation dans cette session : la purge n’y est pas possible. Elle le reste depuis une autre session.
+          </Alert>
+        ) : null}
+      </div>
+      <Button variant="secondary" disabled={!n || r.blocked} onClick={() => setConfirm(true)}>
+        <Icon name="trash" />
+        Purger les entrées anciennes
+      </Button>
+      <ConfirmDialog
+        open={confirm}
+        title={`Purger ${n} entrée${n > 1 ? "s" : ""} du journal ?`}
+        confirmLabel="Purger définitivement"
+        tone="danger"
+        onConfirm={async () => {
+          await onPurge();
+          setConfirm(false);
+        }}
+        onClose={() => setConfirm(false)}
+      >
+        <p>
+          Les entrées antérieures au {formatDate(r.limitDate)} seront supprimées définitivement. La purge est elle-même inscrite au journal, avec le
+          nombre d’entrées et la date limite.
+        </p>
+      </ConfirmDialog>
+    </section>
+  );
+}
+
 /**
  * Journal d'audit, lu sur le serveur : entrées du journal et verdicts de la
  * relecture, groupés par session d'utilisateur (poste, méthode de connexion,
@@ -153,6 +293,49 @@ export function AdminAuditPage() {
   // jusqu'à « Tout replier ».
   const [expandAll, setExpandAll] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [targetDraft, setTargetDraft] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [retention, setRetention] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    fetchRetention()
+      .then(setRetention)
+      .catch(() => setRetention(null));
+  }, [reloadKey]);
+
+  const purge = async () => {
+    const { removed } = await purgeJournal();
+    toast(`${removed} entrée${removed > 1 ? "s" : ""} purgée${removed > 1 ? "s" : ""}. La purge est inscrite au journal.`);
+    setReloadKey((k) => k + 1);
+  };
+
+  // Recherche par cible : appliquée après une courte pause de frappe.
+  useEffect(() => {
+    const timer = setTimeout(() => setF((v) => (v.target === targetDraft ? v : { ...v, target: targetDraft })), 400);
+    return () => clearTimeout(timer);
+  }, [targetDraft]);
+
+  const openDetail = (id) => {
+    setDetail({ id, entry: null, error: null });
+    fetchAuditEntry(id)
+      .then((entry) => setDetail((d) => (d?.id === id ? { ...d, entry } : d)))
+      .catch((cause) => setDetail((d) => (d?.id === id ? { ...d, error: toAppError(cause).message } : d)));
+  };
+
+  const loadOlder = async () => {
+    if (!data?.next) return;
+    setLoadingMore(true);
+    try {
+      const older = await fetchAudit(auditParams(f, data.next));
+      setData((d) => mergeAudit(d, older));
+    } catch (cause) {
+      toast(toAppError(cause).message);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -172,7 +355,7 @@ export function AdminAuditPage() {
     return () => {
       cancelled = true;
     };
-  }, [f]);
+  }, [f, reloadKey]);
 
   const set = (k) => (e) => setF((v) => ({ ...v, [k]: e.target.value }));
   const groups = data?.groups ?? [];
@@ -216,6 +399,7 @@ export function AdminAuditPage() {
         g={g}
         open={openIds[g.id] ?? expandAll}
         onToggle={(id, open) => setOpenIds((o) => (o[id] === open || (o[id] === undefined && open === expandAll) ? o : { ...o, [id]: open }))}
+        onDetail={openDetail}
       />,
     );
   });
@@ -236,11 +420,6 @@ export function AdminAuditPage() {
       {error ? (
         <Alert tone="danger" role="alert" title="Le journal n’a pas pu être lu.">
           {error.message}
-        </Alert>
-      ) : null}
-      {data?.truncated ? (
-        <Alert tone="warning" role="note" title="Liste tronquée">
-          La période compte plus d’entrées que l’écran n’en affiche : réduisez-la ou filtrez ; l’export CSV, lui, contient tout.
         </Alert>
       ) : null}
 
@@ -281,6 +460,39 @@ export function AdminAuditPage() {
                 <option key={t}>{t}</option>
               ))}
             </select>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="f-act">
+              Action
+            </label>
+            <select className="select" id="f-act" value={f.action} onChange={set("action")}>
+              <option value="">Toutes les actions</option>
+              {(data?.categories ?? []).map((cat) => (
+                <optgroup key={cat} label={cat}>
+                  {(data?.actions ?? [])
+                    .filter((a) => a.category === cat)
+                    .map((a) => (
+                      <option key={a.code} value={a.code}>
+                        {a.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="f-cible">
+              Cible
+            </label>
+            <input
+              className="input"
+              id="f-cible"
+              type="search"
+              maxLength={120}
+              placeholder="Référence d’analyse, compte, rôle…"
+              value={targetDraft}
+              onChange={(e) => setTargetDraft(e.target.value)}
+            />
           </div>
           <div className="field">
             <label className="label" htmlFor="f-res">
@@ -326,7 +538,16 @@ export function AdminAuditPage() {
 
       <div>
         {groups.length ? (
-          blocks
+          <>
+            {blocks}
+            {data?.next ? (
+              <div className="journal-more">
+                <Button variant="secondary" onClick={loadOlder} disabled={loadingMore}>
+                  {loadingMore ? "Lecture…" : "Charger les entrées plus anciennes"}
+                </Button>
+              </div>
+            ) : null}
+          </>
         ) : !loading && !error ? (
           <div className="card card-pad" style={{ textAlign: "center" }}>
             <p>
@@ -336,6 +557,8 @@ export function AdminAuditPage() {
           </div>
         ) : null}
       </div>
+      <RetentionCard retention={retention} onPurge={purge} />
+      <EntryDetail state={detail} onClose={() => setDetail(null)} />
     </AppShell>
   );
 }

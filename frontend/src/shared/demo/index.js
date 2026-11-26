@@ -51,19 +51,3 @@ export const HISTORY_STATUS = {
   closed: { label: "Clôturée", tone: "success" },
   failed: { label: "Échec de l'analyse", tone: "danger" },
 };
-
-/** Notifications de la cloche, par profil (aucune route de notification côté serveur). */
-export const demoNotifications = {
-  practitioner: [
-    { title: "Analyse n° 0042 à terminer", text: "3 détections attendent votre décision", href: "/historique" },
-    { title: "Modèle v0.3.1 en service", text: "Voir comment il a été évalué", href: "/performance" },
-  ],
-  viewer: [
-    { title: "Analyse n° 0037 clôturée", text: "Compte rendu disponible", href: "/historique" },
-    { title: "Modèle v0.3.1 en service", text: "Voir comment il a été évalué", href: "/performance" },
-  ],
-  admin: [
-    { title: "2 demandes d’accès", text: "Cabinet Andria, Cabinet Mahafaly", href: "/admin/comptes" },
-    { title: "Inférence : temps de réponse élevé", text: "Incident en cours depuis 6 h", href: "/admin/supervision" },
-  ],
-};

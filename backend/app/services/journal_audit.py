@@ -19,7 +19,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from .. import journal
@@ -80,6 +80,9 @@ ACTIONS = {
     "cabinet_logo": ("Logo du cabinet", "Paramètres et exports"),
     "export_historique": ("Export de l’historique des analyses (CSV)", "Paramètres et exports"),
     "export_journal": ("Export du journal d’audit (CSV)", "Paramètres et exports"),
+    "export_comptes": ("Export de la liste des comptes (CSV)", "Paramètres et exports"),
+    "retention_journal": ("Durée de conservation du journal modifiée", "Paramètres et exports"),
+    "purge_journal": ("Purge du journal (rétention)", "Paramètres et exports"),
 }
 TYPES_FR = {"tooth": "dent", "caries": "carie", "deep_caries": "carie profonde",
             "periapical_lesion": "lésion péri-apicale", "impacted_tooth": "dent incluse"}
@@ -149,6 +152,10 @@ def _precision(action: str, d: dict) -> str | None:
         return f"« {d['titre']} »"
     if action == "document_reindexation" and "documents" in d:
         return f"{d['documents']} document{'s' if d['documents'] > 1 else ''}"
+    if action == "retention_journal" and "apres" in d:
+        return f"{d.get('avant')} → {d['apres']} jours"
+    if action == "purge_journal" and "lignes" in d:
+        return f"{d['lignes']} entrée{'s' if d['lignes'] > 1 else ''} antérieure{'s' if d['lignes'] > 1 else ''} au {d.get('date_limite', '?')[:10]} · conservation {d.get('retention_jours')} jours"
     if action == "conversation_effacee" and "messages" in d:
         return f"{d['messages']} message{'s' if d['messages'] > 1 else ''}"
     if action == "assistant_parametres":
@@ -193,18 +200,62 @@ def _cible(cible: str | None, details: dict, references: dict, noms: dict, roles
     return cible
 
 
+def curseur_de(entree: dict) -> str:
+    """Curseur de pagination par clé : (date, identifiant) de la dernière entrée lue."""
+    return f"{entree['date'].isoformat()}|{entree['id']}"
+
+
+def lire_curseur(curseur: str | None) -> tuple[datetime, str] | None:
+    if not curseur:
+        return None
+    date, _, ident = curseur.partition("|")
+    try:
+        return naif(datetime.fromisoformat(date)), ident
+    except ValueError as exc:
+        raise ValueError("Curseur de pagination invalide.") from exc
+
+
+def _avant(x: dict, cle: tuple[datetime, str] | None) -> bool:
+    """Strictement plus ancienne que le curseur, dans l'ordre (date, id) décroissant."""
+    return cle is None or (x["date"], x["id"]) < cle
+
+
 def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, categorie: str | None = None,
-         echecs: bool | None = None, limite: int = 1000) -> dict:
-    """Entrées du journal et verdicts depuis `depuis` (UTC naïf), filtrées, groupées par session."""
+         echecs: bool | None = None, action: str | None = None, cible: str | None = None,
+         avant: str | None = None, limite: int = 500) -> dict:
+    """Entrées du journal et verdicts depuis `depuis` (UTC naïf), filtrées, groupées par session.
+
+    Pagination par clé : `avant` est le curseur (date, identifiant) de la
+    dernière entrée de la page précédente ; seules les entrées plus anciennes
+    sont lues, au moyen de l'index sur la date, sans décalage. `suivant` vaut le
+    curseur de la page d'après, ou None s'il n'y a plus rien."""
+    cle = lire_curseur(avant)
     q = select(Journal).where(Journal.horodatage >= depuis.replace(tzinfo=timezone.utc))
+    if cle:
+        # Clé (date, identifiant) : à date égale, « j:… » précède « v:… » dans l'ordre décroissant.
+        d, ident = cle[0].replace(tzinfo=timezone.utc), cle[1]
+        if ident.startswith("j:"):
+            q = q.where(or_(Journal.horodatage < d, and_(Journal.horodatage == d, Journal.id < uuid.UUID(ident[2:]))))
+        else:
+            q = q.where(Journal.horodatage <= d)
     if auteur:
         q = q.where(Journal.utilisateur_id == auteur)
-    lignes_journal = list(db.scalars(q.order_by(Journal.horodatage.desc()).limit(limite + 1)))
+    if action:
+        q = q.where(Journal.action == action)
+    lignes_journal = list(db.scalars(q.order_by(Journal.horodatage.desc(), Journal.id.desc()).limit(limite + 1)))
     brutes = [("journal", e) for e in lignes_journal]
     qv = select(Verdict).where(Verdict.cree_le >= depuis)
+    if cle:
+        if cle[1].startswith("v:"):
+            qv = qv.where(or_(Verdict.cree_le < cle[0], and_(Verdict.cree_le == cle[0], Verdict.id < cle[1][2:])))
+        else:
+            qv = qv.where(Verdict.cree_le < cle[0])
+    if action:
+        qv = qv.where(Verdict.action == action.removeprefix("verdict_")) if action.startswith("verdict_") \
+            else qv.where(false())
     if auteur:
         qv = qv.where(Verdict.auteur_id == auteur)
-    lignes_verdicts = list(db.scalars(qv.order_by(Verdict.cree_le.desc()).limit(limite + 1)))
+    lignes_verdicts = list(db.scalars(qv.order_by(Verdict.cree_le.desc(), Verdict.id.desc()).limit(limite + 1)))
     brutes += [("verdict", v) for v in lignes_verdicts]
     # Une source a atteint son plafond : la période est incomplète, quel que soit le filtre ensuite.
     source_pleine = len(lignes_journal) > limite or len(lignes_verdicts) > limite
@@ -225,6 +276,7 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
             d = e.details or {}
             libelle, cat = ACTIONS.get(e.action, (e.action.replace("_", " "), "Autres"))
             entrees.append({
+                "id": f"j:{e.id}",
                 "date": naif(e.horodatage), "action": e.action, "libelle": libelle, "categorie": cat,
                 "resultat": e.resultat, "ok": e.resultat == journal.SUCCES,
                 "utilisateur_id": str(e.utilisateur_id) if e.utilisateur_id else None,
@@ -238,6 +290,7 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
             quoi = f"{TYPES_FR.get(e.label, e.label)}{f', dent {e.fdi}' if e.fdi else ''}"
             libelle, cat = ACTIONS[f"verdict_{e.action}"]
             entrees.append({
+                "id": f"v:{e.id}",
                 "date": e.cree_le, "action": f"verdict_{e.action}", "libelle": libelle, "categorie": cat,
                 "resultat": journal.SUCCES, "ok": True,
                 "utilisateur_id": str(e.auteur_id) if e.auteur_id else None,
@@ -247,13 +300,18 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
                 "session": None, "ip": None,
             })
 
+    entrees = [x for x in entrees if _avant(x, cle)]
     if categorie:
         entrees = [x for x in entrees if x["categorie"] == categorie]
     if echecs is not None:
         entrees = [x for x in entrees if x["ok"] != echecs]
-    entrees.sort(key=lambda x: x["date"], reverse=True)
+    if cible:
+        aiguille = cible.strip().lower()
+        entrees = [x for x in entrees if aiguille in f"{x['cible'] or ''} {x['precision'] or ''}".lower()]
+    entrees.sort(key=lambda x: (x["date"], x["id"]), reverse=True)
     tronque = source_pleine or len(entrees) > limite
     entrees = entrees[:limite]
+    suivant = curseur_de(entrees[-1]) if tronque and entrees else None
 
     # Sessions des auteurs concernés, pour le rattachement par période.
     auteurs = {x["utilisateur_id"] for x in entrees if x["utilisateur_id"]}
@@ -315,8 +373,8 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
             }
         if x["action"] == "connexion" and x["ok"] and g["methode"] is None:
             g["methode"] = "google" if (x["precision"] or "").startswith("Avec Google") else "mot_de_passe"
-        g["entrees"].append({k: x[k] for k in ("date", "action", "libelle", "categorie", "resultat", "ok", "cible",
-                                               "precision", "ip")})
+        g["entrees"].append({k: x[k] for k in ("id", "date", "action", "libelle", "categorie", "resultat", "ok",
+                                               "cible", "precision", "ip")})
 
     # À horodatage égal (horloge grossière, actions dans la même requête), la
     # connexion ouvre la session et la déconnexion la ferme.
@@ -328,7 +386,65 @@ def lire(db: Session, *, depuis: datetime, auteur: uuid.UUID | None = None, cate
     presents = sorted({(x["utilisateur_id"], noms.get(x["utilisateur_id"])) for x in entrees if x["utilisateur_id"]},
                       key=lambda a: (a[1] or "").lower())
     return {
-        "total": len(entrees), "tronque": tronque, "categories": list(CATEGORIES),
+        "total": len(entrees), "tronque": tronque, "suivant": suivant, "categories": list(CATEGORIES),
+        "actions": [{"code": c, "libelle": l, "categorie": cat} for c, (l, cat) in ACTIONS.items()],
         "auteurs": [{"id": i, "nom": n} for i, n in presents],
         "sessions": ordre,
     }
+
+
+def detail(db: Session, ident: str) -> dict | None:
+    """Une entrée avec son contexte complet : tout ce que le journal a gardé
+    (jamais de jeton ni de mot de passe : ils n'y sont pas écrits), la session
+    et le poste, l'auteur. Lecture seule : aucune route ne modifie une entrée."""
+    genre, _, cle = ident.partition(":")
+    if genre == "j":
+        try:
+            e = db.get(Journal, uuid.UUID(cle))
+        except ValueError:
+            return None
+        if e is None:
+            return None
+        d = e.details or {}
+        auteur = db.get(Utilisateur, e.utilisateur_id) if e.utilisateur_id else None
+        session = None
+        if (e.cible or "").startswith("session:"):
+            try:
+                session = db.get(SessionUtilisateur, uuid.UUID(e.cible.partition(":")[2]))
+            except ValueError:
+                session = None
+        ids = {e.cible.partition(":")[2]} if (e.cible or "").startswith("analyse:") else set()
+        references = {a.id: a.reference for a in db.scalars(select(Analysis).where(Analysis.id.in_(ids)))}
+        noms = {str(u.id): _nom(u) for u in db.scalars(select(Utilisateur))}
+        roles = {str(r.id): r.libelle for r in db.scalars(select(Role))}
+        libelle, cat = ACTIONS.get(e.action, (e.action.replace("_", " "), "Autres"))
+        return {
+            "id": ident, "source": "journal", "date": naif(e.horodatage), "action": e.action, "libelle": libelle,
+            "categorie": cat, "resultat": e.resultat, "ok": e.resultat == journal.SUCCES,
+            "auteur": {"id": str(auteur.id), "nom": _nom(auteur), "email": auteur.email} if auteur else None,
+            "cible": _cible(e.cible, d, references, noms, roles), "cible_brute": e.cible,
+            "precision": _precision(e.action, d), "details": d, "ip": e.ip,
+            "session": {"id": str(session.id), "poste": poste(session.agent), "ip": session.ip,
+                        "ouverte_le": naif(session.cree_le), "fermee_le": naif(session.revoquee_le)}
+            if session is not None else None,
+        }
+    if genre == "v":
+        v = db.get(Verdict, cle)
+        if v is None:
+            return None
+        det = db.get(Detection, v.detection_id)
+        a = db.get(Analysis, det.analysis_id) if det else None
+        auteur = db.get(Utilisateur, v.auteur_id) if v.auteur_id else None
+        libelle, cat = ACTIONS[f"verdict_{v.action}"]
+        return {
+            "id": ident, "source": "verdict", "date": v.cree_le, "action": f"verdict_{v.action}", "libelle": libelle,
+            "categorie": cat, "resultat": journal.SUCCES, "ok": True,
+            "auteur": {"id": str(auteur.id), "nom": _nom(auteur), "email": auteur.email} if auteur else None,
+            "cible": f"Analyse {a.reference}" if a else "Analyse supprimée", "cible_brute": f"analyse:{a.id}" if a else None,
+            "precision": f"{TYPES_FR.get(v.label, v.label)}{f', dent {v.fdi}' if v.fdi else ''}",
+            "details": {"type": v.label, "dent": v.fdi, "cadre": {"x": v.x, "y": v.y, "w": v.w, "h": v.h},
+                        "commentaire": v.commentaire or None,
+                        "annule_le": v.annule_le.isoformat() if v.annule_le else None},
+            "ip": None, "session": None,
+        }
+    return None

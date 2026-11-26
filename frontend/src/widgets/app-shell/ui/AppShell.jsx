@@ -4,12 +4,12 @@ import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
 
 import { fetchModelVersions } from "@/entities/model-version";
-import { SessionStatus, displayName, roleLabel, screenProfile, updateMyPreferences, useCurrentUser } from "@/entities/session";
-import { demoNotifications } from "@/shared/demo";
+import { SessionStatus, displayName, roleLabel, updateMyPreferences, useCurrentUser } from "@/entities/session";
 import { cx, useAppTheme } from "@/shared/lib";
 import { Avatar, Button, Card, Icon, Logo, UserPhoto } from "@/shared/ui";
 
 import { visibleNavigation } from "../model/navigation";
+import { ServiceAlerts } from "./ServiceAlerts";
 
 function Sidebar({ page, open, rail, onNavigate }) {
   const { user, can, canAny, logout } = useCurrentUser();
@@ -89,62 +89,6 @@ function Sidebar({ page, open, rail, onNavigate }) {
   );
 }
 
-function Notifications() {
-  const { user } = useCurrentUser();
-  const list = demoNotifications[screenProfile(user)];
-  const [open, setOpen] = useState(false);
-  const [unread, setUnread] = useState(true);
-  const bellRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onClick = (event) => {
-      if (!event.target.closest(".notif")) setOpen(false);
-    };
-    const onKey = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        bellRef.current?.focus();
-      }
-    };
-    document.addEventListener("click", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <div className="notif">
-      <button
-        ref={bellRef}
-        type="button"
-        className="icon-btn"
-        aria-expanded={open}
-        aria-controls="notif-pop"
-        aria-label={unread ? `Notifications : ${list.length} nouvelles` : "Notifications : aucune nouvelle non lue"}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((value) => !value);
-          setUnread(false);
-        }}
-      >
-        <Icon name="bell" />
-        <span className="dot" aria-hidden="true" hidden={!unread} />
-      </button>
-      <div className="notif-pop" id="notif-pop" hidden={!open}>
-        {list.map((n) => (
-          <Link key={n.title} href={n.href}>
-            <strong>{n.title}</strong>
-            <span>{n.text}</span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
   const { user, setUser } = useCurrentUser();
   // Préférence du compte, lue avec `/moi` au chargement de l'application.
@@ -180,7 +124,6 @@ function Topbar({ title, crumbs, headerContent, headerActions, onMenu }) {
           <Icon name={dark ? "sun" : "contrast"} />
         </button>
         <div className="top-actions">
-          <Notifications />
           <Link className="icon-btn avatar-btn" href="/profil" aria-label={`Mon profil : ${name}`}>
             <UserPhoto src={user?.photoUrl} name={name} />
           </Link>
@@ -280,6 +223,7 @@ export function AppShell({ page, title, crumbs = "Application", docTitle, permis
             headerActions={allowed ? headerActions : undefined}
             onMenu={() => setMenuOpen((v) => !v)}
           />
+          <ServiceAlerts />
           {allowed && bare ? children : <main className="page">{allowed ? children : <Forbidden />}</main>}
           <footer className="app-foot">
             <Icon name="info" />

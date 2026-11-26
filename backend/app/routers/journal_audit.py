@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import journal
@@ -21,7 +22,8 @@ from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
 from ..permissions import USER_MANAGE
-from ..services import journal_audit
+from ..services import journal_audit, retention
+from .cabinet import parametres
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -31,9 +33,18 @@ def _filtres(
     auteur: str = "",
     categorie: str = "",
     resultat: str = "",
+    action: str = "",
+    cible: str = Query(default="", max_length=120),
+    avant: str = "",
 ) -> dict:
     if categorie and categorie not in journal_audit.CATEGORIES:
         raise ApiError(422, "filtre_invalide", f"Catégorie inconnue : {categorie}.")
+    if action and action not in journal_audit.ACTIONS:
+        raise ApiError(422, "filtre_invalide", f"Action inconnue : {action}.")
+    try:
+        journal_audit.lire_curseur(avant)
+    except ValueError as exc:
+        raise ApiError(422, "filtre_invalide", "Curseur de pagination invalide.") from exc
     if resultat not in ("", "succes", "echec"):
         raise ApiError(422, "filtre_invalide", "Résultat : « succes » ou « echec ».")
     try:
@@ -42,7 +53,8 @@ def _filtres(
         raise ApiError(422, "filtre_invalide", "Auteur inconnu.") from exc
     depuis = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=jours)
     return {"jours": jours, "depuis": depuis, "auteur": auteur_id, "categorie": categorie or None,
-            "echecs": None if not resultat else resultat == "echec"}
+            "echecs": None if not resultat else resultat == "echec", "action": action or None,
+            "cible": cible.strip() or None, "avant": avant or None}
 
 
 @router.get("")
@@ -52,8 +64,22 @@ def lire_journal(
     db: Session = Depends(get_db),
 ):
     resultat = journal_audit.lire(db, depuis=f["depuis"], auteur=f["auteur"], categorie=f["categorie"],
-                                  echecs=f["echecs"])
+                                  echecs=f["echecs"], action=f["action"], cible=f["cible"], avant=f["avant"])
     return {"jours": f["jours"], **resultat}
+
+
+@router.get("/entrees/{ident}")
+def lire_entree(
+    ident: str,
+    _: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Détail d'une entrée, avec son contexte complet. Le journal ne se lit
+    qu'en lecture : aucune route ne modifie ni ne supprime une entrée."""
+    entree = journal_audit.detail(db, ident)
+    if entree is None:
+        raise ApiError(404, "introuvable", "Entrée du journal introuvable.")
+    return entree
 
 
 @router.get(".csv")
@@ -64,7 +90,7 @@ def exporter_journal(
     db: Session = Depends(get_db),
 ):
     lu = journal_audit.lire(db, depuis=f["depuis"], auteur=f["auteur"], categorie=f["categorie"],
-                            echecs=f["echecs"], limite=20000)
+                            echecs=f["echecs"], action=f["action"], cible=f["cible"], limite=20000)
     sortie = io.StringIO()
     ecrivain = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
     ecrivain.writerow(["Date (UTC)", "Auteur", "Action", "Catégorie", "Cible", "Détail", "Résultat",
@@ -80,3 +106,34 @@ def exporter_journal(
     nom = f"journal-audit-{datetime.now(timezone.utc):%Y-%m-%d}.csv"
     return Response("﻿" + sortie.getvalue(), media_type="text/csv; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="{nom}"', "Cache-Control": "no-store"})
+
+
+@router.get("/retention")
+def lire_retention(
+    request: Request,
+    _: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Durée de conservation, date limite et nombre d'entrées purgeables."""
+    p = parametres(db)
+    db.commit()
+    return retention.apercu(db, p, getattr(request.state, "session_id", None))
+
+
+class PurgeIn(BaseModel):
+    confirmer: bool = False
+
+
+@router.post("/purge")
+def purger(
+    corps: PurgeIn,
+    request: Request,
+    utilisateur: Utilisateur = Depends(exiger(USER_MANAGE)),
+    db: Session = Depends(get_db),
+):
+    """Purge par rétention : la seule suppression d'entrées possible, bornée
+    par la durée de conservation, confirmée, et elle-même journalisée."""
+    if not corps.confirmer:
+        raise ApiError(422, "confirmation_requise", "La purge est définitive : confirmez-la.")
+    return retention.purger(db, parametres(db), utilisateur_id=utilisateur.id,
+                            session_id=getattr(request.state, "session_id", None), request=request)

@@ -216,6 +216,13 @@ class ParametresCabinet(Base):
         Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Durée de conservation du journal d'audit (sprint 11). Un abaissement
+    # retient la session qui l'a fait : la purge y est refusée (abaisser puis
+    # purger dans la foulée est le geste par lequel on efface une trace).
+    retention_jours: Mapped[int] = mapped_column(Integer, default=365)
+    retention_abaissee_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    retention_abaissee_session_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
     maj_par = relationship("Utilisateur", foreign_keys=[maj_par_id])
 
 

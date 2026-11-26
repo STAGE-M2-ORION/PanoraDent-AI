@@ -22,12 +22,6 @@ select.tool { padding-right: 32px; cursor: pointer; }
 .icon-btn svg { width: 20px; height: 20px; }
 .icon-btn .dot { position: absolute; top: 9px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger); box-shadow: 0 0 0 2px var(--color-surface); }
 .icon-btn.avatar-btn { border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary-hover); font-weight: 600; font-size: var(--text-sm); }
-.notif { position: relative; }
-.notif-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(320px, 86vw); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 16px 40px -16px rgba(15, 42, 67, 0.3); padding: var(--space-2); display: grid; gap: 2px; }
-.notif-pop[hidden] { display: none; }
-.notif-pop a { display: grid; gap: 2px; padding: var(--space-3); border-radius: var(--radius-md); text-decoration: none; color: var(--color-ink); font-size: var(--text-sm); }
-.notif-pop a:hover { background: var(--color-subtle); }
-.notif-pop a span { color: var(--color-muted); font-size: var(--text-xs); }
 .dash-sec-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .dash-sec-h h3 { font-family: var(--font-display); font-size: 1.5rem; line-height: 1.15; }
 

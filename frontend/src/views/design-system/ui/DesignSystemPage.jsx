@@ -313,7 +313,7 @@ export function DesignSystemPage() {
                   <Icon name="download" />
                 </button>
               </div>
-              <LineChart
+              <LineChart fictive
                 exportRef={exportRef}
                 title="Analyses par mois"
                 labels={MONTHS.labels}
@@ -341,7 +341,7 @@ export function DesignSystemPage() {
                   <p>Exemple · données fictives</p>
                 </div>
               </div>
-              <ProgressList
+              <ProgressList fictive
                 title="Détections par type"
                 items={["caries", "deep_caries", "periapical_lesion", "impacted_tooth"].map((k, i) => ({ name: DETECTION_TYPES[k].label, abbr: DETECTION_TYPES[k].abbr, cls: DETECTION_TYPES[k].cls, value: [38, 27, 21, 14][i] }))}
               />
@@ -353,7 +353,7 @@ export function DesignSystemPage() {
                   <p>Exemple · données fictives</p>
                 </div>
               </div>
-              <BarChart title="Analyses relues par semaine" labels={MONTHS.labels} values={[3, 4, 2, 5, 4, 6, 3, 5, 4, 7, 5, 4]} name="Analyses relues" trendName="Moyenne sur 3 semaines" summary="Entre 2 et 7 par semaine." />
+              <BarChart fictive title="Analyses relues par semaine" labels={MONTHS.labels} values={[3, 4, 2, 5, 4, 6, 3, 5, 4, 7, 5, 4]} name="Analyses relues" trendName="Moyenne sur 3 semaines" summary="Entre 2 et 7 par semaine." />
             </section>
             <section className="dcard span-12" aria-label="État vide">
               <VizEmpty title="Pas encore de mesure réelle">Nous n’affichons aucun chiffre inventé.</VizEmpty>

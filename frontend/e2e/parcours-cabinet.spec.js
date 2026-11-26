@@ -35,9 +35,9 @@ test("l'administrateur règle l'en-tête du cabinet, logo compris", async ({ pag
   await expect(apercu).toContainText(nom);
   await expect(apercu).toContainText("301 Fianarantsoa");
   await expect(apercu).toContainText("prototype de recherche non certifié");
-  await page.getByRole("button", { name: "Enregistrer" }).click();
+  await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "Paramètres du cabinet enregistrés." })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Enregistrer", exact: true })).toBeDisabled();
 
   await page.getByTestId("cab-logo-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: LOGO_PNG });
   await expect(page.getByRole("status").filter({ hasText: "Logo importé." })).toBeVisible();

@@ -8,4 +8,22 @@
   .pager nav { display: flex; gap: var(--space-1); align-items: center; flex-wrap: wrap; }
   @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { .filters { grid-template-columns: 1fr; } }
+  /* Sprint 11 : détail d'une entrée, entrées plus anciennes. */
+  .tl-open { font: inherit; text-align: left; padding: 0; color: inherit; }
+  .tl-open:hover strong, .tl-open:focus-visible strong { text-decoration: underline; }
+  .journal-more { display: flex; justify-content: center; margin-top: var(--space-4); }
 }
+
+/* Fenêtre de détail d'une entrée (rendue hors de .v-admin-audit si la fenêtre est portée ailleurs). */
+.journal-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--space-4); margin: 0; font-size: var(--text-sm); }
+.journal-kv dt { color: var(--color-muted); }
+.journal-kv dd { margin: 0; overflow-wrap: anywhere; }
+.journal-ctx-t { font-size: var(--text-base); margin: 0 0 var(--space-2); }
+.journal-ctx-v { font-family: var(--font-mono); font-size: var(--text-xs); }
+
+/* Conservation et purge (sprint 11). */
+.v-admin-audit .journal-retention { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-6); }
+/* Classe dédiée : un sélecteur « > div » atteindrait aussi le fond de la fenêtre de confirmation. */
+.v-admin-audit .journal-retention-text { display: grid; gap: var(--space-2); max-width: 70ch; }
+.v-admin-audit .journal-retention h3 { font-size: var(--text-lg); margin: 0; }
+.v-admin-audit .journal-retention p { margin: 0; font-size: var(--text-sm); }
