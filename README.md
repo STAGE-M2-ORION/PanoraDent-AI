@@ -326,7 +326,8 @@ fait **pas** de cette plateforme un dispositif médical certifié.
 (OAuth 2.0 + OpenID Connect, code d'autorisation avec PKCE, mené côté serveur).
 L'administrateur choisit, compte par compte, les modes autorisés : l'un, l'autre
 ou les deux (`modes_connexion`). **Pas d'inscription publique** : seul un
-administrateur crée des comptes. Le mot de passe sert aussi de filet de sécurité
+administrateur crée des comptes ; un visiteur peut **demander un accès** depuis la
+vitrine, et l'administrateur accepte ou refuse (voir [Demandes d'accès](#demandes-daccès-sprint-13)). Le mot de passe sert aussi de filet de sécurité
 le jour où la liaison Internet du cabinet tombe : Google devient alors injoignable,
 pas le serveur local.
 
@@ -986,6 +987,44 @@ journalisé, sans nouvel essai.
 | `POST` | `/api/v1/moi/notifications/{id}/lue` | Marque lue ; celle d'un autre répond `404` comme une inexistante |
 | `POST` | `/api/v1/moi/notifications/lues` | Toutes lues |
 | `WS` | `/api/v1/moi/notifications/flux` | Arrivée en temps réel |
+
+## Demandes d'accès (sprint 13)
+
+Il n'y a pas d'inscription libre : la plateforme porte des données de santé, et
+seul un administrateur ouvre un compte. Le bouton « Demander un accès » de la
+vitrine (`/decouvrir`) envoie une demande que l'administrateur examine.
+
+1. **Dépôt** (`POST /api/v1/demandes-acces`, publique) : nom, adresse, profil
+   (chirurgien-dentiste, enseignant ou jury, autre), établissement, ville,
+   message. Limité par poste comme le mot de passe oublié (`LIMITE_OUBLI_MINUTE`).
+   **La réponse est toujours la même** : qu'un compte existe déjà pour l'adresse,
+   qu'une demande soit en attente ou que la file soit pleine (200 en attente), rien
+   ne se lit de l'extérieur ; les demandes écartées sont seulement journalisées.
+   Aucun e-mail n'est envoyé au dépôt : on ne peut pas faire écrire la plateforme
+   à une adresse quelconque.
+2. **Les administrateurs sont prévenus** : notification « Demande d'accès : nom »
+   (cloche, en temps réel) et e-mail selon la case « Une demande d'accès attend une
+   décision » de leur profil.
+3. **Décision** (Administration › Demandes d'accès, `user:manage`) :
+   - **accepter** : nom, prénom, rôle (proposé d'après le profil déclaré : Praticien
+     pour un chirurgien-dentiste, Lecteur sinon) et modes de connexion ; le compte
+     est créé et reçoit le lien de première connexion habituel ;
+   - **refuser** : motif facultatif, transmis au demandeur par e-mail ;
+   - la notification passe « lue » chez les autres administrateurs ; une demande
+     déjà traitée répond `409 demande_deja_traitee`.
+4. **Journal** : reçue, écartée (avec le motif interne), acceptée (et création du
+   compte), refusée, purgée. Les demandes **traitées** sont supprimées 90 jours
+   après la décision par le worker ; une demande en attente n'est jamais purgée.
+
+| Méthode | Route | Description |
+|---|---|---|
+| `POST` | `/api/v1/demandes-acces` | Dépôt — publique, `202`, même réponse dans tous les cas |
+| `GET` | `/api/v1/administration/demandes-acces` | Liste (`?statut=en_attente`, `acceptee` ou `refusee`) et nombre en attente — `user:manage` |
+| `POST` | `/api/v1/administration/demandes-acces/{id}/accepter` | `{role_id, modes_connexion, nom?, prenom?}` : compte créé, `201` — `user:manage` |
+| `POST` | `/api/v1/administration/demandes-acces/{id}/refuser` | `{motif?}` — `user:manage` |
+
+Table `demandes_acces` (migration `0021`), qui ajoute aussi `notifications.lien`
+(page visée quand une notification ne porte pas sur une analyse).
 
 ## Tests et CI
 

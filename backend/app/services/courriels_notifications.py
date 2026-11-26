@@ -42,6 +42,7 @@ logger = logging.getLogger("uvicorn.error")
 PREFERENCE = {
     TypeNotification.ANALYSE_ECHOUEE: "courriel_analyse_echouee",
     TypeNotification.ANALYSE_ROUVERTE: "courriel_analyse_rouverte",
+    TypeNotification.DEMANDE_ACCES: "courriel_demande_acces",
 }
 
 
@@ -58,9 +59,13 @@ def statut_initial(type_: str) -> str | None:
     return None if type_ in PREFERENCE else Statut.SANS_OBJET
 
 
-def _lien(analyse_id: str | None) -> str:
+def _lien(n: Notification | None) -> str:
     base = settings.app_url.rstrip("/")
-    return f"{base}/analyse?id={analyse_id}" if analyse_id else f"{base}/tableau-de-bord"
+    if n is not None and n.lien:
+        return f"{base}{n.lien}"
+    if n is not None and n.analyse_id:
+        return f"{base}/analyse?id={n.analyse_id}"
+    return f"{base}/tableau-de-bord"
 
 
 def gabarit(utilisateur: Utilisateur, notifications: list[Notification]) -> courriel.Courriel:
@@ -69,7 +74,8 @@ def gabarit(utilisateur: Utilisateur, notifications: list[Notification]) -> cour
     paragraphes = [f"{n.titre}. {n.message}" for n in notifications]
     return courriel._gabarit(
         utilisateur.email, sujet, courriel._bonjour(utilisateur.prenom), paragraphes,
-        "Ouvrir l'analyse" if une else "Ouvrir PanoraDent AI", _lien(notifications[0].analyse_id if une else None),
+        ("Ouvrir la demande" if notifications[0].lien else "Ouvrir l'analyse") if une else "Ouvrir PanoraDent AI",
+        _lien(notifications[0] if une else None),
         "Vous recevez ce message selon vos préférences : Profil › Préférences pour choisir les "
         "e-mails que vous recevez. Seule la référence anonyme de l'analyse y figure.",
     )

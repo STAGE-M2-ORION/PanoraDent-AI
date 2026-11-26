@@ -34,7 +34,7 @@ from . import journal
 from .config import settings
 from .database import SessionLocal
 from .models import Analysis, Detection, StatutAnalyse, TypeNotification
-from .services import courriels_notifications, indexation, inference_client, notifications, registre_modeles, storage
+from .services import courriels_notifications, demandes_acces, indexation, inference_client, notifications, registre_modeles, storage
 
 logger = logging.getLogger("panoradent.worker")
 
@@ -242,7 +242,7 @@ def main() -> None:
             time.sleep(3)
 
     logger.info("Worker prêt.")
-    prochain_courriel = 0.0
+    prochain_courriel = prochaine_purge = 0.0
     while not arret["demande"]:
         try:
             if not traiter_une():
@@ -252,6 +252,11 @@ def main() -> None:
                 prochain_courriel = time.monotonic() + COURRIELS_TOUTES_LES_S
                 with SessionLocal() as db:
                     courriels_notifications.envoyer_en_attente(db)
+            # Demandes d'accès traitées depuis 90 jours : supprimées (sprint 13).
+            if time.monotonic() >= prochaine_purge:
+                prochaine_purge = time.monotonic() + 3600
+                with SessionLocal() as db:
+                    demandes_acces.purger(db)
         except Exception:  # noqa: BLE001
             logger.exception("Erreur de la boucle du worker")
             time.sleep(3)

@@ -471,7 +471,8 @@ class TypeNotification:
     ANALYSE_TERMINEE = "analyse_terminee"
     ANALYSE_ECHOUEE = "analyse_echouee"
     ANALYSE_ROUVERTE = "analyse_rouverte"
-    TOUS = (ANALYSE_TERMINEE, ANALYSE_ECHOUEE, ANALYSE_ROUVERTE)
+    DEMANDE_ACCES = "demande_acces"          # aux administrateurs (comptes)
+    TOUS = (ANALYSE_TERMINEE, ANALYSE_ECHOUEE, ANALYSE_ROUVERTE, DEMANDE_ACCES)
 
 
 class Notification(Base):
@@ -489,8 +490,42 @@ class Notification(Base):
     analyse_id: Mapped[str | None] = mapped_column(String, ForeignKey("analyses.id", ondelete="SET NULL"),
                                                    nullable=True)
     reference: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Page de l'application visée quand ce n'est pas une analyse (demande d'accès).
+    lien: Mapped[str | None] = mapped_column(String(200), nullable=True)
     cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     lue_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # E-mail : None tant que rien n'est décidé (voir services/courriels_notifications.py).
     courriel_statut: Mapped[str | None] = mapped_column(String(16), nullable=True)
     courriel_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class StatutDemande:
+    EN_ATTENTE = "en_attente"
+    ACCEPTEE = "acceptee"
+    REFUSEE = "refusee"
+    TOUS = (EN_ATTENTE, ACCEPTEE, REFUSEE)
+
+
+class DemandeAcces(Base):
+    """Demande d'accès déposée depuis la page d'accueil (sprint 13). Il n'y a
+    pas d'inscription libre : l'administrateur accepte (et crée le compte, avec
+    le rôle qu'il choisit) ou refuse. Données personnelles du demandeur :
+    purgées 90 jours après leur traitement."""
+    __tablename__ = "demandes_acces"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    nom: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    profil: Mapped[str] = mapped_column(String(40))
+    etablissement: Mapped[str] = mapped_column(String(160), default="")
+    ville: Mapped[str] = mapped_column(String(80), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    statut: Mapped[str] = mapped_column(String(12), default=StatutDemande.EN_ATTENTE, index=True)
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    traitee_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    traitee_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True)
+    motif_refus: Mapped[str] = mapped_column(Text, default="")
+    # Compte créé à l'acceptation.
+    utilisateur_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True)

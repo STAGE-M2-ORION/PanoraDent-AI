@@ -18,6 +18,8 @@ PREFERENCES_DEFAUT = {
     # s'envoie pas par e-mail : elle arrive quelques secondes après le dépôt.
     "courriel_analyse_echouee": True,
     "courriel_analyse_rouverte": True,
+    # Administrateurs seulement : une demande d'accès attend une décision.
+    "courriel_demande_acces": True,
 }
 
 
@@ -28,6 +30,7 @@ def preferences_completes(preferences: dict | None) -> dict:
     if stockees.get("notifications") is False:
         stockees.setdefault("courriel_analyse_echouee", False)
         stockees.setdefault("courriel_analyse_rouverte", False)
+        stockees.setdefault("courriel_demande_acces", False)
     return {cle: stockees.get(cle, defaut) for cle, defaut in PREFERENCES_DEFAUT.items()}
 
 
@@ -165,6 +168,7 @@ class PreferencesModification(BaseModel):
     seuil_confiance_defaut: float | None = Field(default=None, ge=0.05, le=0.95)
     courriel_analyse_echouee: bool | None = None
     courriel_analyse_rouverte: bool | None = None
+    courriel_demande_acces: bool | None = None
 
 
 class ChangementMotDePasse(BaseModel):

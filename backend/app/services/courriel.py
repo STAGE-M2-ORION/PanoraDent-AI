@@ -137,6 +137,18 @@ def reinitialisation_par_admin(destinataire: str, prenom: str | None, lien: str)
     )
 
 
+def refus_demande_acces(destinataire: str, nom: str | None, motif: str) -> Courriel:
+    paragraphes = ["Votre demande d'accès à PanoraDent AI n'a pas été acceptée par l'administrateur."]
+    if motif:
+        paragraphes.append(f"Motif indiqué : {motif}")
+    paragraphes.append("Pour en parler, adressez-vous directement à l'administrateur du cabinet.")
+    return _gabarit(
+        destinataire, "Votre demande d'accès à PanoraDent AI", _bonjour(nom), paragraphes,
+        "Voir PanoraDent AI", settings.app_url.rstrip("/"),
+        "Si vous n'avez fait aucune demande, ignorez ce message.",
+    )
+
+
 def reinitialisation(destinataire: str, prenom: str | None, lien: str) -> Courriel:
     return _gabarit(
         destinataire, "Réinitialisation de votre mot de passe PanoraDent AI", _bonjour(prenom),

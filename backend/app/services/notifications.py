@@ -32,6 +32,7 @@ MOTIF_MAX = 200
 LIMITE_MAX = 50
 
 TITRES = {
+    TypeNotification.DEMANDE_ACCES: "Demande d'accès : {nom}",
     TypeNotification.ANALYSE_TERMINEE: "Analyse {reference} terminée",
     TypeNotification.ANALYSE_ECHOUEE: "Analyse {reference} échouée",
     TypeNotification.ANALYSE_ROUVERTE: "Analyse {reference} rouverte",
@@ -56,18 +57,39 @@ def _message(type_: str, analyse: Analysis, motif: str | None) -> str:
 def notifier(db: Session, destinataire_id: uuid.UUID | None, type_: str, analyse: Analysis, *,
              auteur_id: uuid.UUID | None = None, motif: str | None = None) -> Notification | None:
     """Ajoute la notification (sans valider) ; None si personne n'est à prévenir."""
-    if type_ not in TypeNotification.TOUS:
-        raise ValueError(f"Type de notification inconnu : {type_}")
+    if type_ not in TypeNotification.TOUS or type_ == TypeNotification.DEMANDE_ACCES:
+        raise ValueError(f"Type de notification inconnu pour une analyse : {type_}")
+    return _ajouter(db, destinataire_id, type_, auteur_id,
+                    titre=TITRES[type_].format(reference=analyse.reference or "sans référence"),
+                    message=_message(type_, analyse, motif), analyse_id=analyse.id, reference=analyse.reference)
+
+
+def notifier_demande_acces(db: Session, demande) -> list[Notification]:
+    """Chaque administrateur actif (permission de gérer les comptes) est prévenu
+    d'une nouvelle demande d'accès. Pas de donnée de patient : celles du
+    demandeur seulement, que l'administrateur doit connaître pour décider."""
+    from ..permissions import USER_MANAGE
+
+    admins = [u for u in db.scalars(select(Utilisateur).where(Utilisateur.actif.is_(True)))
+              if u.a_permission(USER_MANAGE)]
+    lieu = ", ".join(x for x in (demande.etablissement, demande.ville) if x)
+    message = " · ".join(x for x in (demande.profil, lieu, demande.email) if x)
+    return [n for u in admins if (n := _ajouter(
+        db, u.id, TypeNotification.DEMANDE_ACCES, None, titre=TITRES[TypeNotification.DEMANDE_ACCES].format(
+            nom=demande.nom), message=message, lien=f"/admin/demandes-acces?demande={demande.id}"))]
+
+
+def _ajouter(db: Session, destinataire_id, type_: str, auteur_id, *, titre: str, message: str,
+             analyse_id: str | None = None, reference: str | None = None, lien: str | None = None):
     if destinataire_id is None or destinataire_id == auteur_id:
         return None
     destinataire = db.get(Utilisateur, destinataire_id)
     if destinataire is None or not destinataire.actif:
         return None
     n = Notification(
-        id=str(uuid.uuid4()), utilisateur_id=destinataire_id, type=type_,
-        titre=TITRES[type_].format(reference=analyse.reference or "sans référence"),
-        message=_message(type_, analyse, motif), analyse_id=analyse.id, reference=analyse.reference,
-        cree_le=datetime.utcnow(), courriel_statut=courriels_notifications.statut_initial(type_),
+        id=str(uuid.uuid4()), utilisateur_id=destinataire_id, type=type_, titre=titre[:200], message=message,
+        analyse_id=analyse_id, reference=reference, lien=lien, cree_le=datetime.utcnow(),
+        courriel_statut=courriels_notifications.statut_initial(type_),
     )
     db.add(n)
     # Temps réel (lot B) : annoncée au commit de cette même transaction.
@@ -113,5 +135,5 @@ def tout_marquer_lu(db: Session, utilisateur_id: uuid.UUID) -> int:
 
 def en_dict(n: Notification) -> dict:
     return {"id": n.id, "type": n.type, "titre": n.titre, "message": n.message,
-            "analyse_id": n.analyse_id, "reference": n.reference,
+            "analyse_id": n.analyse_id, "reference": n.reference, "lien": n.lien,
             "cree_le": n.cree_le.isoformat() + "Z", "lue": n.lue_le is not None}

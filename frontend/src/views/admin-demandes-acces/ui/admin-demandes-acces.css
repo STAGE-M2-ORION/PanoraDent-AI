@@ -1,0 +1,16 @@
+/* Demandes d'accès (sprint 13) — confiné à la vue. */
+.v-admin-demandes .dem-filtres { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.v-admin-demandes .chip { border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.v-admin-demandes .chip.is-on { background: var(--color-primary-soft); border-color: var(--color-primary); color: var(--color-primary-hover); font-weight: 600; }
+.v-admin-demandes .chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.v-admin-demandes .dem-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.v-admin-demandes .dem-carte { display: grid; gap: var(--space-3); }
+.v-admin-demandes .dem-carte.is-visee { border-color: var(--color-primary); box-shadow: var(--focus-ring); }
+.v-admin-demandes .dem-carte header { display: flex; justify-content: space-between; gap: var(--space-3); align-items: start; }
+.v-admin-demandes .dem-carte header > div { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.v-admin-demandes .dem-carte dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); margin: 0; }
+.v-admin-demandes .dem-carte dt { font-size: var(--text-xs); color: var(--color-muted); }
+.v-admin-demandes .dem-carte dd { margin: 0; font-size: var(--text-sm); }
+.v-admin-demandes .dem-carte blockquote { margin: 0; padding: var(--space-3); border-left: 3px solid var(--color-border-strong); background: var(--color-subtle); border-radius: var(--radius-md); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.v-admin-demandes .dem-actions { display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.v-admin-demandes .dem-vide { padding: var(--space-6) 0; }

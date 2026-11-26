@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   GOOGLE_LINK_URL,
+  Permission,
   changeMyPassword,
   displayName,
   fetchMySessions,
@@ -240,7 +241,8 @@ function IdentityCard() {
 // --- Préférences -------------------------------------------------------------------------------
 
 function PreferencesCard() {
-  const { user, setUser } = useCurrentUser();
+  const { user, setUser, can } = useCurrentUser();
+  const gereLesComptes = can(Permission.USER_MANAGE);
   const [prefs, setPrefs] = useState(() => ({ ...user.preferences }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -257,6 +259,7 @@ function PreferencesCard() {
         seuil_confiance_defaut: Number(prefs.seuil_confiance_defaut),
         courriel_analyse_echouee: Boolean(prefs.courriel_analyse_echouee),
         courriel_analyse_rouverte: Boolean(prefs.courriel_analyse_rouverte),
+        ...(gereLesComptes ? { courriel_demande_acces: Boolean(prefs.courriel_demande_acces) } : {}),
       });
       setUser({ ...user, preferences });
       setMsg({ tone: "success", text: "Préférences enregistrées. Elles s’appliquent sur tous vos postes." });
@@ -318,6 +321,12 @@ function PreferencesCard() {
             <input type="checkbox" checked={Boolean(prefs.courriel_analyse_rouverte)} onChange={(e) => set("courriel_analyse_rouverte", e.target.checked)} />
             Une analyse que j’avais clôturée a été rouverte
           </label>
+          {gereLesComptes ? (
+            <label className="check">
+              <input type="checkbox" checked={Boolean(prefs.courriel_demande_acces)} onChange={(e) => set("courriel_demande_acces", e.target.checked)} />
+              Une demande d’accès attend une décision
+            </label>
+          ) : null}
           <p className="hint">
             Toutes les notifications arrivent aussi dans l’application (cloche). L’e-mail ne part que si vous ne les avez pas lues dans les 2 minutes, au plus un toutes les 5 minutes,
             avec la seule référence anonyme de l’analyse.

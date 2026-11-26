@@ -1,46 +1,43 @@
 import { useState } from "react";
 
-import { ErrorCode, httpClient, toAppError } from "@/shared/api";
+import { PROFILES, submitAccessRequest, validateAccessRequest } from "@/entities/access-request";
+import { toAppError } from "@/shared/api";
 import { Alert, Button, Modal } from "@/shared/ui";
 
-/**
- * Demande d'accès (il n'y a pas d'inscription libre). Le backend n'expose pas
- * encore de route de demande : en cas de 404, l'écran le dit au lieu de
- * prétendre avoir transmis la demande.
- */
-async function sendAccessRequest(payload) {
-  await httpClient.post("/access-requests", payload, { skipRefresh: true });
-}
+const VIDE = { name: "", profile: "Chirurgien-dentiste", office: "", city: "", email: "", message: "" };
 
+/**
+ * Demande d'accès (sprint 13) : il n'y a pas d'inscription libre. La demande
+ * part à l'administrateur, prévenu par la cloche et par e-mail ; s'il
+ * l'accepte, le demandeur reçoit le lien d'activation de son compte. La
+ * réponse est la même quoi qu'il arrive (le serveur ne dit pas si un compte
+ * existe déjà pour l'adresse).
+ */
 export function RequestAccessModal({ open, onClose }) {
-  const [form, setForm] = useState({ name: "", profile: "Chirurgien-dentiste", office: "", city: "Toliara", email: "", message: "" });
-  const [state, setState] = useState({ status: "idle", error: null });
+  const [form, setForm] = useState(VIDE);
+  const [state, setState] = useState({ status: "idle", error: null, message: null });
   const set = (key) => (event) => setForm((f) => ({ ...f, [key]: event.target.value }));
 
   const close = () => {
     onClose();
-    setState({ status: "idle", error: null });
+    if (state.status === "sent") setForm(VIDE);
+    setState({ status: "idle", error: null, message: null });
   };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!form.name.trim() || !form.email.trim()) {
-      setState({ status: "idle", error: "Indiquez au moins votre nom et votre e-mail professionnel." });
+    const invalide = validateAccessRequest(form);
+    if (invalide) {
+      setState({ status: "idle", error: invalide, message: null });
       return;
     }
-    setState({ status: "pending", error: null });
+    setState({ status: "pending", error: null, message: null });
     try {
-      await sendAccessRequest(form);
-      setState({ status: "sent", error: null });
+      const message = await submitAccessRequest({ ...form, name: form.name.trim(), email: form.email.trim() });
+      setState({ status: "sent", error: null, message });
     } catch (cause) {
-      const error = toAppError(cause);
-      setState({
-        status: "idle",
-        error:
-          error.code === ErrorCode.NOT_FOUND
-            ? "L’envoi des demandes en ligne n’est pas encore ouvert sur ce serveur. Contactez directement l’administrateur de la plateforme : c’est lui qui crée les comptes."
-            : error.message,
-      });
+      // Trop de demandes depuis ce poste (429), champ refusé (422), réseau : le message du serveur.
+      setState({ status: "idle", error: toAppError(cause).message, message: null });
     }
   };
 
@@ -50,7 +47,7 @@ export function RequestAccessModal({ open, onClose }) {
         {state.status === "sent" ? (
           <>
             <Alert tone="success" icon="check" title="Demande transmise à l'administrateur">
-              Vous recevrez un e-mail quand votre compte sera créé.
+              {state.message}
             </Alert>
             <div className="modal-actions">
               <Button onClick={close}>Fermer</Button>
@@ -79,22 +76,22 @@ export function RequestAccessModal({ open, onClose }) {
                   Profil
                 </label>
                 <select className="select" id="aRole" value={form.profile} onChange={set("profile")}>
-                  <option>Chirurgien-dentiste</option>
-                  <option>Enseignant ou jury</option>
-                  <option>Autre</option>
+                  {PROFILES.map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
                 </select>
               </div>
               <div className="field">
                 <label className="label" htmlFor="aCab">
                   Cabinet ou établissement
                 </label>
-                <input className="input" id="aCab" value={form.office} onChange={set("office")} />
+                <input className="input" id="aCab" maxLength={160} value={form.office} onChange={set("office")} />
               </div>
               <div className="field">
                 <label className="label" htmlFor="aCity">
                   Ville
                 </label>
-                <input className="input" id="aCity" value={form.city} onChange={set("city")} />
+                <input className="input" id="aCity" maxLength={80} value={form.city} onChange={set("city")} />
               </div>
             </div>
             <div className="field">
@@ -107,7 +104,7 @@ export function RequestAccessModal({ open, onClose }) {
               <label className="label" htmlFor="aMsg">
                 Message (facultatif)
               </label>
-              <textarea className="textarea" id="aMsg" value={form.message} onChange={set("message")} />
+              <textarea className="textarea" id="aMsg" maxLength={1000} value={form.message} onChange={set("message")} />
             </div>
             <div className="modal-actions">
               <Button variant="secondary" onClick={close}>

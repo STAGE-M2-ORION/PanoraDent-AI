@@ -38,6 +38,8 @@ REGLES = (
     # Liens reçus par e-mail : un jeton se devine encore moins à 10 essais par minute.
     Regle("liens", "limite_connexion_minute",
           (f"{API_V1}/auth/mot-de-passe/reinitialiser", f"{API_V1}/auth/premiere-connexion"), journaliser=True),
+    # Demande d'accès depuis la page d'accueil (sprint 13) : publique, comme l'oubli.
+    Regle("demande_acces", "limite_oubli_minute", (f"{API_V1}/demandes-acces",), journaliser=True),
     Regle("api", "limite_api_minute"),
 )
 # La sonde de santé est interrogée en continu par la supervision : jamais limitée.
