@@ -3,7 +3,7 @@ import { httpClient } from "@/shared/api";
 
 import { normalizeAnalysis, normalizeAnalysisSummary, normalizeProcessing, withNumbers } from "../model/analysis";
 import { normalizeComparison } from "../model/comparison";
-import { normalizeHistoryPage, normalizeTimeline } from "../model/history";
+import { filtersToView, normalizeHistoryPage, normalizeTimeline, normalizeView } from "../model/history";
 
 const toZone = (z) => ({ x: z.x, y: z.y, w: z.w, h: z.h });
 
@@ -197,4 +197,21 @@ export async function fetchAnalysisImageUrl(analysisId) {
  */
 export async function deleteAnalysis(analysisId) {
   await httpClient.delete(`/analyses/${analysisId}`);
+}
+
+/** `GET /api/v1/moi/vues-historique` — ses vues enregistrées. */
+export async function fetchHistoryViews() {
+  const { data } = await httpClient.get("/moi/vues-historique");
+  return data.map(normalizeView);
+}
+
+/** `POST /api/v1/moi/vues-historique` — un même nom met la vue à jour. */
+export async function saveHistoryView(name, filters) {
+  const { data } = await httpClient.post("/moi/vues-historique", { nom: name, filtres: filtersToView(filters) });
+  return normalizeView(data);
+}
+
+/** `DELETE /api/v1/moi/vues-historique/{id}`. */
+export async function deleteHistoryView(id) {
+  await httpClient.delete(`/moi/vues-historique/${encodeURIComponent(id)}`);
 }

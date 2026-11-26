@@ -26,7 +26,9 @@ export function MotDePasseOubliePage() {
       setSent(true);
     } catch (cause) {
       const e = toAppError(cause);
-      if (e.code === ErrorCode.NETWORK || e.code === ErrorCode.TIMEOUT) setError(e.message);
+      // Réseau, ou trop de demandes depuis ce poste (la limite vaut pour toute
+      // adresse : elle ne révèle rien du compte).
+      if (e.code === ErrorCode.NETWORK || e.code === ErrorCode.TIMEOUT || e.serverCode === "trop_de_requetes") setError(e.message);
       else setSent(true); // aucune réponse ne doit distinguer les adresses
     } finally {
       setBusy(false);

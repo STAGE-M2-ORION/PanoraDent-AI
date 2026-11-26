@@ -2,10 +2,11 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useMemo, useRef, useState } from "react";
 
+import { fetchActivity, formatDuration, periodDelta, weekLabels } from "@/entities/activity";
 import { fetchAdminIndicators, weekDelta } from "@/entities/administration";
 import { ANALYSIS_STATUS, fetchAnalyses, formatAnalysisNumber } from "@/entities/analysis";
 import { fetchAudit } from "@/entities/audit";
-import { DETECTION_TYPES, DetectionLabel } from "@/entities/detection";
+import { DETECTION_TYPES } from "@/entities/detection";
 import { Permission, displayName, screenProfile, useCurrentUser } from "@/entities/session";
 import { fetchStorage, useSystemStatus } from "@/entities/system-status";
 import { fetchUsers } from "@/entities/user";
@@ -15,23 +16,6 @@ import { AppShell } from "@/widgets/app-shell";
 
 const MONTHS = lastMonths(12);
 const noData = () => Promise.resolve(null);
-
-/** Semaines ISO des 12 dernières semaines : « S46 ». */
-function lastWeeks(n) {
-  const isoWeek = (d) => {
-    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const day = t.getUTCDay() || 7;
-    t.setUTCDate(t.getUTCDate() + 4 - day);
-    const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-    return Math.ceil(((t - y) / 864e5 + 1) / 7);
-  };
-  return Array.from({ length: n }, (_, k) => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7 * (n - 1 - k));
-    return `S${isoWeek(d)}`;
-  });
-}
-const WEEKS = lastWeeks(12);
 
 /** Nombre d'analyses par mois sur 24 mois glissants : [année précédente, 12 derniers mois]. */
 function monthlyCounts(analyses) {
@@ -44,14 +28,6 @@ function monthlyCounts(analyses) {
   });
   return { previous: counts.slice(0, 12), current: counts.slice(12) };
 }
-
-/** Répartition des détections par type (démonstration : le résumé d'analyse n'a pas le détail). */
-const TYPES_ITEMS = [
-  { label: DetectionLabel.CARIES, value: 38, detail: "28" },
-  { label: DetectionLabel.DEEP_CARIES, value: 27, detail: "20" },
-  { label: DetectionLabel.PERIAPICAL_LESION, value: 21, detail: "15" },
-  { label: DetectionLabel.IMPACTED_TOOTH, value: 14, detail: "10" },
-].map((t) => ({ name: DETECTION_TYPES[t.label].label, abbr: DETECTION_TYPES[t.label].abbr, cls: DETECTION_TYPES[t.label].cls, value: t.value, detail: t.detail }));
 
 /** Dernières actions sur les comptes et les rôles (journal d'audit, 30 jours). */
 const fetchSensitive = () =>
@@ -67,12 +43,9 @@ function formatBytes(bytes) {
   return go >= 1 ? `${go.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Go` : `${Math.round(bytes / 1024 ** 2).toLocaleString("fr-FR")} Mo`;
 }
 
-function buildConfig(profile, { name, analyses, users, indicators, storage }) {
+function buildConfig(profile, { name, analyses, users, indicators, storage, activity }) {
   const monthly = monthlyCounts(analyses ?? []);
   const thisMonth = monthly.current[11];
-  const lastMonth = monthly.current[10];
-  const maxMonth = Math.max(1, ...monthly.current);
-  const delta = lastMonth ? `${thisMonth >= lastMonth ? "+" : "−"}${Math.abs(Math.round(((thisMonth - lastMonth) / lastMonth) * 100))} % vs mois dernier` : "Premier mois d’activité";
   const lineSeries = [
     { name: "12 derniers mois", role: "accent", values: monthly.current },
     { name: "Année précédente", role: "context", values: monthly.previous },
@@ -118,38 +91,98 @@ function buildConfig(profile, { name, analyses, users, indicators, storage }) {
       },
     };
   }
+  // Praticien et lecteur : activité comptée par le serveur (portée « moi » ou « cabinet »).
+  const act = activity;
+  const an = act?.analyses;
+  const det = act?.detections;
+  const reading = "Indicateur en cours de lecture";
+  const kpiMonth = {
+    label: "Analyses ce mois-ci",
+    value: an ? an.thisMonth : "—",
+    ring: an ? Math.round((an.thisMonth / Math.max(1, an.thisMonth, an.lastMonth)) * 100) : null,
+    ringText: an ? `${an.thisMonth} analyses ce mois-ci, ${an.lastMonth} le mois dernier` : reading,
+    delta: an ? (an.lastMonth ? `${an.thisMonth >= an.lastMonth ? "+" : "−"}${Math.abs(an.thisMonth - an.lastMonth)} vs mois dernier` : "Premier mois d’activité") : undefined,
+    dir: !an || an.thisMonth === an.lastMonth ? "flat" : an.thisMonth > an.lastMonth ? "up" : "down",
+    good: true,
+    href: "/historique",
+  };
+  const kpiReviewed = {
+    label: "Détections relues",
+    value: det?.pct != null ? `${det.pct} %` : "—",
+    ring: det?.pct ?? null,
+    ringText: det ? (det.proposed ? `${det.reviewed} détections relues sur ${det.proposed} proposées en 12 mois` : "Aucune détection proposée en 12 mois") : reading,
+    delta: det ? (det.pending ? `${det.pending} en attente d’un verdict` : "Aucune en attente") : undefined,
+    dir: "flat",
+    tone: "navy",
+  };
+  const types = act?.types ?? [];
+  const totalTypes = types.reduce((t, x) => t + x.count, 0);
+  const prog = {
+    title: "Anomalies retenues par type",
+    sub: totalTypes ? `Répartition sur 12 mois (${totalTypes} anomalie${totalTypes > 1 ? "s" : ""})` : "Aucune anomalie retenue sur 12 mois",
+    real: true,
+    items: types.map((t) => {
+      const type = DETECTION_TYPES[t.label];
+      return { name: type?.label ?? t.label, abbr: type?.abbr, cls: type?.cls, value: Math.round((t.count / totalTypes) * 100), detail: String(t.count) };
+    }),
+  };
+  const gauge = {
+    title: "Détections relues",
+    real: true,
+    value: det?.pct ?? 0,
+    icon: "check",
+    caption: !det
+      ? reading
+      : det.proposed
+        ? `${det.reviewed} détections relues sur ${det.proposed} ; ${det.pending ? `les ${det.pending} autres attendent un verdict` : "aucune n’attend de verdict"}.`
+        : "Aucune détection proposée sur 12 mois.",
+  };
+  const weeks = act?.weeks ?? [];
+  const weekBars = (key, name, unit, units) => {
+    const values = weeks.length ? weeks.map((w) => w[key]) : new Array(12).fill(0);
+    const total = values.reduce((t, v) => t + v, 0);
+    return {
+      name,
+      real: true,
+      trendName: "Moyenne sur 3 semaines",
+      values,
+      labels: weeks.length ? weekLabels(weeks) : new Array(12).fill(""),
+      summary: `${total} ${total > 1 ? units : unit} en 12 semaines, ${values.at(-1)} cette semaine.`,
+    };
+  };
+
   if (profile === "viewer") {
+    const rep = act?.reports;
     return {
       hello: "Bonjour",
       lead: "Vous consultez les analyses clôturées et leurs comptes rendus, en lecture seule.",
       readonly: true,
       kpis: [
-        { label: "Analyses ce mois-ci", value: thisMonth, ring: Math.round((thisMonth / maxMonth) * 100), ringText: `${thisMonth} analyses, pour un maximum de ${maxMonth} en un mois sur l’année`, delta, dir: thisMonth >= lastMonth ? "up" : "down", good: true, href: "/historique" },
-        { label: "Comptes rendus disponibles", value: 12, ring: 100, ringText: "Tous les comptes rendus des analyses clôturées sont disponibles (démonstration)", delta: "Tous à jour", dir: "flat", tone: "navy", href: "/historique" },
-        { label: "Consultées sur 30 jours", value: 21, ring: 58, ringText: "21 consultations sur 36 analyses clôturées (démonstration)", delta: "+5 vs 30 jours précédents", dir: "up" },
-        { label: "Détections relues", value: "74 %", ring: 74, ringText: "74 % des détections ont été relues par un praticien (démonstration)", delta: "Moyenne du cabinet", dir: "flat" },
+        kpiMonth,
+        { label: "Comptes rendus disponibles", value: an ? an.closed : "—", ring: null, ringText: an ? `${an.closed} analyses clôturées, chacune avec son compte rendu` : reading, delta: an ? `${an.toReview} en relecture` : undefined, dir: "flat", tone: "navy", href: "/historique" },
+        { label: "Comptes rendus téléchargés", value: rep ? rep.last30 : "—", ring: null, ringText: rep ? `${rep.last30} comptes rendus téléchargés en 30 jours` : reading, delta: rep ? periodDelta(rep.last30, rep.previous30) : undefined, dir: !rep || rep.last30 === rep.previous30 ? "flat" : rep.last30 > rep.previous30 ? "up" : "down" },
+        { ...kpiReviewed, tone: undefined },
       ],
       line: { title: "Analyses par mois", sub: "Analyses déposées par les praticiens", real: true, series: lineSeries, summary: lineSummary },
-      gauge: { title: "Détections relues", sub: "Part des détections relues par un praticien", value: 74, caption: "Moyenne du cabinet sur 12 mois.", icon: "check" },
-      prog: { title: "Détections par type", sub: "Répartition sur 12 mois (73 détections)", items: TYPES_ITEMS },
-      bars: { title: "Comptes rendus par semaine", sub: "Comptes rendus générés, 12 dernières semaines", name: "Comptes rendus", trendName: "Moyenne sur 3 semaines", values: [2, 3, 1, 4, 3, 4, 2, 3, 3, 5, 3, 2], labels: WEEKS, summary: "Entre 1 et 5 comptes rendus par semaine, 2 cette semaine." },
+      gauge: { ...gauge, sub: "Part des détections relues par un praticien, cabinet, 12 mois" },
+      prog,
+      bars: { title: "Comptes rendus par semaine", sub: "Comptes rendus téléchargés, 12 dernières semaines", ...weekBars("reports", "Comptes rendus", "compte rendu", "comptes rendus") },
     };
   }
-  const pending = (analyses ?? []).length;
   return {
     hello: `Bonjour, ${name}`,
     lead: "Voici votre activité de relecture. Le modèle propose, vous décidez.",
     cta: true,
     kpis: [
-      { label: "Analyses ce mois-ci", value: thisMonth, ring: Math.round((thisMonth / maxMonth) * 100), ringText: `${thisMonth} analyses, pour un maximum de ${maxMonth} en un mois sur l’année`, delta, dir: thisMonth >= lastMonth ? "up" : "down", good: true, href: "/historique" },
-      { label: "À relire", value: pending, ring: pending ? Math.min(100, Math.round((pending / Math.max(1, (analyses ?? []).length)) * 100)) : 0, ringText: `${pending} analyses à relire`, delta: "Analyses déposées", dir: "flat", tone: "warning", href: "/historique" },
-      { label: "Détections relues", value: 54, ring: 74, ringText: "54 détections relues sur 73 (démonstration)", delta: "+9 cette semaine", dir: "up", good: true, tone: "navy" },
-      { label: "Durée moyenne de relecture", value: "6 min 40", ring: 67, ringText: "6 min 40 par analyse sur 30 jours (démonstration)", delta: "−1 min vs mois dernier", dir: "down", good: true },
+      kpiMonth,
+      { label: "À relire", value: an ? an.toReview : "—", ring: an ? Math.round((an.toReview / Math.max(1, an.toReview + an.closed)) * 100) : null, ringText: an ? `${an.toReview} analyses terminées à relire, ${an.closed} clôturées` : reading, delta: an ? (an.inProgress ? `${an.inProgress} en cours de traitement` : "Aucune en traitement") : undefined, dir: "flat", tone: "warning", href: "/historique" },
+      kpiReviewed,
+      { label: "Délai moyen avant clôture", value: act ? formatDuration(act.meanCloseSeconds) : "—", ring: null, ringText: act ? (act.meanCloseSeconds == null ? "Aucune analyse clôturée sur 30 jours" : `${formatDuration(act.meanCloseSeconds)} en moyenne entre la fin du traitement et la clôture, sur 30 jours`) : reading, delta: "Fin du traitement → clôture, 30 jours", dir: "flat" },
     ],
     line: { title: "Analyses par mois", sub: "Analyses que vous avez lancées", real: true, series: lineSeries, summary: lineSummary },
-    gauge: { title: "Détections relues", sub: "Part des détections sur lesquelles vous avez décidé", value: 74, caption: "54 détections relues sur 73 ; les 19 autres attendent votre décision.", icon: "check" },
-    prog: { title: "Détections par type", sub: "Répartition sur 12 mois (73 détections)", items: TYPES_ITEMS },
-    bars: { title: "Analyses relues par semaine", sub: "Relectures terminées, 12 dernières semaines", name: "Analyses relues", trendName: "Moyenne sur 3 semaines", values: [3, 4, 2, 5, 4, 6, 3, 5, 4, 7, 5, 4], labels: WEEKS, summary: "Entre 2 et 7 relectures par semaine, 4 cette semaine." },
+    gauge: { ...gauge, sub: "Part des détections sur lesquelles vous avez décidé, 12 mois" },
+    prog,
+    bars: { title: "Analyses clôturées par semaine", sub: "Vos clôtures, 12 dernières semaines", ...weekBars("closed", "Analyses clôturées", "analyse clôturée", "analyses clôturées") },
   };
 }
 
@@ -247,6 +280,7 @@ export function TableauDeBordPage() {
   const indicatorsRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchAdminIndicators : noData);
   const storageRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchStorage : noData);
   const sensitiveRes = useAsyncResource(can(Permission.USER_MANAGE) ? fetchSensitive : noData);
+  const activityRes = useAsyncResource(profile !== "admin" && can(Permission.ANALYSIS_READ) ? fetchActivity : noData);
   const [period, setPeriod] = useState(12);
   const [query, setQuery] = useState("");
 
@@ -258,8 +292,9 @@ export function TableauDeBordPage() {
         users: usersRes.data,
         indicators: indicatorsRes.data,
         storage: storageRes.data,
+        activity: activityRes.data,
       }),
-    [profile, user, analysesRes.data, usersRes.data, indicatorsRes.data, storageRes.data],
+    [profile, user, analysesRes.data, usersRes.data, indicatorsRes.data, storageRes.data, activityRes.data],
   );
   const recent = analysesRes.data ?? [];
   const sl = (a) => a.slice(a.length - period);

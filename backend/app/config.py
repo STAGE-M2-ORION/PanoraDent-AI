@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # Verrouillage temporaire après N échecs consécutifs.
     echecs_avant_verrouillage: int = 5
     duree_verrouillage_minutes: int = 15
+    # Limitation de débit, par adresse du poste et par minute (0 : désactivée).
+    # Connexion et liens reçus par e-mail ; mot de passe oublié ; toute l'API.
+    limite_connexion_minute: int = 10
+    limite_oubli_minute: int = 5
+    limite_api_minute: int = 600
 
     # --- E-mails -----------------------------------------------------------
     # `console` : affichés dans les journaux du conteneur (développement) ;
@@ -133,6 +138,8 @@ class Settings(BaseSettings):
                 raise ValueError("ASSISTANT_FOURNISSEUR=factice est refusé quand APP_ENV=production.")
             if self.bcrypt_cout < 12:
                 raise ValueError("BCRYPT_COUT doit valoir au moins 12 quand APP_ENV=production.")
+            if min(self.limite_connexion_minute, self.limite_oubli_minute, self.limite_api_minute) <= 0:
+                raise ValueError("La limitation de débit (LIMITE_*_MINUTE) ne peut pas être coupée quand APP_ENV=production.")
             if mode != "smtp":
                 raise ValueError(
                     "COURRIEL_MODE=smtp est obligatoire quand APP_ENV=production : "

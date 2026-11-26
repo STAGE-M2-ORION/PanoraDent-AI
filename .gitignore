@@ -28,6 +28,8 @@ inference/weights/*/
 training/*.pt
 /*.pt
 data/
+# Sauvegardes : données de santé, jamais dans le dépôt.
+sauvegardes/
 *.dcm
 runs/
 .venv-train/
@@ -37,3 +39,5 @@ runs/
 
 # Logs des services lances en local
 .*.log
+# Paquets modèle (poids) : jamais dans le dépôt.
+paquets-modeles/

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.formparsers import MultiPartParser
 
-from . import auth_models, errors  # noqa: F401  (auth_models enregistre les tables)
+from . import auth_models, errors, securite  # noqa: F401  (auth_models enregistre les tables)
 from .auth_deps import publique
 from .config import settings
 from .routers import (
@@ -28,21 +28,36 @@ app = FastAPI(
 )
 
 
+# Corps sans fichier (JSON) : une conclusion, une question, des réglages.
+CORPS_JSON_MAX = 1024 * 1024
+
+
 @app.middleware("http")
 async def refuser_les_envois_trop_gros(request, call_next):
-    """Refuse d'emblée (413) un import plus gros que permis, d'après la taille
-    annoncée, AVANT de lire le corps : un fichier refusé n'est donc jamais
-    déversé sur le disque non plus. (nginx borne aussi la taille en amont.)"""
-    if request.method == "POST" and request.url.path.startswith(f"{API_V1}/analyses"):
+    """Refuse d'emblée (413) un corps plus gros que permis, d'après la taille
+    annoncée, AVANT de le lire : un fichier refusé n'est donc jamais déversé
+    sur le disque non plus. Fichiers (multipart) : 20 Mo et le formulaire ;
+    JSON : 1 Mo. Chaque route revérifie la taille de son fichier (logo 1 Mo,
+    photo 2 Mo) ; nginx borne aussi la taille en amont, envois découpés compris."""
+    if request.method in ("POST", "PUT", "PATCH") and request.url.path.startswith(f"{API_V1}/"):
         try:
             taille = int(request.headers.get("content-length") or 0)
         except ValueError:
             taille = 0
-        if taille > CORPS_MAX:
+        fichier = request.headers.get("content-type", "").startswith("multipart/")
+        if taille > (CORPS_MAX if fichier else CORPS_JSON_MAX):
             return JSONResponse(
-                {"code": "fichier_trop_volumineux", "message": "Le fichier dépasse 20 Mo."}, status_code=413
+                {"code": "fichier_trop_volumineux", "message": "Le fichier dépasse 20 Mo."} if fichier
+                else {"code": "requete_trop_volumineuse", "message": "La requête dépasse 1 Mo."},
+                status_code=413,
             )
     return await call_next(request)
+
+
+# Ordre d'exécution : en-têtes (le plus extérieur, sur toute réponse, refus
+# compris), puis limitation de débit, puis taille des corps.
+app.middleware("http")(securite.limiter_le_debit)
+app.middleware("http")(securite.poser_les_entetes)
 
 app.add_middleware(
     CORSMiddleware,

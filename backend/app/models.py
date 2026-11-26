@@ -448,3 +448,18 @@ class Message(Base):
     cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class VueHistorique(Base):
+    """Vue enregistrée de l'historique (sprint 12) : un jeu de filtres nommé,
+    propre à son auteur. Elle ne donne accès à rien : les droits restent
+    vérifiés à chaque lecture de l'historique."""
+    __tablename__ = "vues_historique"
+    __table_args__ = (UniqueConstraint("utilisateur_id", "nom", name="uq_vues_historique_auteur_nom"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    utilisateur_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("utilisateur.id", ondelete="CASCADE"),
+                                                      index=True)
+    nom: Mapped[str] = mapped_column(String(80))
+    filtres: Mapped[dict] = mapped_column(JSON, default=dict)
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

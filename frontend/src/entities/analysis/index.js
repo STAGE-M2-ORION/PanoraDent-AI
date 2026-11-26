@@ -9,8 +9,11 @@ export {
   fetchAnalysisImageUrl,
   fetchAnalysisStatus,
   fetchAnalysisTimeline,
+  deleteHistoryView,
   fetchHistory,
   fetchHistoryCsv,
+  fetchHistoryViews,
+  saveHistoryView,
   fetchComparison,
   launchAnalysis,
   postVerdict,
@@ -36,5 +39,8 @@ export {
   withNumbers,
 } from "./model/analysis";
 export { canReplay, normalizeComparison } from "./model/comparison";
-export { EMPTY_HISTORY_FILTERS, historyParams, normalizeHistoryPage, normalizeTimeline, periodBounds } from "./model/history";
+export {
+  EMPTY_HISTORY_FILTERS, FDI_QUADRANTS, SORT_FIELDS, filtersToQuery, filtersToView, formatSort, historyParams, normalizeHistoryPage,
+  normalizeTimeline, normalizeView, parseSort, periodBounds, queryToFilters, viewToFilters,
+} from "./model/history";
 export { POLL_MS, useAnalysisProgress } from "./model/use-analysis-progress";

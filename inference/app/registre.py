@@ -45,6 +45,10 @@ class ModeleIllisible(ErreurModele):
     statut, code = 500, "modele_illisible"
 
 
+class AucuneVersionActive(ErreurModele):
+    statut, code = 503, "aucune_version_active"
+
+
 @dataclass
 class Paire:
     version: str
@@ -166,6 +170,14 @@ class Registre:
                     f"Le modèle « {role} » de la version {version} est illisible : {exc}") from exc
         return Paire(version, modeles["dents"], modeles["anomalies"], empreintes,
                      {role: taille_d_entrainement(m) for role, m in modeles.items()})
+
+    def installees(self) -> list[str]:
+        """Versions dont les DEUX fichiers sont présents dans le dossier des poids."""
+        if not self.dossier.is_dir():
+            return []
+        return sorted(d.name for d in self.dossier.iterdir()
+                      if d.is_dir() and VERSION_VALIDE.match(d.name)
+                      and all((d / f"{role}.pt").is_file() for role in ROLES))
 
     def chargees(self) -> list[str]:
         with self._verrou:

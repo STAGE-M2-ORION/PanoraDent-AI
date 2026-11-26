@@ -32,6 +32,10 @@ x-backend-env: &backend-env
   ADMIN_EMAIL: ${ADMIN_EMAIL:-}
   # Coût bcrypt (12 minimum en production).
   BCRYPT_COUT: ${BCRYPT_COUT:-12}
+  # Limitation de débit par poste et par minute (jamais 0 en production).
+  LIMITE_CONNEXION_MINUTE: ${LIMITE_CONNEXION_MINUTE:-10}
+  LIMITE_OUBLI_MINUTE: ${LIMITE_OUBLI_MINUTE:-5}
+  LIMITE_API_MINUTE: ${LIMITE_API_MINUTE:-600}
   # E-mails (liens de première connexion et de réinitialisation) :
   # `console` = affichés dans `docker compose logs backend` ; `smtp` = envoyés.
   COURRIEL_MODE: ${COURRIEL_MODE:-console}

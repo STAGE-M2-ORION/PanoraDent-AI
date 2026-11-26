@@ -29,6 +29,7 @@ _CODES = {
     405: "methode_non_autorisee",
     409: "conflit",
     413: "fichier_trop_volumineux",
+    429: "trop_de_requetes",
     422: "champ_invalide",
 }
 

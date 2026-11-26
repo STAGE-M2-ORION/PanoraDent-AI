@@ -23,6 +23,10 @@ inférence → persistance → rapport PDF) dès le premier jour.
 | **Prérequis** | Docker + Docker Compose v2, ~4 Go de disque. Aucun GPU requis |
 | **Démarrage** | `cp .env.example .env && docker compose up --build` |
 
+**Installer au cabinet** : [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md), de la
+machine nue à la première analyse. **Exploiter** (supervision, sauvegardes et
+restauration, comptes, modèles, incidents) : [docs/EXPLOITATION.md](docs/EXPLOITATION.md).
+
 **Documentation** : [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) est la
 **référence complète de la plateforme** — périmètre, exigences du PRD confrontées
 à l'implémentation, méthodologie de validation, conformité, matrice de
@@ -1147,11 +1151,12 @@ Cette configuration vise le **développement local** :
 - [x] HTTPS : Caddy devant nginx, autorité interne, en-têtes de sécurité — voir [HTTPS au cabinet](#https-au-cabinet).
 - [x] Connexion par mot de passe (bcrypt, verrouillage, liens à usage unique) et par Google, contrôle d'accès par permissions — voir plus haut.
 - [x] Jetons en cookies `httpOnly; Secure; SameSite=Lax`.
-- [x] Journal des connexions, refus, verrouillages, liens et changements de mot de passe (table `journal`) ; l'écran viendra plus tard.
+- [x] Journal des connexions, refus, verrouillages, liens et changements de mot de passe (table `journal`), consultable dans Administration › Journal d'audit.
 - [ ] 2FA (travaux futurs).
 - [x] Masquer les inscriptions incrustées dans les pixels (à valider sur de vrais clichés).
 - [ ] Héberger dans l'UE (RGPD), chiffrement au repos côté S3.
-- [ ] Journalisation d'audit, rétention, sauvegardes.
+- [x] Journal d'audit (écran, rétention, purge bornée), sauvegardes et restauration vérifiée — voir [EXPLOITATION](docs/EXPLOITATION.md#sauvegardes-et-restauration).
+- [x] Limitation de débit par poste, en-têtes de sécurité de l'API, bornes de taille des envois.
 - [ ] Épingler les images de base (`pgsty/minio:latest` n'est pas reproductible).
 
 ### HTTPS au cabinet
@@ -1284,7 +1289,14 @@ mode réel emprunte la déduction géométrique.
 
 ```bash
 make up / up-gpu / logs / migrate / test / down / clean
+make sauvegarder / restaurer SAUVEGARDE=… / demo
+make modele-exporter VERSION=… / modele-installer PAQUET=…
 ```
+
+Sous Windows sans `make` : `bash scripts/sauvegarder.sh`, `bash scripts/restaurer.sh <dossier>`,
+`bash scripts/demo.sh`, `bash scripts/modele.sh exporter|installer …`. En production,
+`export COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"` d'abord
+(voir [DEPLOIEMENT](docs/DEPLOIEMENT.md)).
 
 Équivalents directs, utiles sous Windows sans `make` :
 

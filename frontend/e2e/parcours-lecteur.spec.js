@@ -66,7 +66,7 @@ test.describe.serial("le rôle lecteur consulte, en lecture seule", () => {
     await signInWithGoogle(page, LECTEUR, /\/tableau-de-bord/);
     await page.goto("/historique");
     await expect(page.getByText("Accès en lecture seule")).toBeVisible();
-    await page.getByLabel("Référence anonyme ou n° d’analyse").fill(reference);
+    await page.getByLabel("Référence, n°, note ou conclusion").fill(reference);
     const ligne = page.locator("tbody tr");
     await expect(ligne).toHaveCount(1, { timeout: 30_000 });
     await expect(ligne.getByRole("button", { name: /Supprimer/ })).toHaveCount(0);

@@ -37,7 +37,7 @@ test("historique : recherche, fiche, filtres, pagination et export CSV", async (
   await expect(lignes.first()).toBeVisible({ timeout: 30_000 });
 
   // Recherche par référence : une seule ligne, servie par le serveur.
-  await page.getByLabel("Référence anonyme ou n° d’analyse").fill(reference);
+  await page.getByLabel("Référence, n°, note ou conclusion").fill(reference);
   await expect(lignes).toHaveCount(1);
   await expect(lignes.first()).toContainText(reference);
   await expect(page.getByTestId("pagination")).toContainText("1–1 sur 1 analyse");
@@ -69,7 +69,7 @@ test("historique : recherche, fiche, filtres, pagination et export CSV", async (
   }
 
   // Export CSV des analyses filtrées.
-  await page.getByLabel("Référence anonyme ou n° d’analyse").fill(reference);
+  await page.getByLabel("Référence, n°, note ou conclusion").fill(reference);
   await expect(lignes).toHaveCount(1);
   const telechargement = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exporter (CSV)" }).click();

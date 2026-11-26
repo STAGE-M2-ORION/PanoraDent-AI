@@ -50,6 +50,11 @@ services:
       ASSISTANT_SEUIL: "0.2"
       # Réponse au fil de l'eau assez lente pour qu'on puisse l'arrêter (sprint 10).
       ASSISTANT_DELAI_FACTICE: "0.15"
+      # Limitation de débit gardée, à l'échelle d'une suite qui passe toute par
+      # la même adresse (le relais nginx) : dix fois les limites de service.
+      LIMITE_CONNEXION_MINUTE: "100"
+      LIMITE_OUBLI_MINUTE: "50"
+      LIMITE_API_MINUTE: "6000"
 
   # Le worker indexe les documents : même vectoriseur factice que le backend.
   worker:

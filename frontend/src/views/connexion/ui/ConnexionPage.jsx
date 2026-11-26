@@ -70,6 +70,9 @@ export function passwordLoginNotice(error) {
       return { tone: "danger", code: e.serverCode, title: "Compte verrouillé temporairement", text: e.message };
     case "compte_desactive":
       return { tone: "danger", code: e.serverCode, title: "Compte désactivé", text: e.message };
+    case "trop_de_requetes":
+      // Limite par poste (sprint 12) : le délai d'attente vient du serveur.
+      return { tone: "warning", code: e.serverCode, title: "Trop de tentatives depuis ce poste", text: e.message };
     default:
       return {
         retry: true,

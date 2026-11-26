@@ -19,6 +19,11 @@ describe("écran de connexion : refus du formulaire", () => {
     expect(notice.text).toMatch(/15 minutes/);
   });
 
+  it("trop de tentatives depuis ce poste : délai donné par le serveur", () => {
+    const notice = passwordLoginNotice(refus(429, "trop_de_requetes", "Trop de demandes : réessayez dans 42 s."));
+    expect(notice).toMatchObject({ tone: "warning", title: "Trop de tentatives depuis ce poste", text: "Trop de demandes : réessayez dans 42 s." });
+  });
+
   it("compte désactivé", () => {
     expect(passwordLoginNotice(refus(403, "compte_desactive", "Ce compte est désactivé.")).title).toBe("Compte désactivé");
   });

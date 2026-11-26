@@ -31,6 +31,9 @@ SANS_PERMISSION = {
     ("DELETE", "/api/v1/moi/sessions/{session_id}"),
     ("PUT", "/api/v1/moi/photo"), ("DELETE", "/api/v1/moi/photo"), ("GET", "/api/v1/photos/{utilisateur_id}"),
     ("GET", "/api/v1/cabinet"), ("GET", "/api/v1/cabinet/logo"),
+    # Vues enregistrées de l'historique (sprint 12) : réglage personnel, comme les préférences.
+    ("GET", "/api/v1/moi/vues-historique"), ("POST", "/api/v1/moi/vues-historique"),
+    ("DELETE", "/api/v1/moi/vues-historique/{vue_id}"),
 }
 
 
