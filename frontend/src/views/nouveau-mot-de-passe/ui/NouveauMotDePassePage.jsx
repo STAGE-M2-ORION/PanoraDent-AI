@@ -1,5 +1,6 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
 
 import { homePathFor, resetPassword, useCurrentUser } from "@/entities/session";
 import { LinkPasswordForm } from "@/features/set-password";
@@ -14,6 +15,11 @@ export function NouveauMotDePassePage() {
   const router = useRouter();
   const { reload } = useCurrentUser();
   const token = typeof router.query.jeton === "string" ? router.query.jeton : "";
+  // Export statique : à la compilation, `isReady` est faux ; dans le navigateur,
+  // sans `?jeton=`, il est vrai dès le premier rendu. Les deux premiers rendus
+  // différaient (erreur d'hydratation React #418) : on attend d'être monté.
+  const [monte, setMonte] = useState(false);
+  useEffect(() => setMonte(true), []);
 
   return (
     <AuthCard docTitle="Nouveau mot de passe">
@@ -24,7 +30,7 @@ export function NouveauMotDePassePage() {
       <div className="panel-v">
         <h1>Nouveau mot de passe</h1>
         <p className="sous">Choisissez le mot de passe que vous utiliserez désormais. Vos autres sessions ouvertes seront fermées.</p>
-        {router.isReady ? (
+        {monte && router.isReady ? (
           <LinkPasswordForm
             key={token}
             token={token}
