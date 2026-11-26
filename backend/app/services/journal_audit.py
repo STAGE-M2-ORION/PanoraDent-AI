@@ -37,6 +37,7 @@ ACTIONS = {
     "verrouillage": ("Compte verrouillé après des échecs de connexion", "Connexions et sécurité"),
     "modele_installe": ("Version de modèle installée depuis un paquet", "Modèles"),
     "restauration": ("Base restaurée depuis une sauvegarde", "Paramètres et exports"),
+    "notifications_envoyees": ("Notifications envoyées par e-mail", "Analyses"),
     "jeu_demo_charge": ("Jeu de démonstration chargé", "Paramètres et exports"),
     "limite_depassee": ("Trop de demandes depuis un poste : demandes refusées une minute", "Connexions et sécurité"),
     "rattachement_google": ("Compte Google rattaché", "Connexions et sécurité"),
@@ -154,6 +155,9 @@ def _precision(action: str, d: dict) -> str | None:
         if action == "document_indexe":
             return f"« {d['titre']} » · {d.get('passages', 0)} passages"
         return f"« {d['titre']} »"
+    if action == "notifications_envoyees" and d.get("references"):
+        n = d.get("nombre", len(d["references"]))
+        return f"{n} notification{'s' if n > 1 else ''} : {', '.join(str(r) for r in d['references'])}"
     if action == "document_reindexation" and "documents" in d:
         return f"{d['documents']} document{'s' if d['documents'] > 1 else ''}"
     if action == "retention_journal" and "apres" in d:

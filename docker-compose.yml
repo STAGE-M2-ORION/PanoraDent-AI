@@ -36,6 +36,10 @@ x-backend-env: &backend-env
   LIMITE_CONNEXION_MINUTE: ${LIMITE_CONNEXION_MINUTE:-10}
   LIMITE_OUBLI_MINUTE: ${LIMITE_OUBLI_MINUTE:-5}
   LIMITE_API_MINUTE: ${LIMITE_API_MINUTE:-600}
+  # E-mails de notification (sprint 13) : délai de grâce (lue dans l'application
+  # avant, elle ne part pas) et intervalle minimal entre deux e-mails, en secondes.
+  NOTIF_COURRIEL_GRACE_S: ${NOTIF_COURRIEL_GRACE_S:-120}
+  NOTIF_COURRIEL_INTERVALLE_S: ${NOTIF_COURRIEL_INTERVALLE_S:-300}
   # E-mails (liens de première connexion et de réinitialisation) :
   # `console` = affichés dans `docker compose logs backend` ; `smtp` = envoyés.
   COURRIEL_MODE: ${COURRIEL_MODE:-console}

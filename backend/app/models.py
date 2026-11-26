@@ -491,3 +491,6 @@ class Notification(Base):
     reference: Mapped[str | None] = mapped_column(String(40), nullable=True)
     cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     lue_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # E-mail : None tant que rien n'est décidé (voir services/courriels_notifications.py).
+    courriel_statut: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    courriel_le: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..auth_models import Utilisateur
 from ..models import Analysis, Notification, TypeNotification
-from . import diffusion, revue
+from . import courriels_notifications, diffusion, revue
 
 MOTIF_MAX = 200
 LIMITE_MAX = 50
@@ -67,7 +67,7 @@ def notifier(db: Session, destinataire_id: uuid.UUID | None, type_: str, analyse
         id=str(uuid.uuid4()), utilisateur_id=destinataire_id, type=type_,
         titre=TITRES[type_].format(reference=analyse.reference or "sans référence"),
         message=_message(type_, analyse, motif), analyse_id=analyse.id, reference=analyse.reference,
-        cree_le=datetime.utcnow(),
+        cree_le=datetime.utcnow(), courriel_statut=courriels_notifications.statut_initial(type_),
     )
     db.add(n)
     # Temps réel (lot B) : annoncée au commit de cette même transaction.

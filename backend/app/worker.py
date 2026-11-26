@@ -34,13 +34,14 @@ from . import journal
 from .config import settings
 from .database import SessionLocal
 from .models import Analysis, Detection, StatutAnalyse, TypeNotification
-from .services import indexation, inference_client, notifications, registre_modeles, storage
+from .services import courriels_notifications, indexation, inference_client, notifications, registre_modeles, storage
 
 logger = logging.getLogger("panoradent.worker")
 
 SEUIL_ENREGISTREMENT = 0.10   # tout ce qui est au-dessus est gardé ; l'écran filtre
 REPRISE_APRES = timedelta(minutes=10)
 ATTENTE_VIDE = 1.0            # secondes entre deux regards sur une file vide
+COURRIELS_TOUTES_LES_S = 10   # e-mails de notification en attente (sprint 13)
 
 
 class EchecAnalyse(Exception):
@@ -241,10 +242,16 @@ def main() -> None:
             time.sleep(3)
 
     logger.info("Worker prêt.")
+    prochain_courriel = 0.0
     while not arret["demande"]:
         try:
             if not traiter_une():
                 time.sleep(ATTENTE_VIDE)
+            # E-mails de notification (sprint 13), entre deux tâches.
+            if time.monotonic() >= prochain_courriel:
+                prochain_courriel = time.monotonic() + COURRIELS_TOUTES_LES_S
+                with SessionLocal() as db:
+                    courriels_notifications.envoyer_en_attente(db)
         except Exception:  # noqa: BLE001
             logger.exception("Erreur de la boucle du worker")
             time.sleep(3)

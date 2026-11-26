@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "change-me-in-prod"
@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     limite_connexion_minute: int = 10
     limite_oubli_minute: int = 5
     limite_api_minute: int = 600
+
+    # --- E-mails de notification (sprint 13) ---------------------------------
+    # Délai de grâce : lue dans l'application avant, la notification ne part
+    # pas par e-mail. Intervalle : au plus un e-mail par destinataire.
+    notif_courriel_grace_s: int = Field(default=120, ge=0)
+    notif_courriel_intervalle_s: int = Field(default=300, ge=0)
 
     # --- E-mails -----------------------------------------------------------
     # `console` : affichés dans les journaux du conteneur (développement) ;

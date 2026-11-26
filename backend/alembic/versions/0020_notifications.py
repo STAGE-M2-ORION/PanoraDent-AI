@@ -3,7 +3,9 @@
 Une ligne par notification et par destinataire, conservée en base : celles
 reçues hors connexion attendent l'ouverture de la session. Index sur
 (destinataire, date) : le panneau lit les plus récentes, et compte les non
-lues, d'un seul utilisateur à la fois.
+lues, d'un seul utilisateur à la fois. L'état de l'e-mail (envoyé, inutile
+car déjà lue, refusé par la préférence…) est gardé sur la ligne : chaque
+notification donne lieu à au plus un e-mail.
 
 Revision ID: 0020
 Revises: 0019
@@ -30,6 +32,10 @@ def upgrade():
         sa.Column("reference", sa.String(40), nullable=True),
         sa.Column("cree_le", sa.DateTime(), nullable=False),
         sa.Column("lue_le", sa.DateTime(), nullable=True),
+        # E-mail (lot C) : NULL tant que la décision n'est pas prise ; sinon
+        # envoye, lue_avant, refuse (préférence), sans_objet, echec.
+        sa.Column("courriel_statut", sa.String(16), nullable=True),
+        sa.Column("courriel_le", sa.DateTime(), nullable=True),
     )
     op.create_index("ix_notifications_destinataire_date", "notifications", ["utilisateur_id", "cree_le"])
 
