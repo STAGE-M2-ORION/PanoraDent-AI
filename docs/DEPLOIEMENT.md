@@ -241,7 +241,9 @@ certificat sur tous les postes.
    comptes rendus).
 5. **Administration › Comptes** : créez les comptes (praticiens, lecteurs).
    Chacun reçoit son lien par e-mail. Le mot de passe n'est jamais choisi par
-   l'administrateur.
+   l'administrateur. Un confrère peut aussi **demander un accès** depuis la
+   vitrine (`https://panoradent.cabinet.lan/decouvrir`) : la demande arrive dans
+   Administration › Demandes d'accès, et vous l'acceptez ou la refusez.
 6. **Administration › Supervision** : tous les services au vert.
 
 **Ne lancez pas `make demo` en production** : il est refusé, et des comptes ou

@@ -170,24 +170,21 @@ la connexion restent en clair.
 
 ## Données réelles et données de démonstration
 
-Les écrans utilisent **l'API réelle** partout où elle existe : session, comptes,
-rôles et permissions, analyses (création, liste, détail, image), génération du
-PDF, versions du modèle, état des services.
+Depuis le sprint 12, **tous les écrans de l'application lisent l'API réelle** :
+analyses, relecture et clôture, comptes rendus, historique, tableau de bord,
+performance du modèle, assistant documentaire, administration (comptes, rôles,
+demandes d'accès, journal, modèles, cabinet, base documentaire, supervision),
+notifications. Sans données, un écran affiche des zéros ou « — », jamais une
+valeur d'exemple.
 
-Le backend n'expose pas encore certaines fonctions de la maquette. Leurs écrans
-restent identiques, mais :
+Les données de démonstration ([`shared/demo`](src/shared/demo/)) ne servent plus
+qu'à trois endroits, qui ne prétendent rien :
 
-| Fonction | Comportement actuel |
+| Où | Pourquoi |
 |---|---|
-| Journal d'audit, incidents, disponibilité | données de démonstration ([`shared/demo`](src/shared/demo/)), bandeau ou mention « données fictives » |
-| Indicateurs non mesurés (temps de relecture, connexions…) | données de démonstration, mention « données fictives » sur la carte |
-| Notifications de la cloche | données de démonstration |
-| Relecture des détections (valider, corriger, ajouter, supprimer), clôture | **locale à la session** : aucune route `PATCH` côté serveur (signalé à l'écran) |
-| Suppression d'analyse, demande d'accès | appel envoyé ; en 404, l'écran dit que la fonction n'est pas encore disponible |
-| Assistant | réponses de démonstration sur `/analyse` sans `id` ; « indisponible » sur une vraie analyse |
-
-Tout ce qui est fictif passe par `shared/demo` : le jour où une route existe,
-l'entité concernée appelle l'API et la démonstration recule, sans toucher aux écrans.
+| Vitrine publique (`/decouvrir`) | Illustration de la lecture d'une panoramique |
+| Catalogue du design system (`/design-system`) | Rendre les composants sans appeler l'API |
+| `/analyse` ouvert **sans** analyse | Découvrir le poste de lecture ; un badge « Démonstration » et la mention « données fictives » le signalent |
 
 ## Conventions
 
