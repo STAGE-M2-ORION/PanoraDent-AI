@@ -94,11 +94,18 @@ def _boites(modele, image, garder, imgsz: int | None = None) -> list[dict]:
     `imgsz` (taille d'entraînement du modèle) redimensionne en letterbox pour
     l'inférence ; ultralytics remet les boîtes à l'échelle de l'image
     d'origine. `garder(label)` filtre les classes.
+
+    Modèle des rangs (`dent_1` … `dent_8`) : une dent, un cadre. YOLO ne
+    supprime les cadres superposés qu'à l'intérieur d'une classe ; une dent
+    hésitante entre deux rangs recevait deux cadres (doublons). Ils sont
+    supprimés toutes classes confondues (choisi sur la validation : 89,0 % →
+    92,3 % de dents bien numérotées, doublons 410 → 178).
     """
     noms = noms_des_classes(modele)
+    rangs = any(classe_et_rang(n)[1] is not None for n in noms)
     dets = []
     for r in modele.predict(image, imgsz=imgsz or config.MODEL_IMAGE_SIZE,
-                            conf=config.MODEL_CONF_THRESHOLD, verbose=False):
+                            conf=config.MODEL_CONF_THRESHOLD, agnostic_nms=rangs, verbose=False):
         for box in r.boxes:
             cls_id = int(box.cls[0])
             nom = noms[cls_id] if cls_id < len(noms) else str(cls_id)
