@@ -34,7 +34,7 @@ class FauxYolo:
         self.overrides = {"imgsz": imgsz} if imgsz else {}
         self.tailles = []
 
-    def predict(self, image, imgsz, conf, verbose):
+    def predict(self, image, imgsz, conf, verbose, agnostic_nms=False):
         self.tailles.append(imgsz)
         return [type("R", (), {"boxes": self._boites})()]
 

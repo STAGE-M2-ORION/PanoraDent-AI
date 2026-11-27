@@ -103,7 +103,7 @@ class ModeleFactice:
         self.chemin = chemin
         self.overrides = {}
 
-    def predict(self, image, imgsz, conf, verbose):
+    def predict(self, image, imgsz, conf, verbose, agnostic_nms=False):
         from .model import _mock_detections
 
         largeur, hauteur = image.size

@@ -145,7 +145,7 @@ def test_paire_avec_modele_rangs_ou_ancien_modele_dents(ancien):
         def __init__(self, names, boites):
             self.names, self.overrides, self._b = names, {}, boites
 
-        def predict(self, image, imgsz, conf, verbose):
+        def predict(self, image, imgsz, conf, verbose, agnostic_nms=False):
             return [type("R", (), {"boxes": self._b})()]
 
     # 16 et 15 à gauche de la médiane, 25 à droite ; une 15 manquante ne doit rien décaler.
@@ -176,3 +176,22 @@ def test_mock_relie_les_anomalies_a_leur_dent_et_donne_les_rangs():
     for a in anomalies:
         hote = dets[a["dent"]]
         assert hote["label"] == "tooth" and hote["fdi"] == a["fdi"] and hote["bbox"] == a["bbox"]
+
+
+def test_rangs_un_cadre_par_dent_toutes_classes_confondues():
+    """Modèle des rangs : suppression des cadres superposés toutes classes
+    confondues (une dent hésitante entre deux rangs ne reçoit qu'un cadre).
+    Modèle des anomalies : jamais (carie et carie profonde peuvent se recouvrir)."""
+    appels = []
+
+    class Espion:
+        def __init__(self, noms):
+            self.names = dict(enumerate(noms))
+
+        def predict(self, image, imgsz, conf, verbose, agnostic_nms=False):
+            appels.append(agnostic_nms)
+            return [type("R", (), {"boxes": []})()]
+
+    model._boites(Espion([f"dent_{i}" for i in range(1, 9)]), None, lambda label: True)
+    model._boites(Espion(list(config.CLASSES)), None, lambda label: True)
+    assert appels == [True, False]

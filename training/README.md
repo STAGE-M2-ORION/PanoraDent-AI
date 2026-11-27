@@ -223,6 +223,16 @@ cliché). Le test est refusé. `publish_model.py` publie ces seuils avec la
 paire ; l'application n'exige alors de verdict que sur les anomalies
 au-dessus du seuil de leur classe (DOCUMENTATION §10.8).
 
+**Numérotation du modèle des rangs** (`mesure_numerotation.py`) : à mesurer
+dans les conditions du service, confiance 0,10 et cadres superposés supprimés
+toutes classes confondues (le service le fait pour un modèle à rangs : une
+dent, un cadre). Sur la validation, avec `rangs-v1` : 92,3 % de dents bien
+numérotées au lieu de 89,0 %, deux fois moins de doublons.
+
+```powershell
+training\.venv\Scripts\python training\mesure_numerotation.py --modele runsangs-v1\weightsest.pt --split val --conf 0.10 --nms-agnostique --device 0
+```
+
 ### 6. Publier la paire
 
 ```powershell
