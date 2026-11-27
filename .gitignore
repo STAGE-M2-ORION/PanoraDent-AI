@@ -28,6 +28,9 @@ inference/weights/*/
 training/*.pt
 /*.pt
 data/
+# Archive PanoraDent téléchargée (600 Mo), extraite sous data/panoradent-source/
+/PanoraDent an annotated dental panoramic radiograp/
+/PanoraDent*.zip
 # Sauvegardes : données de santé, jamais dans le dépôt.
 sauvegardes/
 *.dcm

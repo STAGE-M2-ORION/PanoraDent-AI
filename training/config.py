@@ -54,6 +54,16 @@ CLASSES_RANGS: list[str] = list(_inference_config().CLASSES_RANGS)
 #: Listes de classes admises pour un jeu : celle du contrat, ou celle des rangs.
 LISTES_ADMISES = (CLASSES, CLASSES_RANGS)
 
+#: Essais PanoraDent (voir training/class_mapping.md). Hors contrat du service :
+#: entraînables et évaluables, mais `publish_model.py` les refuse.
+#: - jeu « panoradent » : les 7 classes cibles de PanoraDent, boîtes d'origine ;
+#: - jeu « combine » : DENTEX + PanoraDent sur les 3 classes communes, caries
+#:   (profondes comprises) et lésions encadrées sur la dent atteinte.
+CLASSES_PANORADENT: list[str] = ["caries", "periapical_lesion", "impacted_tooth", "missing_tooth",
+                                 "endodontic_treatment", "retained_root", "tooth_fracture"]
+CLASSES_COMBINE: list[str] = ["caries", "periapical_lesion", "impacted_tooth"]
+LISTES_ESSAI = (CLASSES_PANORADENT, CLASSES_COMBINE)
+
 #: Classe portant la denture ; les autres sont des anomalies.
 TOOTH_CLASS = "tooth"
 ANOMALY_CLASSES = [c for c in CLASSES if c != TOOTH_CLASS]

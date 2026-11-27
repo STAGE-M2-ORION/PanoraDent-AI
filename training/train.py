@@ -32,7 +32,7 @@ from pathlib import Path
 
 import augmentations
 import reequilibrage
-from config import CLASSES, LISTES_ADMISES, git_commit
+from config import CLASSES, LISTES_ADMISES, LISTES_ESSAI, git_commit
 
 JOURNAL = "journal.jsonl"
 RUN = "run.json"
@@ -85,6 +85,9 @@ def read_class_names(data_yaml: Path) -> list[str]:
 
 def check_class_order(data_yaml: Path) -> None:
     noms = read_class_names(data_yaml)
+    if noms in LISTES_ESSAI:
+        print("  Jeu d'essai hors contrat du service (PanoraDent) : entraînable, non publiable.")
+        return
     if noms not in LISTES_ADMISES:
         raise SystemExit(
             "ORDRE DES CLASSES INCOHÉRENT — entraînement refusé.\n"
