@@ -66,15 +66,22 @@ test("indicateurs réels du praticien puis du lecteur", async ({ page, browser }
     const pct = Math.round((moi.detections.relues / moi.detections.proposees) * 100);
     await expect(kpi(p, "Détections relues").locator(".kr-v")).toHaveText(`${pct} %`);
   }
+  // Confiée au lecteur : son tableau de bord ne compte que les analyses qui lui sont confiées.
+  const lecteurs = await (await p.request.get("/api/v1/lecteurs")).json();
+  const [deposee] = await (await p.request.get("/api/v1/analyses?mine=true")).json();
+  const confiee = await p.request.put(`/api/v1/analyses/${deposee.id}/lecteurs`, {
+    data: { lecteurs: [lecteurs.find((x) => x.email === comptes.lecteur).id] },
+  });
+  expect(confiee.status()).toBe(200);
   await ctxP.close();
 
-  // Lecteur : portée cabinet, comptes rendus au lieu des relectures.
+  // Lecteur : portée cabinet (ses analyses confiées), comptes rendus au lieu des relectures.
   const ctxL = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const l = await ctxL.newPage();
   await signIn(l, comptes.lecteur, /\/tableau-de-bord/);
   const cabinet = await (await l.request.get("/api/v1/tableau-de-bord/activite")).json();
   expect(cabinet.portee).toBe("cabinet");
-  expect(cabinet.analyses.ce_mois).toBeGreaterThanOrEqual(1);
+  expect(cabinet.analyses.ce_mois).toBe(1);
   await expect(l.locator("main").getByText(/démonstration|données fictives/)).toHaveCount(0);
   await expect(kpi(l, "Analyses ce mois-ci").locator(".kr-v")).toHaveText(String(cabinet.analyses.ce_mois));
   await expect(kpi(l, "Comptes rendus disponibles").locator(".kr-v")).toHaveText(String(cabinet.analyses.cloturees));
