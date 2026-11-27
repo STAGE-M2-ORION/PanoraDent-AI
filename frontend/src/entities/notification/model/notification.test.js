@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeIncoming, normalizePage, parseStreamMessage, reconnectDelay, relativeTime, streamUrl } from "./notification";
+import { mergeIncoming, normalizeNotification, normalizePage, parseStreamMessage, reconnectDelay, relativeTime, streamUrl } from "./notification";
 
 const dto = { id: "n1", type: "analyse_echouee", titre: "Analyse PDX-1 échouée", message: "…", analyse_id: "a b", reference: "PDX-1", cree_le: "2026-11-26T10:00:00Z", lue: false };
 
@@ -15,6 +15,11 @@ describe("notifications", () => {
     expect(demande).toMatchObject({ href: "/admin/demandes-acces?demande=x", icon: "users" });
     // Jamais un lien hors de l'application.
     expect(normalizePage({ notifications: [{ ...dto, analyse_id: null, lien: "https://ailleurs.example" }] }).items[0].href).toBeNull();
+  });
+
+  it("analyse confiée au lecteur : lien vers l'analyse, ton informatif", () => {
+    const n = normalizeNotification({ id: "n2", type: "analyse_confiee", titre: "Analyse PDX-2026-0042 confiée", analyse_id: "a 2", lue: false });
+    expect(n).toMatchObject({ href: "/analyse?id=a%202", icon: "eye", tone: "info", read: false });
   });
 
   it("messages du flux", () => {

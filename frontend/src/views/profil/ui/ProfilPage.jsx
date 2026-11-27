@@ -243,6 +243,8 @@ function IdentityCard() {
 function PreferencesCard() {
   const { user, setUser, can } = useCurrentUser();
   const gereLesComptes = can(Permission.USER_MANAGE);
+  // Lecteur : il ne voit que les analyses qu'on lui confie, et en est prévenu.
+  const recoitDesAnalyses = can(Permission.ANALYSIS_READ) && !can(Permission.ANALYSIS_READ_ALL);
   const [prefs, setPrefs] = useState(() => ({ ...user.preferences }));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -259,6 +261,7 @@ function PreferencesCard() {
         seuil_confiance_defaut: Number(prefs.seuil_confiance_defaut),
         courriel_analyse_echouee: Boolean(prefs.courriel_analyse_echouee),
         courriel_analyse_rouverte: Boolean(prefs.courriel_analyse_rouverte),
+        ...(recoitDesAnalyses ? { courriel_analyse_confiee: Boolean(prefs.courriel_analyse_confiee) } : {}),
         ...(gereLesComptes ? { courriel_demande_acces: Boolean(prefs.courriel_demande_acces) } : {}),
       });
       setUser({ ...user, preferences });
@@ -321,6 +324,12 @@ function PreferencesCard() {
             <input type="checkbox" checked={Boolean(prefs.courriel_analyse_rouverte)} onChange={(e) => set("courriel_analyse_rouverte", e.target.checked)} />
             Une analyse que j’avais clôturée a été rouverte
           </label>
+          {recoitDesAnalyses ? (
+            <label className="check">
+              <input type="checkbox" checked={Boolean(prefs.courriel_analyse_confiee)} onChange={(e) => set("courriel_analyse_confiee", e.target.checked)} />
+              Une analyse m’a été confiée
+            </label>
+          ) : null}
           {gereLesComptes ? (
             <label className="check">
               <input type="checkbox" checked={Boolean(prefs.courriel_demande_acces)} onChange={(e) => set("courriel_demande_acces", e.target.checked)} />

@@ -25,6 +25,8 @@ export function displayName(user) {
 export const Permission = {
   ANALYSIS_CREATE: "analysis:create",
   ANALYSIS_READ: "analysis:read",
+  /** Sans elle, seules les analyses confiées au compte sont visibles (lecteur). */
+  ANALYSIS_READ_ALL: "analysis:read_all",
   ANALYSIS_DELETE: "analysis:delete",
   DETECTION_REVIEW: "detection:review",
   ANALYSIS_REOPEN: "analysis:reopen",
