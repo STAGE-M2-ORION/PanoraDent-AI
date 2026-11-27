@@ -14,11 +14,11 @@ describe("demandes d'accès", () => {
     expect(validateAccessRequest(form)).toBeNull();
     expect(validateAccessRequest({ ...form, name: " " })).toMatch(/nom/);
     expect(validateAccessRequest({ ...form, email: "pas-une-adresse" })).toMatch(/e-mail/);
-    expect(validateAccessRequest({ ...form, profile: "Patient" })).toMatch(/profil/);
+    expect(validateAccessRequest({ ...form, profile: "Autre" })).toMatch(/profil/);
     expect(validateAccessRequest({ ...form, message: "x".repeat(1001) })).toMatch(/1 000/);
   });
 
   it("rôle proposé selon le profil", () => {
-    expect([suggestedRoleName("Chirurgien-dentiste"), suggestedRoleName("Enseignant ou jury"), suggestedRoleName("Autre")]).toEqual(["Praticien", "Lecteur", "Lecteur"]);
+    expect([suggestedRoleName("Chirurgien-dentiste"), suggestedRoleName("Patient")]).toEqual(["Praticien", "Lecteur"]);
   });
 });

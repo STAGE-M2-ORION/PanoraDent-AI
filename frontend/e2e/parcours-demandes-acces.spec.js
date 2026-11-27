@@ -42,9 +42,9 @@ async function demander(browser, { nom, email, profil, cabinet, ville, message }
 test("demande d'accès : prévenu en direct, acceptée avec le rôle choisi, ou refusée", async ({ page, browser }) => {
   test.setTimeout(120_000);
   const marque = Date.now();
-  const hery = { nom: `Rasoanaivo Hery ${marque}`, email: `hery.${marque}@e2e.example.org`, profil: "Enseignant ou jury",
-    cabinet: "Université de Toliara", ville: "Toliara", message: "Membre du jury de soutenance." };
-  const intrus = { nom: `Inconnu ${marque}`, email: `inconnu.${marque}@e2e.example.org`, profil: "Autre",
+  const hery = { nom: `Rasoanaivo Hery ${marque}`, email: `hery.${marque}@e2e.example.org`, profil: "Patient",
+    cabinet: "Université de Toliara", ville: "Toliara", message: "Patient du cabinet, pour suivre mes radiographies." };
+  const intrus = { nom: `Inconnu ${marque}`, email: `inconnu.${marque}@e2e.example.org`, profil: "Patient",
     cabinet: "", ville: "", message: "" };
 
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -62,7 +62,7 @@ test("demande d'accès : prévenu en direct, acceptée avec le rôle choisi, ou 
   await page.waitForURL(/\/admin\/demandes-acces\?demande=/);
   const carte = page.getByRole("article", { name: `Demande de ${hery.nom}` });
   await expect(carte).toHaveClass(/is-visee/);
-  await expect(carte).toContainText("Membre du jury de soutenance.");
+  await expect(carte).toContainText("Patient du cabinet, pour suivre mes radiographies.");
 
   // Acceptée : rôle proposé d'après le profil (Lecteur), prénom complété.
   await carte.getByRole("button", { name: `Accepter la demande de ${hery.nom}` }).click();

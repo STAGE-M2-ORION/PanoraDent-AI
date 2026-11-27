@@ -55,7 +55,7 @@ def test_meme_reponse_quoi_qu_il_arrive(client, db):
 
 def test_champs_controles(client):
     visiteur = client.__class__(client.app, base_url="https://testserver")
-    for corps in ({**DEMANDE, "email": "pas-une-adresse"}, {**DEMANDE, "nom": " "}, {**DEMANDE, "profil": "Patient"},
+    for corps in ({**DEMANDE, "email": "pas-une-adresse"}, {**DEMANDE, "nom": " "}, {**DEMANDE, "profil": "Enseignant ou jury"},
                   {**DEMANDE, "message": "x" * 1001}, {**DEMANDE, "role": "Administrateur"}):
         assert visiteur.post(URL, json=corps).status_code == 422, corps
 

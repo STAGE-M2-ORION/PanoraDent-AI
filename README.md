@@ -999,7 +999,7 @@ seul un administrateur ouvre un compte. Le bouton « Demander un accès » de la
 vitrine (`/decouvrir`) envoie une demande que l'administrateur examine.
 
 1. **Dépôt** (`POST /api/v1/demandes-acces`, publique) : nom, adresse, profil
-   (chirurgien-dentiste, enseignant ou jury, autre), établissement, ville,
+   (chirurgien-dentiste → rôle proposé Praticien, ou patient → Lecteur), établissement, ville,
    message. Limité par poste comme le mot de passe oublié (`LIMITE_OUBLI_MINUTE`).
    **La réponse est toujours la même** : qu'un compte existe déjà pour l'adresse,
    qu'une demande soit en attente ou que la file soit pleine (200 en attente), rien
