@@ -116,9 +116,16 @@ def test_filtres_invalides_refuses(cabinet):
         assert r.status_code == 422, params
 
 
-def test_le_lecteur_consulte_l_historique(cabinet, connecte):
+def test_le_lecteur_consulte_l_historique(cabinet, connecte, confier, db):
+    """Le lecteur ne voit dans l'historique que les analyses qui lui sont confiées."""
     lecteur = connecte("lecteur.histo@cabinet.example.org", "Lecteur")
-    assert page(lecteur)["total"] == 25
+    assert page(lecteur)["total"] == 0
+    for ref in ("PDX-2026-0002", "PDX-2026-0007"):
+        confier(db.scalar(select(Analysis.id).where(Analysis.reference == ref)), "lecteur.histo@cabinet.example.org")
+    p = page(lecteur)
+    assert p["total"] == 2 and sorted(refs(p)) == ["PDX-2026-0002", "PDX-2026-0007"]
+    # Les déposants proposés au filtre : ceux des analyses visibles seulement.
+    assert {d["id"] for d in p["deposants"]} == {str(cabinet["rabe_id"]), str(cabinet["autre_id"])}
 
 
 def test_export_csv_filtre_et_journalise(cabinet, db):

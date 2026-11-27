@@ -65,6 +65,7 @@ ACTIONS = {
     "relance_analyse": ("Analyse relancée", "Analyses"),
     "rejeu_analyse": ("Analyse rejouée avec un autre modèle", "Analyses"),
     "suppression_analyse": ("Suppression d’une analyse", "Analyses"),
+    "attribution_analyse": ("Analyse confiée à un lecteur ou retirée", "Analyses"),
     "dent_absente": ("Dent déclarée absente", "Relecture"),
     "dent_absente_retiree": ("Déclaration d’absence retirée", "Relecture"),
     "cloture_analyse": ("Clôture de la relecture", "Relecture"),

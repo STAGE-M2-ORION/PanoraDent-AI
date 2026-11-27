@@ -205,3 +205,18 @@ __all__ = [
     "ADMIN_EMAIL", "BASE", "MDP", "connexion_mdp", "PRACTITIONER_ROLE", "VIEWER_ROLE", "Utilisateur",
     "connexion", "demarrer", "erreur",
 ]
+
+
+@pytest.fixture()
+def confier(db):
+    """Confie directement en base une analyse à un compte (lecteur)."""
+    from sqlalchemy import select
+
+    from app.models import Attribution
+
+    def _confier(analysis_id: str, email: str) -> None:
+        lecteur_id = db.scalar(select(Utilisateur.id).where(Utilisateur.email == email))
+        db.add(Attribution(analysis_id=analysis_id, lecteur_id=lecteur_id))
+        db.commit()
+
+    return _confier

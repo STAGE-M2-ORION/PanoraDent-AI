@@ -116,6 +116,12 @@ class Analysis(Base):
     )
     deposant = relationship("Utilisateur", lazy="joined", foreign_keys=[utilisateur_id])
     cloturee_par = relationship("Utilisateur", foreign_keys=[cloturee_par_id])
+    # Lecteurs à qui le déposant a confié l'analyse : un compte sans
+    # `analysis:read_all` ne voit que celles-là.
+    attributions: Mapped[list["Attribution"]] = relationship(
+        back_populates="analysis", cascade="all, delete-orphan", passive_deletes=True,
+        order_by="Attribution.cree_le",
+    )
 
     @property
     def cloturee(self) -> bool:
@@ -196,6 +202,25 @@ class Detection(Base):
                 and self.dent.etat != EtatDetection.REJETEE):
             valeurs["fdi"] = self.dent.retenu()["fdi"]
         return valeurs
+
+
+class Attribution(Base):
+    """Analyse confiée à un lecteur par son déposant (ou un administrateur).
+    Facultative, possible avant comme après la clôture : elle ne change pas
+    le résultat, seulement qui peut le lire."""
+    __tablename__ = "attributions"
+    __table_args__ = (UniqueConstraint("analysis_id", "lecteur_id", name="uq_attributions_analyse_lecteur"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id", ondelete="CASCADE"), index=True)
+    lecteur_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("utilisateur.id", ondelete="CASCADE"), index=True)
+    attribue_par_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True
+    )
+    cree_le: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    analysis: Mapped["Analysis"] = relationship(back_populates="attributions")
+    lecteur = relationship("Utilisateur", foreign_keys=[lecteur_id], lazy="joined")
 
 
 class ParametresCabinet(Base):

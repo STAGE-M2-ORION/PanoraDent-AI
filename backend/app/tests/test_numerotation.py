@@ -130,8 +130,9 @@ def test_absente_puis_detectee_signale(connecte, analyse):
     assert "absente_detectee" in [i["type"] for i in a["incoherences"]]
 
 
-def test_lecteur_ne_declare_rien(connecte, analyse):
+def test_lecteur_ne_declare_rien(connecte, confier, analyse):
     lecteur = connecte("lecteur.numero@cabinet.example.org", VIEWER_ROLE)
+    confier(analyse["id"], "lecteur.numero@cabinet.example.org")
     assert lecteur.post(url(analyse, "/dents/18/absente")).status_code == 403
     assert lecteur.get(url(analyse)).status_code == 200
 

@@ -80,7 +80,7 @@ def test_le_lecteur_est_refuse_sur_toute_route_d_ecriture(connecte):
     assert not acceptees, f"Routes d'écriture que le lecteur n'est pas empêché d'appeler : {acceptees}"
 
 
-def test_le_lecteur_consulte_sans_rien_produire(connecte, admin, db):
+def test_le_lecteur_consulte_sans_rien_produire(connecte, admin, confier, db):
     from app.models import Analysis, StatutAnalyse
 
     a = Analysis(reference="PDX-2026-0300", image_key="images/l.png", width=10, height=10,
@@ -88,6 +88,7 @@ def test_le_lecteur_consulte_sans_rien_produire(connecte, admin, db):
     db.add(a)
     db.commit()
     lecteur = connecte("lecteur.consulte@cabinet.example.org", VIEWER_ROLE)
+    confier(a.id, "lecteur.consulte@cabinet.example.org")
     # Consulter : l'analyse, l'historique et sa fiche, l'export CSV (une lecture), les modèles, l'en-tête.
     for url in (f"{BASE}/analyses", f"{BASE}/analyses/{a.id}", f"{BASE}/historique", f"{BASE}/historique.csv",
                 f"{BASE}/analyses/{a.id}/historique", f"{BASE}/model/versions", f"{BASE}/cabinet"):

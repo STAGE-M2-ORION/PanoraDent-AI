@@ -37,7 +37,7 @@ from ..models import (
 )
 from ..permissions import ANALYSIS_READ
 from ..schemas import _nom
-from ..services import revue
+from ..services import attributions, revue
 from .analyses import _ou_404, resume_analyse
 
 router = APIRouter(tags=["historique"])
@@ -124,7 +124,10 @@ def _rang():
 
 def _filtres(rang, utilisateur, p: dict, dialecte: str) -> list:
     q, deposant, etat, du, au, types = (p["q"], p["deposant"], p["etat"], p["du"], p["au"], p["types"])
-    conditions = []
+    # Un lecteur ne voit que les analyses qui lui sont confiées : la première
+    # condition, avant tout filtre choisi à l'écran.
+    visibles = attributions.condition(utilisateur)
+    conditions = [] if visibles is None else [visibles]
     q = (q or "").strip()
     if q:
         conditions.append(or_(_recherche(q, dialecte), rang.c.numero == int(q)) if q.isdigit()
@@ -243,7 +246,8 @@ def historique(
     suite = len(lignes) > limite
     lignes = lignes[:limite]
     deposants = db.execute(
-        select(Utilisateur).where(Utilisateur.id.in_(select(Analysis.utilisateur_id).distinct()))
+        select(Utilisateur).where(Utilisateur.id.in_(
+            attributions.filtrer(select(Analysis.utilisateur_id).distinct(), utilisateur)))
     ).scalars().all()
     return {
         "elements": [resume_analyse(a, numero) for a, numero in lignes],
@@ -319,6 +323,7 @@ LIBELLES = {
     "reouverture_analyse": "Analyse rouverte",
     "compte_rendu_genere": "Compte rendu affiché",
     "compte_rendu_telecharge": "Compte rendu téléchargé",
+    "attribution_analyse": "Lecteurs de l'analyse modifiés",
 }
 VERDICTS = {"valider": "Détection validée", "corriger": "Détection corrigée", "rejeter": "Détection rejetée",
             "ajouter": "Détection ajoutée par le praticien"}
@@ -332,8 +337,8 @@ def _naif(dt: datetime) -> datetime:
 
 
 @router.get("/analyses/{analysis_id}/historique")
-def fiche(analysis_id: str, _: Utilisateur = Depends(exiger(ANALYSIS_READ)), db: Session = Depends(get_db)):
-    a = _ou_404(db, analysis_id)
+def fiche(analysis_id: str, utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)), db: Session = Depends(get_db)):
+    a = _ou_404(db, analysis_id, utilisateur)
     entrees = list(db.scalars(select(Journal).where(Journal.cible == f"analyse:{a.id}")))
     # Imports journalisés avant le sprint 8 sous « analyse:None » : retrouvés par leur référence.
     entrees += [e for e in db.scalars(select(Journal).where(Journal.cible == "analyse:None",

@@ -52,7 +52,7 @@ def compte_rendu_pdf(
     utilisateur: Utilisateur = Depends(exiger(REPORT_GENERATE)),
     db: Session = Depends(get_db),
 ):
-    a = _ou_404(db, analysis_id)
+    a = _ou_404(db, analysis_id, utilisateur)
     if a.statut != StatutAnalyse.TERMINEE:
         raise ApiError(409, "analyse_non_terminee", "L'analyse n'est pas terminée : pas de compte rendu.")
     if not a.cloturee and not brouillon:

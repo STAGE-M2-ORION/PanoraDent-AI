@@ -23,7 +23,7 @@ from ..database import get_db, get_session_factory
 from ..errors import ApiError
 from ..models import Analysis
 from ..permissions import ASSISTANT_USE
-from ..services import assistant, conversations, revue
+from ..services import assistant, attributions, conversations, revue
 
 router = APIRouter(prefix="/analyses", tags=["assistant"])
 
@@ -32,11 +32,8 @@ class MessageIn(BaseModel):
     question: str = Field(max_length=2000)
 
 
-def _analyse(db: Session, analysis_id: str) -> Analysis:
-    a = db.get(Analysis, analysis_id)
-    if a is None:
-        raise ApiError(404, "introuvable", "Analyse introuvable.")
-    return a
+def _analyse(db: Session, analysis_id: str, utilisateur: Utilisateur) -> Analysis:
+    return attributions.analyse_visible(db, utilisateur, analysis_id)
 
 
 @router.get("/{analysis_id}/conversation")
@@ -45,7 +42,7 @@ def lire(
     utilisateur: Utilisateur = Depends(exiger(ASSISTANT_USE)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id)
+    a = _analyse(db, analysis_id, utilisateur)
     return conversations.conversation_out(a, conversations.fil(db, a, utilisateur.id))
 
 
@@ -57,7 +54,7 @@ def poser(
     utilisateur: Utilisateur = Depends(exiger(ASSISTANT_USE)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id)
+    a = _analyse(db, analysis_id, utilisateur)
     question, reponse = conversations.poser(db, a, auteur_id=utilisateur.id, question=corps.question,
                                             request=request)
     return {"question": conversations.message_out(question), "reponse": conversations.message_out(reponse),
@@ -71,7 +68,7 @@ def effacer(
     utilisateur: Utilisateur = Depends(exiger(ASSISTANT_USE)),
     db: Session = Depends(get_db),
 ):
-    conversations.effacer(db, _analyse(db, analysis_id), auteur_id=utilisateur.id, request=request)
+    conversations.effacer(db, _analyse(db, analysis_id, utilisateur), auteur_id=utilisateur.id, request=request)
     return Response(status_code=204)
 
 
@@ -94,7 +91,7 @@ def poser_en_flux(
     Événements : `debut` {passages}, `fragment` {texte} (brouillon non
     vérifié), puis `fin` {question, reponse, avertissement} (réponse vérifiée,
     enregistrée dans le fil)."""
-    a = _analyse(db, analysis_id)
+    a = _analyse(db, analysis_id, utilisateur)
     revue.verifier_modifiable(a)
     question = assistant.question_valide(corps.question)
     # Lus maintenant : la session de la requête est fermée quand le flux commence.

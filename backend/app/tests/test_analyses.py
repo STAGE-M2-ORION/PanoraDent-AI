@@ -158,10 +158,11 @@ def test_suppression_reservee_au_deposant_et_a_l_administrateur(admin, connecte,
     assert admin.delete(f"{BASE}/analyses/{b['id']}").status_code == 204
 
 
-def test_lecteur_ne_supprime_pas(admin, connecte, objets):
+def test_lecteur_ne_supprime_pas(admin, connecte, confier, objets):
     rabe = connecte("dr.rabe@cabinet.example.org")
     lecteur = connecte("lecteur@cabinet.example.org", "Lecteur")
     a = _envoyer(rabe, octets(panoramique())).json()
+    confier(a["id"], "lecteur@cabinet.example.org")
     assert lecteur.delete(f"{BASE}/analyses/{a['id']}").status_code == 403
     assert lecteur.get(f"{BASE}/analyses/{a['id']}").status_code == 200
 

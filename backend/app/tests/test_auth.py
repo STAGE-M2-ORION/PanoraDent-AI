@@ -520,7 +520,7 @@ def test_roles_systeme_et_crud(admin):
     assert set(roles["Administrateur"]["permissions"]) == set(PERMISSIONS)
     assert set(roles["Lecteur"]["permissions"]) == {"analysis:read", "model:read"}
     assert set(roles["Praticien"]["permissions"]) == {
-        "analysis:create", "analysis:read", "analysis:delete",
+        "analysis:create", "analysis:read", "analysis:read_all", "analysis:delete",
         "detection:review", "report:generate", "model:read", "assistant:use",
     }
     for role in roles.values():

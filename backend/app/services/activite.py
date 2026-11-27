@@ -23,7 +23,9 @@ def _debut_semaine(d: datetime) -> datetime:
     return (d - timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def indicateurs(db: Session, utilisateur_id, portee: str) -> dict:
+def indicateurs(db: Session, utilisateur_id, portee: str, visibles=None) -> dict:
+    """`visibles` : condition des analyses que l'appelant peut voir (un
+    lecteur : celles qui lui sont confiées) ; None : toutes."""
     maintenant = datetime.utcnow()
     mois = maintenant.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     mois_precedent = (mois - timedelta(days=1)).replace(day=1)
@@ -33,6 +35,8 @@ def indicateurs(db: Session, utilisateur_id, portee: str) -> dict:
     q = select(Analysis).options(selectinload(Analysis.detections))
     if portee == "moi":
         q = q.where(Analysis.utilisateur_id == utilisateur_id)
+    if visibles is not None:
+        q = q.where(visibles)
     analyses = db.scalars(q).unique().all()
 
     en_cours = sum(a.statut in (StatutAnalyse.EN_FILE, StatutAnalyse.EN_COURS) for a in analyses)
