@@ -47,6 +47,8 @@ def _parse_args(argv=None):
     p.add_argument("--imgsz", type=int, default=None, help="défaut : celle des poids")
     p.add_argument("--conf", type=float, default=0.25)
     p.add_argument("--device", default="cpu")
+    p.add_argument("--nms-agnostique", action="store_true",
+                   help="supprimer les cadres superposés toutes classes confondues (rangs : une dent, un cadre)")
     p.add_argument("--forcer", default=None, metavar="MOTIF", help="re-mesurer le test (motif)")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
@@ -73,7 +75,7 @@ def lire_verite(fichier: Path):
 class Detecteur:
     """Dents détectées par le modèle, au format du service d'inférence."""
 
-    def __init__(self, poids: Path, imgsz, conf, device):
+    def __init__(self, poids: Path, imgsz, conf, device, agnostique: bool = False):
         from ultralytics import YOLO
         sys.path.insert(0, str(REPO_ROOT / "inference"))
         from app.model import classe_et_rang, noms_des_classes
@@ -81,11 +83,11 @@ class Detecteur:
         self.noms = noms_des_classes(self.modele)
         self.classe_et_rang = classe_et_rang
         self.imgsz = imgsz or int((self.modele.overrides or {}).get("imgsz") or 640)
-        self.conf, self.device = conf, device
+        self.conf, self.device, self.agnostique = conf, device, agnostique
 
     def dents(self, image: Path) -> list[dict]:
         r = self.modele.predict(str(image), imgsz=self.imgsz, conf=self.conf, device=self.device,
-                                verbose=False)[0]
+                                agnostic_nms=self.agnostique, verbose=False)[0]
         out = []
         for (x1, y1, x2, y2), c, k in zip(r.boxes.xyxy.tolist(), r.boxes.conf.tolist(), r.boxes.cls.tolist()):
             label, rang = self.classe_et_rang(self.noms[int(k)])
@@ -186,7 +188,9 @@ def verifier_test_unique(dossier_jeu: Path, forcer):
 def rapport(m: dict) -> str:
     d = m["dents"]
     lignes = [f"# Numérotation FDI — partition `{m['split']}`{' (oracle)' if m['oracle'] else ''}", "",
-              f"- Modèle : `{m['modele']}`", f"- Date : {m['date_utc']} ; commit `{m['git_commit']}`", "",
+              f"- Modèle : `{m['modele']}`", f"- Date : {m['date_utc']} ; commit `{m['git_commit']}`",
+              f"- Confiance minimale : {m.get('seuil_confiance')} ; cadres superposés supprimés toutes classes "
+              f"confondues : {'oui' if m.get('nms_agnostique') else 'non'}", "",
               "| | |", "|---|---|",
               f"| Dents de la vérité retrouvées | {d['dents_retrouvees']} / {d['dents_verite']} |",
               f"| **Bien numérotées** (parmi les retrouvées) | **{d['numerotation']}** |",
@@ -207,12 +211,14 @@ def rapport(m: dict) -> str:
 def mesurer(args) -> Path:
     if args.split == "test":
         verifier_test_unique(args.donnees / "rangs", args.forcer)
-    detecteur = None if args.oracle else Detecteur(args.modele, args.imgsz, args.conf, args.device)
+    detecteur = None if args.oracle else Detecteur(args.modele, args.imgsz, args.conf, args.device,
+                                                   agnostique=args.nms_agnostique)
     m = {
         "date_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "git_commit": git_commit(), "split": args.split, "oracle": args.oracle,
         "modele": "vérité terrain" if args.oracle else str(args.modele),
         "seuil_iou": SEUIL_IOU, "seuil_confiance": None if args.oracle else args.conf,
+        "nms_agnostique": bool(args.nms_agnostique),
         "dents": mesurer_dents(args.donnees / "dents" / args.split, detecteur, args.oracle),
         "anomalies": mesurer_anomalies(args.donnees / "anomalies" / args.split, detecteur, args.oracle),
         "motif_remesure": args.forcer,
