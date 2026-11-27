@@ -37,9 +37,11 @@ export async function previewAnalysis(file, { masks = [], onProgress } = {}) {
  * avec les masques manuels, ré-anonymisé ; seule l'image masquée est stockée,
  * puis analysée. `examDate` (AAAA-MM-JJ) et `note` sont facultatifs.
  */
-export async function createAnalysis(file, { masks = [], examDate, note, onProgress } = {}) {
+export async function createAnalysis(file, { masks = [], examDate, note, readers = [], onProgress } = {}) {
   const form = new FormData();
   form.append("fichier", file);
+  // Lecteurs à qui la confier (facultatif) : refusés AVANT tout stockage s'ils sont invalides.
+  if (readers.length) form.append("lecteurs", JSON.stringify(readers));
   if (masks.length) form.append("masques", JSON.stringify(masks.map(toZone)));
   if (examDate) form.append("date_examen", examDate);
   if (note?.trim()) form.append("note", note.trim());
@@ -197,6 +199,30 @@ export async function fetchAnalysisImageUrl(analysisId) {
  */
 export async function deleteAnalysis(analysisId) {
   await httpClient.delete(`/analyses/${analysisId}`);
+}
+
+/* ---------- Analyses confiées à un lecteur ----------
+ * Un lecteur ne voit que les analyses qui lui sont confiées ; le déposant (ou
+ * un administrateur) les lui confie, même après la clôture.
+ */
+const toReader = (d) => ({ id: d.id, name: d.nom || d.email, email: d.email, assignedAt: d.confie_le ?? null });
+
+/** `GET /api/v1/lecteurs` — comptes à qui l'on peut confier une analyse. */
+export async function fetchReaders() {
+  const { data } = await httpClient.get("/lecteurs");
+  return data.map(toReader);
+}
+
+/** `GET /api/v1/analyses/{id}/lecteurs` — `{ readers, editable }`. */
+export async function fetchAnalysisReaders(analysisId) {
+  const { data } = await httpClient.get(`/analyses/${analysisId}/lecteurs`);
+  return { readers: data.lecteurs.map(toReader), editable: Boolean(data.modifiable) };
+}
+
+/** `PUT /api/v1/analyses/{id}/lecteurs` — remplace la liste ; chaque ajout prévient le lecteur. */
+export async function saveAnalysisReaders(analysisId, readerIds) {
+  const { data } = await httpClient.put(`/analyses/${analysisId}/lecteurs`, { lecteurs: readerIds });
+  return { readers: data.lecteurs.map(toReader), editable: Boolean(data.modifiable) };
 }
 
 /** `GET /api/v1/moi/vues-historique` — ses vues enregistrées. */

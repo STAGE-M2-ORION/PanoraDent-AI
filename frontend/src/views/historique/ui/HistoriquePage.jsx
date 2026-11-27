@@ -49,7 +49,7 @@ const sortValue = (k) => (k ? `${k.field}:${k.desc ? "desc" : "asc"}` : "");
 const sortKey = (v) => (v ? { field: v.split(":")[0], desc: v.endsWith(":desc") } : null);
 const STATUS_FILTER = { queued: "En file d’attente", running: "Analyse en cours", pending: "À relire", inprogress: "Relecture en cours", closed: "Clôturée", failed: "Échec" };
 const isProcessing = (r) => r.status === AnalysisStatus.QUEUED || r.status === AnalysisStatus.RUNNING;
-const EMPTY_PAGE = { items: [], total: 0, next: null, depositors: [] };
+const EMPTY_PAGE = { items: [], total: 0, next: null, depositors: [], readers: [] };
 
 function saveBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
@@ -79,6 +79,8 @@ export function HistoriquePage() {
   const isAdmin = can(Permission.USER_MANAGE) && can(Permission.ROLE_MANAGE);
   const canDeleteRow = (r) => can(Permission.ANALYSIS_DELETE) && (isAdmin || (r.depositorId && r.depositorId === me?.id));
   const readOnly = !can(Permission.DETECTION_REVIEW);
+  // Lecteur : il ne voit que les analyses qui lui sont confiées ; les autres voient à qui elles le sont.
+  const seesAll = can(Permission.ANALYSIS_READ_ALL);
   const [f, setF] = useState(EMPTY_HISTORY_FILTERS);
   // Petit écran : filtres repliés sous la recherche (sans effet sur ordinateur, voir historique.css).
   const [filtresOuverts, setFiltresOuverts] = useState(false);
@@ -155,7 +157,7 @@ export function HistoriquePage() {
     return () => clearTimeout(timer);
   }, [page, processingCount]);
 
-  const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length || f.tooth || f.report);
+  const hasFilters = Boolean(f.q.trim() || f.owner !== "all" || f.period !== "all" || f.status !== "all" || f.types.length || f.tooth || f.report || f.reader);
   const sortKeys = parseSort(f.sort);
   const setSort = (primary, secondary) => set({ sort: formatSort([primary, secondary].filter(Boolean)) });
 
@@ -203,6 +205,7 @@ export function HistoriquePage() {
   f.types.forEach((t) => chips.push([`type:${t}`, `Anomalie : ${DETECTION_TYPES[t].label}`, { types: f.types.filter((x) => x !== t) }]));
   if (f.tooth) chips.push(["tooth", `Dent ${f.tooth}`, { tooth: "" }]);
   if (f.report) chips.push(["report", REPORT_FILTER[f.report], { report: "" }]);
+  if (f.reader) chips.push(["reader", `Confiées à ${page.readers.find((d) => d.id === f.reader)?.name ?? "un lecteur"}`, { reader: "" }]);
 
   const exportCsv = async () => {
     setExporting(true);
@@ -273,15 +276,19 @@ export function HistoriquePage() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="illus ill-img" src="/medias/etat-vide.webp" width="1024" height="1024" alt="" aria-hidden="true" />
         <h3>Aucune analyse pour le moment</h3>
-        <p>Les analyses que vous lancerez apparaîtront ici, avec leur statut de relecture.</p>
+        <p>
+          {seesAll
+            ? "Les analyses que vous lancerez apparaîtront ici, avec leur statut de relecture."
+            : "Vous ne voyez que les analyses qu’un praticien vous a confiées : aucune ne l’est encore. Vous serez prévenu dès qu’on vous en confiera une."}
+        </p>
         {canCreate ? (
           <Button href="/nouvelle-analyse">
             <Icon name="plus" />
             Nouvelle analyse
           </Button>
-        ) : (
+        ) : seesAll ? (
           <p>Un praticien doit déposer une première radiographie.</p>
-        )}
+        ) : null}
       </div>
     );
   } else if (rows.length === 0) {
@@ -308,6 +315,7 @@ export function HistoriquePage() {
               <th scope="col">Statut de revue</th>
               <th scope="col">Anomalies retenues</th>
               <th scope="col">Déposée par</th>
+              {seesAll ? <th scope="col">Confiée à</th> : null}
               <th scope="col" className="r">
                 Actions
               </th>
@@ -352,6 +360,11 @@ export function HistoriquePage() {
                   <td data-label="Déposée par">
                     <WhoChip name={r.depositorId && r.depositorId === me?.id ? `${r.depositorName ?? ""} (vous)`.trim() : r.depositorName} />
                   </td>
+                  {seesAll ? (
+                    <td data-label="Confiée à" data-lecteurs>
+                      {r.readers.length ? r.readers.join(", ") : <span className="hint">—</span>}
+                    </td>
+                  ) : null}
                   <td className="td-actions">
                     <div className="row-actions">
                       <Button size="sm" variant="secondary" href={`/analyse?id=${r.id}`}>
@@ -571,6 +584,21 @@ export function HistoriquePage() {
               <option value="non_telecharge">Pas encore téléchargé</option>
             </select>
           </div>
+          {seesAll && (page.readers.length || f.reader) ? (
+            <div className="field">
+              <label className="label" htmlFor="lecteur">
+                Confiées à
+              </label>
+              <select className="select" id="lecteur" value={f.reader} onChange={(e) => set({ reader: e.target.value })}>
+                <option value="">Tous, confiées ou non</option>
+                {page.readers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
         </div>
         <div className="filters-row sort-row">
           <div className="field">

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { Processing, createAnalysis, fetchAnalysis, isMockAnalysis, previewAnalysis, useAnalysisProgress } from "@/entities/analysis";
+import { Processing, createAnalysis, fetchAnalysis, fetchReaders, isMockAnalysis, previewAnalysis, useAnalysisProgress } from "@/entities/analysis";
 import { isAnomaly } from "@/entities/detection";
 import { Permission } from "@/entities/session";
 import { toAppError } from "@/shared/api";
 import { Alert, Button, Field, Icon } from "@/shared/ui";
+import { ReaderChecklist } from "@/features/assign-readers";
 import { AppShell } from "@/widgets/app-shell";
 
 import { MaskEditor } from "./MaskEditor";
@@ -45,6 +46,9 @@ export function NouvelleAnalysePage() {
   const [preview, setPreview] = useState(null);
   const [masks, setMasks] = useState([]);
   const [meta, setMeta] = useState({ examDate: "", note: "" });
+  // Lecteurs du cabinet (facultatif : confier l'analyse dès l'import) ; null si indisponible.
+  const [readers, setReaders] = useState(null);
+  const [assigned, setAssigned] = useState([]);
   const [over, setOver] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [result, setResult] = useState(null);
@@ -57,6 +61,16 @@ export function NouvelleAnalysePage() {
     initial: result ? { processing: result.processing, error: result.error, position: 0 } : null,
     enabled: state === "analyse",
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchReaders()
+      .then((list) => !cancelled && setReaders(list))
+      .catch(() => !cancelled && setReaders(null));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (state !== "analyse" || !progress || !result) return;
@@ -81,6 +95,7 @@ export function NouvelleAnalysePage() {
     setPreview(null);
     setMasks([]);
     setMeta({ examDate: "", note: "" });
+    setAssigned([]);
     setResult(null);
     setError(null);
     setState("attente");
@@ -113,7 +128,7 @@ export function NouvelleAnalysePage() {
     setState("import");
     try {
       // Réponse immédiate : image stockée, analyse mise en file.
-      const analysis = await createAnalysis(file, { masks, examDate: meta.examDate, note: meta.note, onProgress: setUploadPct });
+      const analysis = await createAnalysis(file, { masks, examDate: meta.examDate, note: meta.note, readers: assigned, onProgress: setUploadPct });
       setResult(analysis);
       setState("analyse");
     } catch (cause) {
@@ -242,6 +257,15 @@ export function NouvelleAnalysePage() {
                     <textarea className="textarea" id="m-note" rows={2} maxLength={NOTE_MAX} value={meta.note} onChange={(e) => setMeta((m) => ({ ...m, note: e.target.value }))} />
                   </Field>
                 </div>
+                {readers ? (
+                  <>
+                    <ReaderChecklist readers={readers} selected={assigned} onChange={setAssigned} disabled={state !== "pret"} legend="Confier à un lecteur (facultatif)" />
+                    <p className="hint" style={{ margin: 0 }}>
+                      Un lecteur ne voit que les analyses qui lui sont confiées, en lecture seule, et il en est prévenu. Vous pourrez aussi la confier plus tard, depuis la page
+                      de l’analyse.
+                    </p>
+                  </>
+                ) : null}
                 <p className="hint" style={{ margin: 0 }}>
                   Une référence anonyme (« PDX-AAAA-NNNN ») est attribuée à la confirmation : c’est elle, et non le nom du fichier, qui désignera l’analyse.
                 </p>
