@@ -496,8 +496,9 @@ class TypeNotification:
     ANALYSE_TERMINEE = "analyse_terminee"
     ANALYSE_ECHOUEE = "analyse_echouee"
     ANALYSE_ROUVERTE = "analyse_rouverte"
+    ANALYSE_CONFIEE = "analyse_confiee"      # au lecteur à qui le déposant la confie
     DEMANDE_ACCES = "demande_acces"          # aux administrateurs (comptes)
-    TOUS = (ANALYSE_TERMINEE, ANALYSE_ECHOUEE, ANALYSE_ROUVERTE, DEMANDE_ACCES)
+    TOUS = (ANALYSE_TERMINEE, ANALYSE_ECHOUEE, ANALYSE_ROUVERTE, ANALYSE_CONFIEE, DEMANDE_ACCES)
 
 
 class Notification(Base):

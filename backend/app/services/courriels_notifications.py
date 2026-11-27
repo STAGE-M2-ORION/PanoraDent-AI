@@ -1,7 +1,8 @@
 """E-mails de notification (sprint 13, lot C), envoyés par le worker.
 
-Seuls deux événements partent aussi par e-mail : **analyse échouée** et
-**analyse rouverte**, chacun selon sa case dans les préférences du profil.
+Partent aussi par e-mail : **analyse échouée**, **analyse rouverte**,
+**analyse confiée** (au lecteur) et **demande d'accès** (aux administrateurs),
+chacun selon sa case dans les préférences du profil.
 « Analyse terminée » reste dans l'application : elle arrive quelques secondes
 après le dépôt, un e-mail serait du bruit.
 
@@ -42,6 +43,7 @@ logger = logging.getLogger("uvicorn.error")
 PREFERENCE = {
     TypeNotification.ANALYSE_ECHOUEE: "courriel_analyse_echouee",
     TypeNotification.ANALYSE_ROUVERTE: "courriel_analyse_rouverte",
+    TypeNotification.ANALYSE_CONFIEE: "courriel_analyse_confiee",
     TypeNotification.DEMANDE_ACCES: "courriel_demande_acces",
 }
 

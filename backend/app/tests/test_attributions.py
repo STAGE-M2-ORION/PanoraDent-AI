@@ -226,3 +226,55 @@ def test_comparaison_d_un_rejeu_confie_sans_son_origine(cabinet, db):
     db.commit()
     r = cabinet["lecteur"].get(f"{BASE}/analyses/{rejeu.id}/comparaison")
     assert r.status_code == 404 and "PDX-2026-0901" not in r.text
+
+
+# --- Lot B : le lecteur est prévenu -------------------------------------------------------------
+
+def _notifs(client):
+    r = client.get(f"{BASE}/moi/notifications")
+    assert r.status_code == 200, r.text
+    return r.json()["notifications"]
+
+
+def test_le_lecteur_ajoute_est_notifie_une_fois(cabinet, db):
+    l1, l2 = _id(db, LECTEUR), _id(db, AUTRE_LECTEUR)
+    _confier(cabinet["rabe"], cabinet["a1"], l1)
+    (n,) = _notifs(cabinet["lecteur"])
+    assert n["type"] == "analyse_confiee" and n["titre"] == "Analyse PDX-2026-0901 confiée"
+    assert n["analyse_id"] == cabinet["a1"] and RABE in n["message"] and "lecture seule" in n["message"]
+    # Inchangé, puis ajout d'un second : seul le nouveau est prévenu ; un retrait ne prévient personne.
+    _confier(cabinet["rabe"], cabinet["a1"], l1)
+    _confier(cabinet["rabe"], cabinet["a1"], l1, l2)
+    _confier(cabinet["rabe"], cabinet["a1"], l2)
+    assert len(_notifs(cabinet["lecteur"])) == 1
+    assert [x["type"] for x in _notifs(cabinet["lecteur2"])] == ["analyse_confiee"]
+    assert _notifs(cabinet["rabe"]) == []                    # jamais de sa propre action
+
+
+def test_notification_d_une_analyse_cloturee(cabinet, db):
+    _confier(cabinet["rabe"], cabinet["a2"], _id(db, LECTEUR))
+    (n,) = _notifs(cabinet["lecteur"])
+    assert "déjà clôturée" in n["message"]
+
+
+def test_notifie_des_l_import(connecte, db, objets):  # noqa: F811
+    rabe, lecteur = connecte(RABE), connecte(LECTEUR, VIEWER_ROLE)
+    r = _envoyer(rabe, octets(panoramique()), lecteurs=json.dumps([_id(db, LECTEUR)]))
+    assert [n["reference"] for n in _notifs(lecteur)] == [r.json()["reference"]]
+
+
+@pytest.mark.parametrize("preference, attendu", [(None, 1), (True, 1), (False, 0)])
+def test_courriel_selon_la_preference_du_lecteur(cabinet, db, boite, preference, attendu):
+    from datetime import timedelta
+
+    from app.services import courriels_notifications as envoi
+    lecteur = db.scalar(select(Utilisateur).where(Utilisateur.email == LECTEUR))
+    if preference is not None:
+        lecteur.preferences = {"courriel_analyse_confiee": preference}
+        db.commit()
+    _confier(cabinet["rabe"], cabinet["a1"], str(lecteur.id))
+    assert envoi.envoyer_en_attente(db, datetime.utcnow() + timedelta(minutes=3)) == attendu
+    messages = [m for m in boite if m.destinataire == LECTEUR and "confiée" in m.sujet]
+    assert len(messages) == attendu
+    if attendu:
+        assert messages[0].sujet == "Analyse PDX-2026-0901 confiée" and f"/analyse?id={cabinet['a1']}" in messages[0].texte

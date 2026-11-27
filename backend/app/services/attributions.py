@@ -10,7 +10,7 @@ Règle unique, appliquée par toutes les routes qui lisent une analyse :
 
 Confier ou retirer une analyse : son déposant, ou un administrateur ; avant
 comme après la clôture (cela ne touche pas au résultat). Chaque changement est
-journalisé.
+journalisé ; chaque lecteur ajouté reçoit une notification.
 """
 import uuid
 
@@ -19,9 +19,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import journal
+from . import notifications
 from ..auth_models import Utilisateur
 from ..errors import ApiError
-from ..models import Analysis, Attribution
+from ..models import Analysis, Attribution, TypeNotification
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_READ, ANALYSIS_READ_ALL
 
 MAX_LECTEURS = 20
@@ -109,6 +110,9 @@ def definir(db: Session, a: Analysis, lecteurs: list[Utilisateur], auteur: Utili
         a.attributions.remove(at)
     for u in ajoutes:
         a.attributions.append(Attribution(lecteur_id=u.id, attribue_par_id=auteur.id))
+        # Le lecteur ne verrait pas l'analyse sans cela : il est prévenu (et par
+        # e-mail selon sa préférence). Un retrait ne prévient personne.
+        notifications.notifier(db, u.id, TypeNotification.ANALYSE_CONFIEE, a, auteur_id=auteur.id, par=nom(auteur))
     if ajoutes or retires:
         journal.inscrire(
             db, "attribution_analyse", journal.SUCCES, request=request, utilisateur_id=auteur.id,
