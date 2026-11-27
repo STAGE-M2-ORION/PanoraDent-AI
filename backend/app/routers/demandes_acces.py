@@ -34,7 +34,7 @@ class DemandeIn(BaseModel):
 
     nom: str = Field(min_length=2, max_length=120)
     email: EmailStr = Field(max_length=255)
-    profil: Literal["Chirurgien-dentiste", "Enseignant ou jury", "Autre"]
+    profil: Literal["Chirurgien-dentiste", "Patient"]
     etablissement: str = Field(default="", max_length=160)
     ville: str = Field(default="", max_length=80)
     message: str = Field(default="", max_length=1000)

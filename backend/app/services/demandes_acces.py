@@ -29,7 +29,9 @@ from ..errors import ApiError
 from ..models import DemandeAcces, Notification, StatutDemande
 from . import auth_service, courriel, notifications
 
-PROFILS = ("Chirurgien-dentiste", "Enseignant ou jury", "Autre")
+# Deux profils : le chirurgien-dentiste (rôle proposé : Praticien) et le
+# patient (rôle proposé : Lecteur, qui ne voit que les analyses qu'on lui confie).
+PROFILS = ("Chirurgien-dentiste", "Patient")
 EN_ATTENTE_MAX = 200
 CONSERVATION_JOURS = 90
 

@@ -10,7 +10,13 @@ export const STATUS_LABELS = {
   [AccessRequestStatus.REFUSED]: { label: "Refusée", tone: "danger" },
 };
 
-export const PROFILES = ["Chirurgien-dentiste", "Enseignant ou jury", "Autre"];
+export const PROFILES = ["Chirurgien-dentiste", "Patient"];
+
+/** Libellé du formulaire : le profil et le rôle qu'il donnera (l'administrateur décide). */
+export const PROFILE_LABELS = {
+  "Chirurgien-dentiste": "Chirurgien-dentiste (praticien)",
+  Patient: "Patient (lecteur)",
+};
 
 /** Rôle proposé à l'acceptation selon le profil déclaré (l'administrateur peut le changer). */
 export function suggestedRoleName(profile) {

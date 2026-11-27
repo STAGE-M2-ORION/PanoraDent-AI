@@ -2,6 +2,7 @@ export { acceptAccessRequest, fetchAccessRequests, refuseAccessRequest, submitAc
 export {
   AccessRequestStatus,
   PROFILES,
+  PROFILE_LABELS,
   STATUS_LABELS,
   normalizeAccessRequest,
   suggestedRoleName,

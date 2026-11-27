@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { PROFILES, submitAccessRequest, validateAccessRequest } from "@/entities/access-request";
+import { PROFILES, PROFILE_LABELS, submitAccessRequest, validateAccessRequest } from "@/entities/access-request";
 import { toAppError } from "@/shared/api";
 import { Alert, Button, Modal } from "@/shared/ui";
 
@@ -77,7 +77,9 @@ export function RequestAccessModal({ open, onClose }) {
                 </label>
                 <select className="select" id="aRole" value={form.profile} onChange={set("profile")}>
                   {PROFILES.map((p) => (
-                    <option key={p}>{p}</option>
+                    <option key={p} value={p}>
+                      {PROFILE_LABELS[p]}
+                    </option>
                   ))}
                 </select>
               </div>
