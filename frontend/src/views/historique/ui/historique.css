@@ -30,8 +30,15 @@
   .ro { display: inline-flex; align-items: center; gap: 6px; }
   .ro svg { width: 14px; height: 14px; }
   @media (max-width: 860px) { .filters-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .search-wrap-col { grid-column: 1 / -1; } }
+  /* Le bouton de repli n'existe que sur petit écran. */
+  .filters-toggle { display: none; }
   @media (max-width: 640px) {
     .filters-row { grid-template-columns: minmax(0,1fr); }
+    /* Filtres repliés : la recherche et les puces des filtres actifs restent visibles. */
+    .filters-toggle { display: inline-flex; justify-self: start; }
+    .filters[data-ouvert="non"] .filters-row > .field:not(.search-wrap-col),
+    .filters[data-ouvert="non"] .sort-row,
+    .filters[data-ouvert="non"] .types { display: none; }
     .types legend { float: none; display: block; line-height: 1.4; margin-bottom: var(--space-1); width: 100%; }
     .toast { right: var(--space-4); bottom: var(--space-4); }
     .sk-row { grid-template-columns: 1fr 1fr; }

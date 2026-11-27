@@ -155,6 +155,19 @@ function useReveal(rootRef) {
 }
 
 /** Vitrine publique : comprendre l'outil avant d'y déposer une image. */
+/**
+ * Mesures publiées de la version `dentex-2026.11` (rapport
+ * docs/evaluation/dentex-2026.11/rapport.md, test interne évalué une fois).
+ * À mettre à jour avec chaque version publiée.
+ */
+const MESURES_TEST_INTERNE = {
+  [DetectionLabel.TOOTH]: "0,99",
+  [DetectionLabel.IMPACTED_TOOTH]: "0,93",
+  [DetectionLabel.CARIES]: "0,49",
+  [DetectionLabel.DEEP_CARIES]: "0,37",
+  [DetectionLabel.PERIAPICAL_LESION]: "0,25",
+};
+
 export function AccueilPage() {
   const rootRef = useRef(null);
   const armed = useReveal(rootRef);
@@ -455,11 +468,15 @@ export function AccueilPage() {
           <div className="container split" style={{ alignItems: "start" }}>
             <div>
               <p className="eyebrow">Fiabilité et limites</p>
-              <h2 className="h2">Pas encore de chiffres : voici ce qui sera mesuré</h2>
-              <p className="lead">Le modèle est entraîné sur DENTEX, un jeu public de panoramiques. Nous publierons ses mesures classe par classe, sur des images jamais vues à l&apos;entraînement.</p>
+              <h2 className="h2">Mesuré, et publié avec ses limites</h2>
+              <p className="lead">
+                Le modèle est entraîné sur DENTEX, un jeu public de panoramiques, et mesuré classe par classe sur des images jamais vues à l&apos;entraînement :
+                le test interne, évalué une seule fois, puis le test officiel du jeu.
+              </p>
               <ul className="limits">
                 {[
-                  "Pas encore évalué sur des images de cabinets de Toliara.",
+                  "Caries et lésions péri-apicales encore mal retrouvées : environ 4 caries sur 10 et 3 lésions sur 10 au test interne. Le praticien relit chaque cliché.",
+                  "Mesuré sur DENTEX seulement : pas encore sur des images de cabinets de Toliara.",
                   "Quatre anomalies seulement : ni parodonte, ni fractures, ni kystes.",
                   "Sensible à la qualité de l'image : flou, positionnement, artefacts métalliques.",
                 ].map((text) => (
@@ -474,15 +491,22 @@ export function AccueilPage() {
               </Button>
             </div>
             <div className="card measure reveal">
-              <h3>Pour chacune des cinq classes</h3>
+              <h3>Précision moyenne (mAP@50), test interne</h3>
               <ul className="measure-cls">
                 {[DetectionLabel.TOOTH, ...ANOMALY_LABELS].map((label) => (
                   <li key={label}>
                     <DetSwatch label={label} />
-                    {label === DetectionLabel.TOOTH ? "Numérotation des dents" : DETECTION_TYPES[label].label}
+                    {label === DetectionLabel.TOOTH ? "Détection des dents" : DETECTION_TYPES[label].label}
+                    <span className="mono" style={{ marginLeft: "auto" }}>
+                      {MESURES_TEST_INTERNE[label]}
+                    </span>
                   </li>
                 ))}
               </ul>
+              <p className="muted" style={{ fontSize: "var(--text-sm)" }}>
+                Version <span className="mono">dentex-2026.11</span> · de 0 (rien de juste) à 1 (tout juste). Détail, matrices et pires erreurs : page Performance du
+                modèle.
+              </p>
               <dl className="measure-def">
                 <div>
                   <dt>Précision moyenne (mAP@50)</dt>

@@ -49,7 +49,8 @@ function Sidebar({ page, open, rail, onNavigate }) {
               {item.group}
             </div>
           ) : (
-            <Link key={item.href} className="nav-link" href={item.href} aria-current={page === item.page ? "page" : undefined}>
+            // aria-label et title : en mode réduit (poste de lecture), le libellé est masqué.
+            <Link key={item.href} className="nav-link" href={item.href} aria-current={page === item.page ? "page" : undefined} aria-label={item.label} title={item.label}>
               <span className="nav-ic">
                 <Icon name={item.icon} />
               </span>
@@ -68,13 +69,13 @@ function Sidebar({ page, open, rail, onNavigate }) {
             </span>
           </span>
         </div>
-        <Link className="nav-link" href="/profil" aria-current={page === "profil" ? "page" : undefined}>
+        <Link className="nav-link" href="/profil" aria-current={page === "profil" ? "page" : undefined} aria-label="Profil" title="Profil">
           <span className="nav-ic">
             <Icon name="user" />
           </span>
           <span>Profil</span>
         </Link>
-        <button type="button" className="nav-link" onClick={signOut} style={{ background: "none", border: 0, width: "100%", cursor: "pointer", textAlign: "left" }}>
+        <button type="button" className="nav-link" onClick={signOut} aria-label="Se déconnecter" title="Se déconnecter" style={{ background: "none", border: 0, width: "100%", cursor: "pointer", textAlign: "left" }}>
           <span className="nav-ic">
             <Icon name="logout" />
           </span>

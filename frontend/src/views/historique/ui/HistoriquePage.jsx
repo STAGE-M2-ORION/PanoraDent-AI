@@ -80,6 +80,8 @@ export function HistoriquePage() {
   const canDeleteRow = (r) => can(Permission.ANALYSIS_DELETE) && (isAdmin || (r.depositorId && r.depositorId === me?.id));
   const readOnly = !can(Permission.DETECTION_REVIEW);
   const [f, setF] = useState(EMPTY_HISTORY_FILTERS);
+  // Petit écran : filtres repliés sous la recherche (sans effet sur ordinateur, voir historique.css).
+  const [filtresOuverts, setFiltresOuverts] = useState(false);
   // Filtres envoyés au serveur : la saisie de la recherche est regroupée (300 ms).
   const [query, setQuery] = useState(EMPTY_HISTORY_FILTERS);
   // Début de chaque page vue (pagination par clé) : on revient en arrière en dépilant.
@@ -489,7 +491,7 @@ export function HistoriquePage() {
         ) : null}
       </section>
 
-      <section className="card card-pad filters" aria-label="Recherche et filtres" style={{ opacity: error || (!isLoading && rows.length === 0 && !hasFilters && !everHadRows) ? 0.5 : undefined }}>
+      <section className="card card-pad filters" aria-label="Recherche et filtres" data-ouvert={filtresOuverts ? "oui" : "non"} style={{ opacity: error || (!isLoading && rows.length === 0 && !hasFilters && !everHadRows) ? 0.5 : undefined }}>
         <div className="filters-row">
           <div className="field search-wrap-col">
             <label className="label" htmlFor="q">
@@ -631,6 +633,10 @@ export function HistoriquePage() {
             </label>
           ))}
         </fieldset>
+        <button type="button" className="btn btn-sm btn-secondary filters-toggle" aria-expanded={filtresOuverts} onClick={() => setFiltresOuverts((v) => !v)}>
+          <Icon name="filter" />
+          {filtresOuverts ? "Masquer les filtres" : `Plus de filtres${chips.length ? ` (${chips.length} actif${chips.length > 1 ? "s" : ""})` : ""}`}
+        </button>
         <div className="chips" aria-live="polite">
           {chips.map(([key, label, reset]) => (
             <span key={key} className="chip">
