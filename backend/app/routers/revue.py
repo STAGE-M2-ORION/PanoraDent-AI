@@ -23,7 +23,7 @@ from ..errors import ApiError
 from ..models import Analysis, Detection, TypeNotification
 from ..permissions import ANALYSIS_REOPEN, DETECTION_REVIEW
 from ..schemas import AnalysisOut, DetectionOut, analyse_out, detection_out
-from ..services import notifications, numerotation, revue
+from ..services import attributions, notifications, numerotation, revue
 
 router = APIRouter(prefix="/analyses", tags=["relecture"])
 
@@ -73,14 +73,10 @@ class AnnulationOut(BaseModel):
     retiree_id: str | None = None
 
 
-def _analyse(db: Session, analysis_id: str, *, verrou: bool = False) -> Analysis:
-    q = db.query(Analysis).filter(Analysis.id == analysis_id)
-    if verrou:  # deux praticiens sur la même analyse : écritures sérialisées
-        q = q.with_for_update(of=Analysis)
-    a = q.one_or_none()
-    if a is None:
-        raise ApiError(404, "introuvable", "Analyse introuvable.")
-    return a
+def _analyse(db: Session, analysis_id: str, utilisateur: Utilisateur, *, verrou: bool = False) -> Analysis:
+    """Deux praticiens sur la même analyse : écritures sérialisées (verrou).
+    Une analyse invisible pour l'appelant (non confiée) : 404."""
+    return attributions.analyse_visible(db, utilisateur, analysis_id, verrou=verrou)
 
 
 def _detection(a: Analysis, detection_id: str) -> Detection:
@@ -98,7 +94,7 @@ def poser_verdict(
     utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     d = revue.statuer(
         db, a, _detection(a, detection_id), corps.action, auteur_id=utilisateur.id,
         commentaire=corps.commentaire, label=corps.label, fdi=corps.fdi,
@@ -117,7 +113,7 @@ def annuler_verdict(
     utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     d = revue.annuler(db, a, _detection(a, detection_id), auteur_id=utilisateur.id)
     db.commit()
     if d is None:
@@ -133,7 +129,7 @@ def ajouter_detection(
     utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     d = revue.ajouter(db, a, auteur_id=utilisateur.id, label=corps.label, fdi=corps.fdi,
                       cadre=corps.cadre.tuple(), commentaire=corps.commentaire)
     db.commit()
@@ -145,10 +141,10 @@ def ajouter_detection(
 def enregistrer_conclusion(
     analysis_id: str,
     corps: ConclusionIn,
-    _: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
+    utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     revue.enregistrer_conclusion(a, corps.conclusion)
     db.commit()
     db.refresh(a)
@@ -163,7 +159,7 @@ def cloturer(
     utilisateur: Utilisateur = Depends(exiger(DETECTION_REVIEW)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     revue.cloturer(a, auteur_id=utilisateur.id, conclusion=corps.conclusion)
     journal.inscrire(
         db, "cloture_analyse", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
@@ -182,7 +178,7 @@ def rouvrir(
     utilisateur: Utilisateur = Depends(exiger(ANALYSIS_REOPEN)),
     db: Session = Depends(get_db),
 ):
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     clotureur = a.cloturee_par_id          # effacé par la réouverture : lu avant
     motif = revue.rouvrir(a, corps.motif)
     notifications.notifier(db, clotureur, TypeNotification.ANALYSE_ROUVERTE, a,
@@ -209,7 +205,7 @@ def declarer_absente(
     """Le praticien déclare une dent absente, après l'avoir vérifié sur le
     cliché. Refusé si une dent porte ce numéro (la rejeter ou la renuméroter
     d'abord). Analyse clôturée : 409."""
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     numerotation.declarer_absente(db, a, fdi, utilisateur.id)
     journal.inscrire(db, "dent_absente", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
                      cible=f"analyse:{a.id}", details={"reference": a.reference, "fdi": fdi}, commit=False)
@@ -227,7 +223,7 @@ def retirer_absente(
     db: Session = Depends(get_db),
 ):
     """Retire la déclaration d'absence. Analyse clôturée : 409."""
-    a = _analyse(db, analysis_id, verrou=True)
+    a = _analyse(db, analysis_id, utilisateur, verrou=True)
     if numerotation.retirer_absente(db, a, fdi):
         journal.inscrire(db, "dent_absente_retiree", journal.SUCCES, request=request,
                          utilisateur_id=utilisateur.id, cible=f"analyse:{a.id}",

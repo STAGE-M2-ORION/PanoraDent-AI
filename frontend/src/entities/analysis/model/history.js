@@ -6,7 +6,7 @@ import { normalizeAnalysisSummary } from "./analysis";
  * serveur (pagination par clé : `cursor` désigne la dernière ligne vue).
  */
 export const EMPTY_HISTORY_FILTERS = {
-  q: "", owner: "all", period: "all", status: "all", types: [], from: "", to: "", tooth: "", report: "", sort: "recent",
+  q: "", owner: "all", period: "all", status: "all", types: [], from: "", to: "", tooth: "", report: "", reader: "", sort: "recent",
 };
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -39,6 +39,7 @@ export function historyParams(filters, { cursor = "", limit = null } = {}, today
   filters.types.forEach((t) => p.append("types", t));
   add("dent", filters.tooth ? String(filters.tooth) : "");
   add("compte_rendu", filters.report);
+  add("lecteur", filters.reader);
   add("tri", filters.sort === "recent" ? "" : filters.sort);
   if (limit) p.append("limite", String(limit));
   add("apres", cursor);
@@ -53,10 +54,13 @@ export function normalizeHistoryPage(dto) {
       number: e.numero ?? null,
       retainedCount: e.anomalies_retenues ?? 0,
       closedAt: e.cloturee_le ?? null,
+      readers: e.lecteurs ?? [],
     })),
     total: dto.total ?? 0,
     next: dto.suivant ?? null,
     depositors: (dto.deposants ?? []).map((d) => ({ id: d.id, name: d.nom || "—" })),
+    // Lecteurs à qui des analyses sont confiées (filtre « Confiée à ») ; vide pour un lecteur.
+    readers: (dto.lecteurs ?? []).map((d) => ({ id: d.id, name: d.nom || "—" })),
   };
 }
 
@@ -128,6 +132,7 @@ export function filtersToQuery(f, meId = null) {
   if (f.types.length) q.types = [...f.types];
   if (f.tooth) q.dent = String(f.tooth);
   if (f.report) q.cr = f.report;
+  if (f.reader) q.lecteur = f.reader;
   if (f.sort !== "recent") q.tri = f.sort;
   return q;
 }
@@ -150,6 +155,7 @@ export function queryToFilters(query, meId = null, labels = []) {
   f.types = types.filter((t) => !labels.length || labels.includes(t));
   if (FDI.includes(Number(one(query.dent)))) f.tooth = String(Number(one(query.dent)));
   if (["telecharge", "non_telecharge"].includes(one(query.cr))) f.report = one(query.cr);
+  if (one(query.lecteur)) f.reader = String(one(query.lecteur));
   if (one(query.tri) && parseSort(one(query.tri)).length) f.sort = formatSort(parseSort(one(query.tri)));
   return f;
 }
@@ -168,6 +174,7 @@ export function filtersToView(f) {
   if (f.types.length) v.types = [...f.types];
   if (f.tooth) v.dent = Number(f.tooth);
   if (f.report) v.compte_rendu = f.report;
+  if (f.reader) v.lecteur = f.reader;
   if (f.sort !== "recent") v.tri = f.sort;
   return v;
 }
@@ -187,6 +194,7 @@ export function viewToFilters(v) {
   if (v.types) f.types = [...v.types];
   if (v.dent) f.tooth = String(v.dent);
   if (v.compte_rendu) f.report = v.compte_rendu;
+  if (v.lecteur) f.reader = v.lecteur;
   if (v.tri) f.sort = v.tri;
   return f;
 }

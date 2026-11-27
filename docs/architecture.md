@@ -30,7 +30,7 @@ Monorepo orchestré par Docker Compose. Cinq services, conformes au PRD §7.
 - **Mode mock** : la chaîne complète tourne avant tout entraînement.
 - **CPU par défaut**, GPU via `docker-compose.gpu.yml`.
 - **Migrations et amorçage au démarrage** : `alembic upgrade head` puis `python -m app.seed_auth` (idempotent) dans le `CMD` du backend.
-- **Authentification JWT + RBAC** : toutes les routes métier exigent un jeton et une permission (`analysis:create`, `report:generate`…). Comptes créés par un administrateur uniquement. Détails dans le [README](../README.md#authentification-et-rôles).
+- **Authentification JWT + RBAC** : toutes les routes métier exigent un jeton et une permission (`analysis:create`, `report:generate`…). Comptes créés par un administrateur uniquement. Le lecteur ne voit que les analyses qui lui sont confiées (permission `analysis:read_all` absente, table `attributions`). Détails dans le [README](../README.md#authentification-et-rôles).
 
 ## Flux d'une analyse
 1. Import → 2. Anonymisation (DICOM/EXIF) → 3. Stockage image → 4. Inférence →

@@ -42,7 +42,7 @@ from ..models import Analysis, EtatDetection, StatutAnalyse
 from ..permissions import ADMIN_CAPABILITIES, ANALYSIS_CREATE, ANALYSIS_DELETE, ANALYSIS_READ
 from ..schemas import AnalysisOut, AnalysisSummary, ApercuOut, StatutOut, ZoneOut, _nom, analyse_out
 from ..services import anonymize as anon
-from ..services import comparaison, imports, registre_modeles, revue, storage
+from ..services import attributions, comparaison, imports, registre_modeles, revue, storage
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -81,11 +81,10 @@ def _data_url(image: Image.Image) -> str:
 _prochaine_reference = imports.prochaine_reference
 
 
-def _ou_404(db: Session, analysis_id: str) -> Analysis:
-    a = db.get(Analysis, analysis_id)
-    if not a:
-        raise ApiError(404, "introuvable", "Analyse introuvable.")
-    return a
+def _ou_404(db: Session, analysis_id: str, utilisateur: Utilisateur) -> Analysis:
+    """L'analyse, si `utilisateur` peut la voir (un lecteur : celles qui lui
+    sont confiées) ; sinon 404, qu'elle existe ou non."""
+    return attributions.analyse_visible(db, utilisateur, analysis_id)
 
 
 @router.post("/apercu", response_model=ApercuOut)
@@ -120,13 +119,16 @@ async def create_analysis(
     masques: str | None = Form(default=None),
     date_examen: date | None = Form(default=None),
     note: str = Form(default=""),
+    lecteurs: str | None = Form(default=None),
     utilisateur: Utilisateur = Depends(exiger(ANALYSIS_CREATE)),
     db: Session = Depends(get_db),
 ):
     """Confirmation de l'import : ré-anonymisation avec les masques manuels,
-    stockage de la seule image masquée, mise en file de l'analyse."""
+    stockage de la seule image masquée, mise en file de l'analyse.
+    `lecteurs` (facultatif) : liste JSON des comptes lecteurs à qui la confier."""
     if len(note) > NOTE_MAX:
         raise ApiError(422, "champ_invalide", f"La note ne doit pas dépasser {NOTE_MAX} caractères.")
+    confies = attributions.valider(db, _liste_ids(lecteurs))   # refus AVANT tout stockage
     brut = await _lire_fichier(fichier)
     try:
         resultat = anon.anonymiser(brut, _masques(masques))
@@ -136,8 +138,23 @@ async def create_analysis(
 
     analyse = imports.enregistrer(db, resultat, utilisateur_id=utilisateur.id, date_examen=date_examen,
                                   note=note, request=request)
+    if confies:
+        attributions.definir(db, analyse, confies, utilisateur, request)
+        db.commit()
     db.refresh(analyse)
     return analyse_out(analyse)
+
+
+def _liste_ids(brut: str | None) -> list:
+    if not brut:
+        return []
+    try:
+        ids = json.loads(brut)
+    except ValueError as exc:
+        raise ApiError(422, "lecteur_invalide", "Lecteurs : liste JSON d'identifiants attendue.") from exc
+    if not isinstance(ids, list):
+        raise ApiError(422, "lecteur_invalide", "Lecteurs : liste JSON d'identifiants attendue.")
+    return ids
 
 
 @router.get("", response_model=list[AnalysisSummary])
@@ -148,15 +165,16 @@ def list_analyses(
 ):
     """Analyses du cabinet, plus récentes d'abord ; `?mine=true` : celles que
     l'on a déposées."""
-    q = select(Analysis).order_by(Analysis.created_at.desc())
+    q = attributions.filtrer(select(Analysis).order_by(Analysis.created_at.desc()), utilisateur)
     if mine:
         q = q.where(Analysis.utilisateur_id == utilisateur.id)
     rows = db.execute(q).unique().scalars().all()
     return [resume_analyse(a) for a in rows]
 
 
-def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
-    """Ligne de liste d'une analyse (liste du cabinet, historique paginé)."""
+def resume_analyse(a: Analysis, numero: int | None = None, *, lecteurs: bool = False) -> AnalysisSummary:
+    """Ligne de liste d'une analyse (liste du cabinet, historique paginé).
+    `lecteurs` : nommer ceux à qui elle est confiée (pour qui voit tout)."""
     return AnalysisSummary(
         id=a.id, created_at=a.created_at, reference=a.reference, date_examen=a.date_examen,
         deposant_id=a.utilisateur_id, deposant_nom=_nom(a.deposant),
@@ -169,6 +187,7 @@ def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
         numero=numero,
         anomalies_retenues=sum(1 for d in a.detections if d.label != "tooth" and revue.au_compte_rendu(a, d)),
         cloturee_le=a.cloturee_le,
+        lecteurs=[attributions.nom(at.lecteur) for at in a.attributions] if lecteurs else [],
     )
 
 
@@ -176,9 +195,9 @@ def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
 def get_analysis(
     analysis_id: str,
     db: Session = Depends(get_db),
-    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)),
 ):
-    return analyse_out(_ou_404(db, analysis_id))
+    return analyse_out(_ou_404(db, analysis_id, utilisateur))
 
 
 def _position(db: Session, a: Analysis) -> int | None:
@@ -194,9 +213,9 @@ def _position(db: Session, a: Analysis) -> int | None:
 def statut(
     analysis_id: str,
     db: Session = Depends(get_db),
-    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)),
 ):
-    a = _ou_404(db, analysis_id)
+    a = _ou_404(db, analysis_id, utilisateur)
     return StatutOut(id=a.id, statut=a.statut, erreur=a.erreur or "", tentatives=a.tentatives or 0,
                      duree_ms=a.duree_ms, position=_position(db, a))
 
@@ -211,9 +230,7 @@ def lancer(
     """(Re)met l'analyse en file après un échec. Déjà en file ou en cours :
     rien ne change (jamais deux tâches pour la même analyse). Terminée : 409.
     Une relance est une nouvelle mise en file : elle prend la version active."""
-    a = db.scalar(select(Analysis).where(Analysis.id == analysis_id).with_for_update(of=Analysis))
-    if a is None:
-        raise ApiError(404, "introuvable", "Analyse introuvable.")
+    a = attributions.analyse_visible(db, utilisateur, analysis_id, verrou=True)
     if a.statut == StatutAnalyse.TERMINEE:
         raise ApiError(409, "deja_terminee", "Cette analyse est déjà terminée.")
     if a.statut == StatutAnalyse.ECHOUEE:
@@ -243,7 +260,7 @@ def rejouer(
     L'analyse d'origine garde ses détections et ses verdicts (une proposition
     du modèle n'est jamais écrasée) : on crée une NOUVELLE analyse, avec sa
     propre copie de l'image — supprimer l'une ne doit pas vider l'autre."""
-    origine = _ou_404(db, analysis_id)
+    origine = _ou_404(db, analysis_id, utilisateur)
     if origine.statut != StatutAnalyse.TERMINEE:
         raise ApiError(409, "non_terminee", "Seule une analyse terminée peut être rejouée.")
     active = registre_modeles.version_active(db)
@@ -296,12 +313,12 @@ def comparer(
     analysis_id: str,
     seuil: float = 0.25,
     db: Session = Depends(get_db),
-    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)),
 ):
     """Rejeu face à son analyse d'origine : propositions des deux modèles."""
-    rejeu = _ou_404(db, analysis_id)
+    rejeu = _ou_404(db, analysis_id, utilisateur)
     origine = db.get(Analysis, rejeu.origine_id) if rejeu.origine_id else None
-    if origine is None:
+    if origine is None or not attributions.visible(db, utilisateur, origine):
         raise ApiError(404, "sans_origine", "Cette analyse n'est pas le rejeu d'une autre analyse.")
 
     def propositions(a: Analysis) -> list:
@@ -322,11 +339,11 @@ def get_image_url(
     analysis_id: str,
     taille: str = "affichage",
     db: Session = Depends(get_db),
-    _: Utilisateur = Depends(exiger(ANALYSIS_READ)),
+    utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)),
 ):
     """URL présignée (1 h) : la version réduite si elle existe, sinon la
     pleine résolution (`?taille=pleine` pour forcer celle-ci)."""
-    a = _ou_404(db, analysis_id)
+    a = _ou_404(db, analysis_id, utilisateur)
     cle = a.image_affichage_key if taille != "pleine" and a.image_affichage_key else a.image_key
     return {"url": storage.presigned_url(cle)}
 
@@ -341,7 +358,7 @@ def delete_analysis(
     """Réservée au déposant et à l'administrateur. Efface les objets stockés
     (image, version d'affichage, compte rendu) PUIS la ligne : une suppression
     qui laisserait l'image derrière elle serait une fuite, pas un oubli."""
-    a = _ou_404(db, analysis_id)
+    a = _ou_404(db, analysis_id, utilisateur)
     administrateur = ADMIN_CAPABILITIES <= set(utilisateur.permission_codes)
     if a.utilisateur_id != utilisateur.id and not administrateur:
         raise ApiError(

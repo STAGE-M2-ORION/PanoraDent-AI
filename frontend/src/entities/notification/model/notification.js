@@ -6,6 +6,7 @@ export const NotificationType = Object.freeze({
   ANALYSIS_DONE: "analyse_terminee",
   ANALYSIS_FAILED: "analyse_echouee",
   ANALYSIS_REOPENED: "analyse_rouverte",
+  ANALYSIS_ASSIGNED: "analyse_confiee",
   ACCESS_REQUEST: "demande_acces",
 });
 
@@ -13,6 +14,7 @@ const TONES = {
   [NotificationType.ANALYSIS_DONE]: { icon: "check", tone: "success" },
   [NotificationType.ANALYSIS_FAILED]: { icon: "alert", tone: "danger" },
   [NotificationType.ANALYSIS_REOPENED]: { icon: "refresh", tone: "warning" },
+  [NotificationType.ANALYSIS_ASSIGNED]: { icon: "eye", tone: "info" },
   [NotificationType.ACCESS_REQUEST]: { icon: "users", tone: "info" },
 };
 

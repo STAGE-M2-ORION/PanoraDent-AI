@@ -90,3 +90,24 @@ describe("historique avancé (sprint 12)", () => {
     expect(viewToFilters({ du: "2026-11-01" })).toMatchObject({ period: "custom", from: "2026-11-01" });
   });
 });
+
+describe("historique : analyses confiées à un lecteur", () => {
+  const F = { ...EMPTY_HISTORY_FILTERS, types: [] };
+
+  it("filtre « Confiée à » : serveur, adresse de la page, vue enregistrée", () => {
+    const f = { ...F, reader: "u-1" };
+    expect(historyParams(f).get("lecteur")).toBe("u-1");
+    expect(historyParams(F).has("lecteur")).toBe(false);
+    expect(filtersToQuery(f)).toEqual({ lecteur: "u-1" });
+    expect(queryToFilters({ lecteur: "u-1" }).reader).toBe("u-1");
+    expect(filtersToView(f)).toEqual({ lecteur: "u-1" });
+    expect(viewToFilters({ lecteur: "u-1" }).reader).toBe("u-1");
+  });
+
+  it("page : lecteurs de chaque ligne et lecteurs proposés au filtre", () => {
+    const p = normalizeHistoryPage({ elements: [{ id: "a", reference: "PDX-1", lecteurs: ["Lova Lecture"] }, { id: "b", reference: "PDX-2" }], lecteurs: [{ id: "u-1", nom: "Lova Lecture" }] });
+    expect(p.items.map((i) => i.readers)).toEqual([["Lova Lecture"], []]);
+    expect(p.readers).toEqual([{ id: "u-1", name: "Lova Lecture" }]);
+    expect(normalizeHistoryPage({}).readers).toEqual([]);
+  });
+});

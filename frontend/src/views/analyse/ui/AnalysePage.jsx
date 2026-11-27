@@ -8,6 +8,7 @@ import { Permission, displayName, useCurrentUser } from "@/entities/session";
 import { appendToConclusion } from "@/entities/assistant";
 import { AppError, ErrorCode, toAppError } from "@/shared/api";
 import { Alert, Badge, Button, Icon, Modal } from "@/shared/ui";
+import { AnalysisReaders } from "@/features/assign-readers";
 import { AppShell } from "@/widgets/app-shell";
 
 import {
@@ -390,6 +391,9 @@ export function AnalysePage() {
     select(order[0].id, true);
   };
 
+  // Lecteurs de l'analyse : pour qui voit tout le cabinet (un lecteur ne voit pas ses pairs).
+  const readers = vm && !vm.demo && can(Permission.ANALYSIS_READ_ALL) ? <AnalysisReaders analysisId={vm.id} /> : null;
+
   const trace = vm ? (
     <span className="trace">
       Modèle <span className="mono">{vm.modelVersion}</span> · seuil {ui.threshold == null && ui.thresholds ? "par classe (modèle)" : pct(ui.threshold)} · analysée le {vm.date} à {vm.time}
@@ -556,6 +560,7 @@ export function AnalysePage() {
                 </button>
               ) : null}
               <ModelReplay vm={vm} canCreate={can(Permission.ANALYSIS_CREATE)} />
+              {readers}
               {trace}
             </>
           ) : (
@@ -581,6 +586,7 @@ export function AnalysePage() {
                 <span style={{ color: "#4ADE80" }}>Tout est relu</span>
               )}
               <ModelReplay vm={vm} canCreate={can(Permission.ANALYSIS_CREATE)} />
+              {readers}
               {trace}
             </>
           )}

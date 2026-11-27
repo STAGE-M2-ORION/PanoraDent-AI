@@ -10,6 +10,8 @@ de ce catalogue. Les rôles, eux, sont paramétrables par un administrateur
 
 ANALYSIS_CREATE = "analysis:create"
 ANALYSIS_READ = "analysis:read"
+# Sans elle, `analysis:read` ne montre que les analyses confiées au compte.
+ANALYSIS_READ_ALL = "analysis:read_all"
 ANALYSIS_DELETE = "analysis:delete"
 DETECTION_REVIEW = "detection:review"
 ANALYSIS_REOPEN = "analysis:reopen"
@@ -26,6 +28,7 @@ DOCUMENT_MANAGE = "document:manage"
 PERMISSIONS: dict[str, str] = {
     ANALYSIS_CREATE: "Importer une panoramique et lancer une analyse",
     ANALYSIS_READ: "Consulter les analyses et leurs détections",
+    ANALYSIS_READ_ALL: "Consulter toutes les analyses du cabinet (sinon : celles qui vous sont confiées)",
     ANALYSIS_DELETE: "Supprimer une analyse",
     DETECTION_REVIEW: "Valider, corriger ou ajouter des détections",
     ANALYSIS_REOPEN: "Rouvrir une analyse clôturée",
@@ -53,13 +56,13 @@ ADMIN_CAPABILITIES = frozenset({USER_MANAGE, ROLE_MANAGE})
 SYSTEM_ROLE_DESCRIPTIONS: dict[str, str] = {
     ADMIN_ROLE: "Gère les comptes, les rôles et la supervision de la plateforme.",
     PRACTITIONER_ROLE: "Dépose, relit et clôture ses analyses, génère les comptes rendus.",
-    VIEWER_ROLE: "Consulte les analyses et la performance du modèle, en lecture seule.",
+    VIEWER_ROLE: "Consulte les analyses qui lui sont confiées et la performance du modèle, en lecture seule.",
 }
 
 SYSTEM_ROLES: dict[str, frozenset[str]] = {
     ADMIN_ROLE: frozenset(PERMISSIONS),
     PRACTITIONER_ROLE: frozenset({
-        ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_DELETE,
+        ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_READ_ALL, ANALYSIS_DELETE,
         DETECTION_REVIEW, REPORT_GENERATE, MODEL_READ, ASSISTANT_USE,
     }),
     VIEWER_ROLE: frozenset({ANALYSIS_READ, MODEL_READ}),

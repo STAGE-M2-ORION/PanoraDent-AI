@@ -122,8 +122,9 @@ def test_correction_vide_ou_valeurs_invalides_refusees(connecte, analyse):
         assert r.status_code == 422 and r.json()["code"] == code, (corps, r.text)
 
 
-def test_un_lecteur_ne_peut_pas_statuer(connecte, analyse):
+def test_un_lecteur_ne_peut_pas_statuer(connecte, confier, analyse):
     lecteur = connecte("lecteur@cabinet.example.org", VIEWER_ROLE)
+    confier(analyse["id"], "lecteur@cabinet.example.org")
     assert _verdict(lecteur, analyse, "carie", "valider").status_code == 403
     assert lecteur.get(_url(analyse)).status_code == 200
 
@@ -227,6 +228,7 @@ HORS_VERROU = {
     ("POST", "/api/v1/analyses/{analysis_id}/lancer"),     # seulement une analyse échouée, jamais clôturée
     ("POST", "/api/v1/analyses/{analysis_id}/rejouer"),    # crée une autre analyse ; l'origine n'est pas touchée
     ("DELETE", "/api/v1/analyses/{analysis_id}"),          # suppression : déposant ou administrateur
+    ("PUT", "/api/v1/analyses/{analysis_id}/lecteurs"),    # confier à un lecteur : possible après la clôture
 }
 
 # Requête minimale valide pour chaque route verrouillée.

@@ -7,6 +7,7 @@ Trois événements, tous rattachés à une analyse :
 | analyse terminée | le praticien qui l'a déposée |
 | analyse échouée | le praticien qui l'a déposée |
 | analyse rouverte | le praticien qui l'avait clôturée (avec le motif) |
+| analyse confiée | le lecteur à qui le déposant (ou un administrateur) la confie |
 
 Règles :
 - on n'est jamais notifié de sa propre action ;
@@ -36,10 +37,14 @@ TITRES = {
     TypeNotification.ANALYSE_TERMINEE: "Analyse {reference} terminée",
     TypeNotification.ANALYSE_ECHOUEE: "Analyse {reference} échouée",
     TypeNotification.ANALYSE_ROUVERTE: "Analyse {reference} rouverte",
+    TypeNotification.ANALYSE_CONFIEE: "Analyse {reference} confiée",
 }
 
 
-def _message(type_: str, analyse: Analysis, motif: str | None) -> str:
+def _message(type_: str, analyse: Analysis, motif: str | None, par: str | None = None) -> str:
+    if type_ == TypeNotification.ANALYSE_CONFIEE:
+        qui = f"{par} vous la confie" if par else "Elle vous est confiée"
+        return f"{qui}, en lecture seule{' (déjà clôturée)' if analyse.cloturee else ''}."
     if type_ == TypeNotification.ANALYSE_TERMINEE:
         # Celles qui attendent un verdict avant la clôture (au-dessus du seuil de leur classe).
         n = len(revue.a_revoir(analyse))
@@ -55,13 +60,15 @@ def _message(type_: str, analyse: Analysis, motif: str | None) -> str:
 
 
 def notifier(db: Session, destinataire_id: uuid.UUID | None, type_: str, analyse: Analysis, *,
-             auteur_id: uuid.UUID | None = None, motif: str | None = None) -> Notification | None:
+             auteur_id: uuid.UUID | None = None, motif: str | None = None,
+             par: str | None = None) -> Notification | None:
     """Ajoute la notification (sans valider) ; None si personne n'est à prévenir."""
     if type_ not in TypeNotification.TOUS or type_ == TypeNotification.DEMANDE_ACCES:
         raise ValueError(f"Type de notification inconnu pour une analyse : {type_}")
     return _ajouter(db, destinataire_id, type_, auteur_id,
                     titre=TITRES[type_].format(reference=analyse.reference or "sans référence"),
-                    message=_message(type_, analyse, motif), analyse_id=analyse.id, reference=analyse.reference)
+                    message=_message(type_, analyse, motif, par), analyse_id=analyse.id,
+                    reference=analyse.reference)
 
 
 def notifier_demande_acces(db: Session, demande) -> list[Notification]:

@@ -47,6 +47,14 @@ test.describe.serial("le rôle lecteur consulte, en lecture seule", () => {
     await dialog.getByLabel("Rôle").selectOption({ label: "Lecteur" });
     await dialog.getByRole("button", { name: "Créer le compte" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Compte créé" })).toBeVisible();
+
+    // Le lecteur ne voit que les analyses qui lui sont confiées : on lui confie celle-ci.
+    const lecteurs = await (await page.request.get("/api/v1/lecteurs")).json();
+    const [analyse] = (await (await page.request.get(`/api/v1/historique?q=${reference}`)).json()).elements;
+    const r = await page.request.put(`/api/v1/analyses/${analyse.id}/lecteurs`, {
+      data: { lecteurs: [lecteurs.find((l) => l.email === LECTEUR).id] },
+    });
+    expect(r.status()).toBe(200);
   });
 
   test("navigation : consultation seulement, pas d'administration ni d'import", async ({ page }) => {

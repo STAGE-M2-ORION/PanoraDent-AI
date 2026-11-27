@@ -56,13 +56,14 @@ def test_preferences_par_defaut_puis_mise_a_jour_partielle(client, compte_mdp):
     connexion_mdp(client, EMAIL)
     assert client.get(f"{BASE}/moi").json()["preferences"] == {
         "theme": "systeme", "langue": "fr", "seuil_confiance_defaut": 0.5,
-        "courriel_analyse_echouee": True, "courriel_analyse_rouverte": True, "courriel_demande_acces": True,
+        "courriel_analyse_echouee": True, "courriel_analyse_rouverte": True, "courriel_analyse_confiee": True,
+        "courriel_demande_acces": True,
     }
     r = client.patch(f"{BASE}/moi/preferences", json={"theme": "sombre", "seuil_confiance_defaut": 0.4})
     assert r.status_code == 200
     assert r.json() == {"theme": "sombre", "langue": "fr", "seuil_confiance_defaut": 0.4,
                         "courriel_analyse_echouee": True, "courriel_analyse_rouverte": True,
-                        "courriel_demande_acces": True}
+                        "courriel_analyse_confiee": True, "courriel_demande_acces": True}
     r = client.patch(f"{BASE}/moi/preferences", json={"courriel_analyse_rouverte": False})
     assert r.json()["theme"] == "sombre" and r.json()["courriel_analyse_rouverte"] is False
     assert r.json()["courriel_analyse_echouee"] is True

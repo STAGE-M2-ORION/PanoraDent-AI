@@ -83,9 +83,13 @@ def test_filtres_combines(admin, jeu):
     assert _refs(admin, types="caries", du="2026-11-01", au="2026-11-01") == ["PDX-2026-0101"]
 
 
-def test_memes_resultats_pour_le_lecteur_et_le_praticien(admin, connecte, jeu):
+def test_memes_resultats_pour_le_lecteur_et_le_praticien(admin, connecte, confier, jeu):
+    """Sur une analyse confiée, le lecteur trouve ce que trouve le praticien."""
     for role in (VIEWER_ROLE, PRACTITIONER_ROLE):
-        c = connecte(f"{role.lower()}.recherche@cabinet.example.org", role)
+        email = f"{role.lower()}.recherche@cabinet.example.org"
+        c = connecte(email, role)
+        if role == VIEWER_ROLE:
+            confier(jeu[0].id, email)
         assert _refs(c, q="orthodontique", dent=36) == ["PDX-2026-0101"]
 
 

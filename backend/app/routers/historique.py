@@ -33,11 +33,11 @@ from ..auth_models import Journal, Utilisateur
 from ..database import get_db
 from ..errors import ApiError
 from ..models import (
-    LABEL_DENT, LABELS, Analysis, Detection, EtatDetection, StatutAnalyse, Verdict, VueHistorique,
+    LABEL_DENT, LABELS, Analysis, Attribution, Detection, EtatDetection, StatutAnalyse, Verdict, VueHistorique,
 )
 from ..permissions import ANALYSIS_READ
 from ..schemas import _nom
-from ..services import revue
+from ..services import attributions, revue
 from .analyses import _ou_404, resume_analyse
 
 router = APIRouter(tags=["historique"])
@@ -124,7 +124,10 @@ def _rang():
 
 def _filtres(rang, utilisateur, p: dict, dialecte: str) -> list:
     q, deposant, etat, du, au, types = (p["q"], p["deposant"], p["etat"], p["du"], p["au"], p["types"])
-    conditions = []
+    # Un lecteur ne voit que les analyses qui lui sont confiées : la première
+    # condition, avant tout filtre choisi à l'écran.
+    visibles = attributions.condition(utilisateur)
+    conditions = [] if visibles is None else [visibles]
     q = (q or "").strip()
     if q:
         conditions.append(or_(_recherche(q, dialecte), rang.c.numero == int(q)) if q.isdigit()
@@ -161,6 +164,12 @@ def _filtres(rang, utilisateur, p: dict, dialecte: str) -> list:
             or_(Detection.fdi == dent,
                 exists().where(Verdict.detection_id == Detection.id, Verdict.annule_le.is_(None), Verdict.fdi == dent),
                 exists().where(hote.id == Detection.dent_id, hote.fdi == dent))))
+    if p.get("lecteur"):
+        try:
+            lecteur_id = uuid.UUID(p["lecteur"])
+        except ValueError as exc:
+            raise ApiError(422, "filtre_invalide", "Lecteur inconnu.") from exc
+        conditions.append(Analysis.id.in_(select(Attribution.analysis_id).where(Attribution.lecteur_id == lecteur_id)))
     if p.get("compte_rendu"):
         telecharge = exists().where(Journal.action == "compte_rendu_telecharge",
                                     Journal.cible == literal("analyse:") + Analysis.id)
@@ -216,6 +225,7 @@ def _parametres(
     types: list[str] = Query(default=[]),
     dent: int | None = None,
     compte_rendu: str = "",
+    lecteur: str = "",
     tri: str = "recent",
 ):
     cles_tri(tri)
@@ -224,7 +234,7 @@ def _parametres(
     if compte_rendu and compte_rendu not in COMPTES_RENDUS:
         raise ApiError(422, "filtre_invalide", "Compte rendu : « telecharge » ou « non_telecharge ».")
     return {"q": q, "deposant": deposant, "etat": etat, "du": du, "au": au, "types": types, "dent": dent,
-            "compte_rendu": compte_rendu, "tri": tri}
+            "compte_rendu": compte_rendu, "lecteur": lecteur, "tri": tri}
 
 
 @router.get("/historique")
@@ -243,13 +253,20 @@ def historique(
     suite = len(lignes) > limite
     lignes = lignes[:limite]
     deposants = db.execute(
-        select(Utilisateur).where(Utilisateur.id.in_(select(Analysis.utilisateur_id).distinct()))
+        select(Utilisateur).where(Utilisateur.id.in_(
+            attributions.filtrer(select(Analysis.utilisateur_id).distinct(), utilisateur)))
     ).scalars().all()
+    # À qui chaque analyse est confiée, et les lecteurs proposés au filtre :
+    # pour qui voit tout le cabinet seulement (un lecteur ne voit pas ses pairs).
+    voit_tout = attributions.voit_tout(utilisateur)
+    lecteurs = db.execute(select(Utilisateur).where(Utilisateur.id.in_(select(Attribution.lecteur_id).distinct()))
+                          ).unique().scalars().all() if voit_tout else []
     return {
-        "elements": [resume_analyse(a, numero) for a, numero in lignes],
+        "elements": [resume_analyse(a, numero, lecteurs=voit_tout) for a, numero in lignes],
         "total": total,
         "suivant": _curseur(lignes[-1][0], cles) if suite and lignes else None,
         "deposants": sorted(({"id": str(u.id), "nom": _nom(u)} for u in deposants), key=lambda d: d["nom"].lower()),
+        "lecteurs": sorted(({"id": str(u.id), "nom": attributions.nom(u)} for u in lecteurs), key=lambda d: d["nom"].lower()),
     }
 
 
@@ -289,13 +306,16 @@ def historique_csv(
     sortie = io.StringIO()
     ecrivain = csv.writer(sortie, delimiter=";", lineterminator="\r\n")
     ecrivain.writerow(["N°", "Référence", "Importée le (UTC)", "Date de l'examen", "État", "Déposée par",
-                       "Anomalies retenues", "Détections du modèle", "Modèle", "Clôturée le (UTC)", "Clôturée par"])
+                       "Anomalies retenues", "Détections du modèle", "Modèle", "Clôturée le (UTC)", "Clôturée par",
+                       "Confiée à"])
+    voit_tout = attributions.voit_tout(utilisateur)
     for a, numero in lignes:
         ecrivain.writerow([
             numero, a.reference, _date(a.created_at), _date(a.date_examen), ETAT_LIBELLE[etat_affiche(a)],
             _nom(a.deposant) or "", sum(1 for d in a.detections if d.label != LABEL_DENT and revue.au_compte_rendu(a, d)),
             sum(1 for d in a.detections if d.label != LABEL_DENT and d.source != "human"), a.model_version,
             _date(a.cloturee_le), _nom(a.cloturee_par) or "",
+            ", ".join(attributions.nom(at.lecteur) for at in a.attributions) if voit_tout else "",
         ])
     journal.inscrire(db, "export_historique", journal.SUCCES, request=request, utilisateur_id=utilisateur.id,
                      details={"lignes": len(lignes), "filtres": {k: (v.isoformat() if isinstance(v, date) else v)
@@ -319,6 +339,7 @@ LIBELLES = {
     "reouverture_analyse": "Analyse rouverte",
     "compte_rendu_genere": "Compte rendu affiché",
     "compte_rendu_telecharge": "Compte rendu téléchargé",
+    "attribution_analyse": "Lecteurs de l'analyse modifiés",
 }
 VERDICTS = {"valider": "Détection validée", "corriger": "Détection corrigée", "rejeter": "Détection rejetée",
             "ajouter": "Détection ajoutée par le praticien"}
@@ -332,8 +353,8 @@ def _naif(dt: datetime) -> datetime:
 
 
 @router.get("/analyses/{analysis_id}/historique")
-def fiche(analysis_id: str, _: Utilisateur = Depends(exiger(ANALYSIS_READ)), db: Session = Depends(get_db)):
-    a = _ou_404(db, analysis_id)
+def fiche(analysis_id: str, utilisateur: Utilisateur = Depends(exiger(ANALYSIS_READ)), db: Session = Depends(get_db)):
+    a = _ou_404(db, analysis_id, utilisateur)
     entrees = list(db.scalars(select(Journal).where(Journal.cible == f"analyse:{a.id}")))
     # Imports journalisés avant le sprint 8 sous « analyse:None » : retrouvés par leur référence.
     entrees += [e for e in db.scalars(select(Journal).where(Journal.cible == "analyse:None",
@@ -375,7 +396,7 @@ def fiche(analysis_id: str, _: Utilisateur = Depends(exiger(ANALYSIS_READ)), db:
 # donne accès à rien — l'historique revérifie les droits à chaque lecture.
 
 VUES_MAX = 20
-CLES_FILTRES = {"q", "deposant", "etat", "du", "au", "types", "dent", "compte_rendu", "tri", "periode"}
+CLES_FILTRES = {"q", "deposant", "etat", "du", "au", "types", "dent", "compte_rendu", "lecteur", "tri", "periode"}
 # Période relative : recalculée à chaque usage de la vue, jamais figée en dates.
 PERIODES = ("today", "7", "30")
 
@@ -396,7 +417,8 @@ def _filtres_valides(filtres: dict) -> dict:
                     du=date.fromisoformat(f["du"]) if f.get("du") else None,
                     au=date.fromisoformat(f["au"]) if f.get("au") else None,
                     types=[str(t) for t in f.get("types", [])], dent=int(f["dent"]) if f.get("dent") else None,
-                    compte_rendu=str(f.get("compte_rendu", "")), tri=str(f.get("tri", "recent")))
+                    compte_rendu=str(f.get("compte_rendu", "")), lecteur=str(f.get("lecteur", "")),
+                    tri=str(f.get("tri", "recent")))
         if f.get("periode") and f["periode"] not in PERIODES:
             raise ApiError(422, "filtre_invalide", f"Période inconnue : {f['periode']}.")
         if f.get("etat") and f["etat"] not in ETATS:

@@ -78,13 +78,18 @@ def test_portee_moi_pour_le_praticien(connecte, db):
     assert datetime.fromisoformat(semaines[-1]["debut"]).weekday() == 0    # lundi
 
 
-def test_portee_cabinet_pour_le_lecteur(connecte, db):
+def test_portee_cabinet_pour_le_lecteur(connecte, confier, db):
+    """Le « cabinet » du lecteur : les analyses qui lui sont confiées, pas les autres."""
     connecte("dr.cab@cabinet.example.org", PRACTITIONER_ROLE)
     lecteur = connecte("lecteur.cab@cabinet.example.org", VIEWER_ROLE)
     dr = _id(db, "dr.cab@cabinet.example.org")
-    _analyse(db, "PDX-C-1", dr, StatutAnalyse.EN_COURS)
-    _analyse(db, "PDX-C-2", None, cloturee=datetime.utcnow(), par=dr)
+    a1 = _analyse(db, "PDX-C-1", dr, StatutAnalyse.EN_COURS)
+    a2 = _analyse(db, "PDX-C-2", None, cloturee=datetime.utcnow(), par=dr)
+    _analyse(db, "PDX-C-3", dr, StatutAnalyse.EN_COURS)                       # non confiée
+    _analyse(db, "PDX-C-4", dr, cloturee=datetime.utcnow())                   # non confiée
     db.commit()
+    for a in (a1, a2):
+        confier(a.id, "lecteur.cab@cabinet.example.org")
 
     ind = lecteur.get(URL).json()
     assert ind["portee"] == "cabinet"

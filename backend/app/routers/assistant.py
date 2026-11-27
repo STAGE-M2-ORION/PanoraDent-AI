@@ -22,7 +22,7 @@ from ..errors import ApiError
 from ..models import Analysis
 from ..permissions import ASSISTANT_USE, DOCUMENT_MANAGE
 from ..schemas import _nom
-from ..services import assistant
+from ..services import assistant, attributions
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
@@ -50,9 +50,7 @@ def poser(
 ):
     analyse = None
     if corps.analyse_id:
-        analyse = db.get(Analysis, corps.analyse_id)
-        if analyse is None:
-            raise ApiError(404, "introuvable", "Analyse introuvable.")
+        analyse = attributions.analyse_visible(db, utilisateur, corps.analyse_id)
     reponse = assistant.poser_question(db, corps.question, utilisateur_id=utilisateur.id, analyse=analyse,
                                        request=request)
     return reponse.en_json()

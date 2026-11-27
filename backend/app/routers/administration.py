@@ -13,7 +13,7 @@ from ..auth_models import Utilisateur
 from ..database import get_db
 from ..errors import ApiError
 from ..permissions import ANALYSIS_CREATE, ANALYSIS_READ, USER_MANAGE
-from ..services import activite, indicateurs
+from ..services import activite, attributions, indicateurs
 
 router = APIRouter(tags=["administration"])
 
@@ -36,4 +36,4 @@ def lire_activite(
     portee = portee or ("moi" if utilisateur.a_permission(ANALYSIS_CREATE) else "cabinet")
     if portee not in ("moi", "cabinet"):
         raise ApiError(422, "filtre_invalide", "Portée : « moi » ou « cabinet ».")
-    return activite.indicateurs(db, utilisateur.id, portee)
+    return activite.indicateurs(db, utilisateur.id, portee, attributions.condition(utilisateur))
