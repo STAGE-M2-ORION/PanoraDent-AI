@@ -933,6 +933,7 @@ regarder au-delà. Versions sans seuils : comportement antérieur.
 |---|---|---|
 | **Anonymisation dès l'import**, avant tout stockage | ✅ | 13 tags DICOM écrasés ; EXIF supprimé par ré-encodage PNG ; l'original n'est **jamais** écrit sur disque |
 | **Séparation image / index** | ✅ | Aucune donnée identifiante en base ; images et PDF dans le stockage objet |
+| **Accès du lecteur limité aux cas qui lui sont confiés** | ✅ | Permission `analysis:read_all` ; sans elle, seules les analyses de la table `attributions` sont visibles, les autres répondent `404` (migration `0022`, [README](../README.md#analyses-confiées-à-un-lecteur)) |
 | **Chiffrement au repos** | ❌ | À activer côté S3 (SSE) — non configuré sur MinIO en local |
 | **Chiffrement en transit (HTTPS)** | ❌ | HTTP en développement ; terminaison TLS à ajouter devant nginx |
 | **Contrôle d'accès (JWT)** | ❌ | `python-jose` est provisionné et `JWT_SECRET` existe, **aucune route n'est protégée** |

@@ -432,7 +432,8 @@ second fige la liste des routes publiques.
 | Permission | Route(s) protégée(s) |
 |---|---|
 | `analysis:create` | `POST /api/v1/analyses`, `/apercu`, `/{id}/lancer` |
-| `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/statut`, `/{id}/image` |
+| `analysis:read` | `GET /api/v1/analyses`, `/{id}`, `/{id}/statut`, `/{id}/image` — **sans `analysis:read_all`, seulement les analyses confiées au compte** |
+| `analysis:read_all` | voir toutes les analyses du cabinet ; `GET /api/v1/analyses/{id}/lecteurs` |
 | `analysis:delete` | `DELETE /api/v1/analyses/{id}` (déposant ou administrateur) |
 | `detection:review` | verdicts, annulation, ajout, conclusion, clôture (toute analyse du cabinet) |
 | `analysis:reopen` | `POST /api/v1/analyses/{id}/rouvrir` (administrateur seul) |
@@ -445,9 +446,9 @@ second fige la liste des routes publiques.
 
 | Rôle système | Permissions |
 |---|---|
-| Administrateur | les dix (dont `analysis:reopen` et `model:manage`) |
-| Praticien | `analysis:create/read/delete`, `detection:review`, `report:generate`, `model:read` |
-| Lecteur | `analysis:read`, `model:read` |
+| Administrateur | toutes (dont `analysis:reopen`, `model:manage`, `analysis:read_all`) |
+| Praticien | `analysis:create/read/read_all/delete`, `detection:review`, `report:generate`, `model:read`, `assistant:use` |
+| Lecteur | `analysis:read`, `model:read` — **les analyses qui lui sont confiées seulement** |
 
 **Rôles.** Les trois rôles système sont **verrouillés** : ni renommés, ni
 modifiés, ni supprimés, quel que soit l'appelant (indicateur `systeme` en base,
@@ -748,7 +749,8 @@ backend. Sous PowerShell : `$env:NEXT_PUBLIC_API_BASE="…"; npm run dev`.
   routes ouvertes à tous les rôles est fermée, et le lecteur reçoit 403 sur toute
   route d'écriture hors son propre compte — une route ajoutée sans contrôle fait
   échouer la suite. Côté écran, aucune action d'écriture ne lui est proposée
-  (parcours `parcours-lecteur.spec.js`).
+  (parcours `parcours-lecteur.spec.js`). Depuis la migration `0022`, il ne voit
+  plus que les analyses qui lui sont **confiées** (voir plus bas).
 
 ## Assistant documentaire (sprint 9)
 
@@ -950,6 +952,7 @@ et, pour deux événements, **par e-mail**.
 | Analyse terminée | le déposant | ✅ | — (quelques secondes après le dépôt) |
 | Analyse échouée | le déposant | ✅ | ✅ selon sa préférence |
 | Analyse rouverte, avec le motif | celui qui l'avait clôturée | ✅ | ✅ selon sa préférence |
+| Analyse confiée, avec le nom de qui la confie | le lecteur ajouté | ✅ | ✅ selon sa préférence (cochée par défaut) |
 
 **Règles.** Jamais de sa propre action ; rien pour un compte désactivé ; seule la
 **référence anonyme** de l'analyse (ni image, ni note, ni conclusion). Les
@@ -1026,6 +1029,54 @@ vitrine (`/decouvrir`) envoie une demande que l'administrateur examine.
 
 Table `demandes_acces` (migration `0021`), qui ajoute aussi `notifications.lien`
 (page visée quand une notification ne porte pas sur une analyse).
+
+## Analyses confiées à un lecteur
+
+Le lecteur ne voit **que les analyses qu'on lui confie**, en lecture seule. Le
+praticien qui dépose une analyse la confie, s'il le souhaite, à un ou plusieurs
+lecteurs : dès l'import (cases « Confier à un lecteur (facultatif) ») ou plus tard
+depuis la page de l'analyse (bouton « Lecteurs »), **même après la clôture** —
+confier une analyse ne change pas son résultat, seulement qui peut le lire.
+
+**Règle unique** ([`services/attributions.py`](backend/app/services/attributions.py)),
+appliquée à toutes les lectures : liste, fiche, statut, image, comparaison,
+historique et son export, fiche d'historique, relecture, compte rendu, assistant,
+tableau de bord.
+
+- Un compte qui a **`analysis:read_all`** (administrateur, praticien) voit tout le
+  cabinet. Un compte qui a `analysis:read` **sans** elle ne voit que ce qui lui est
+  confié : c'est une permission, pas un nom de rôle, donc un rôle personnalisé
+  suit la même règle.
+- Une analyse non confiée répond **`404`**, exactement comme une analyse qui
+  n'existe pas : le lecteur n'apprend pas qu'elle existe.
+- Seuls **le déposant et l'administrateur** confient et retirent ; on ne confie
+  qu'à un compte **actif** qui lit sans tout voir (sinon `422 lecteur_invalide`,
+  rien n'est écrit — à l'import, avant tout stockage).
+- Chaque changement est **journalisé** (« Analyse confiée à un lecteur ou
+  retirée », visible dans la fiche d'historique) ; chaque lecteur ajouté reçoit
+  la notification « Analyse … confiée » (application, et e-mail selon sa
+  préférence). Un retrait ne prévient personne et ôte l'accès aussitôt.
+- L'historique montre une colonne et un filtre **« Confiée à »** (gardé par les
+  vues enregistrées, repris dans l'export CSV), pour qui voit tout le cabinet :
+  un lecteur ne voit pas ses pairs.
+
+**Migration `0022_attributions`** : table `attributions` (analyse, lecteur, auteur,
+date ; unicité du couple ; supprimée avec l'analyse ou le compte) et permission
+`analysis:read_all`, donnée à tout rôle qui lisait déjà les analyses **sauf au
+Lecteur** : les rôles personnalisés ne changent pas de comportement, le Lecteur
+perd l'accès aux analyses existantes tant qu'on ne les lui a pas confiées
+(décision du 27/11/2026).
+
+| Méthode | Route | Description |
+|---|---|---|
+| `GET` | `/api/v1/lecteurs` | Comptes à qui l'on peut confier une analyse (`analysis:create`) |
+| `GET` | `/api/v1/analyses/{id}/lecteurs` | Lecteurs de l'analyse et `modifiable` (`analysis:read_all`) |
+| `PUT` | `/api/v1/analyses/{id}/lecteurs` | Remplace la liste `{"lecteurs": [ids]}` (déposant ou administrateur) |
+| `POST` | `/api/v1/analyses` | Champ facultatif `lecteurs` : liste JSON d'identifiants |
+| `GET` | `/api/v1/historique?lecteur=<id>` | Analyses confiées à ce lecteur |
+
+Tests : [`test_attributions.py`](backend/app/tests/test_attributions.py) ; parcours
+[`parcours-attribution.spec.js`](frontend/e2e/parcours-attribution.spec.js).
 
 ## E-mails en développement : Mailpit
 
