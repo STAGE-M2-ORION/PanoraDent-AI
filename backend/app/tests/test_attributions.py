@@ -278,3 +278,26 @@ def test_courriel_selon_la_preference_du_lecteur(cabinet, db, boite, preference,
     assert len(messages) == attendu
     if attendu:
         assert messages[0].sujet == "Analyse PDX-2026-0901 confiée" and f"/analyse?id={cabinet['a1']}" in messages[0].texte
+
+
+# --- Lot C : l'historique dit à qui chaque analyse est confiée ----------------------------------
+
+def test_historique_colonne_et_filtre_confiee_a(cabinet, db):
+    l1, l2 = _id(db, LECTEUR), _id(db, AUTRE_LECTEUR)
+    _confier(cabinet["rabe"], cabinet["a1"], l1, l2)
+    _confier(cabinet["rabe"], cabinet["a2"], l2)
+    rabe = cabinet["rabe"]
+    h = rabe.get(f"{BASE}/historique").json()
+    par_ref = {e["reference"]: e["lecteurs"] for e in h["elements"]}
+    assert sorted(par_ref["PDX-2026-0901"]) == sorted([LECTEUR, AUTRE_LECTEUR]) and par_ref["PDX-2026-0903"] == []
+    assert {x["id"] for x in h["lecteurs"]} == {l1, l2}
+    filtre = rabe.get(f"{BASE}/historique", params={"lecteur": l2}).json()
+    assert sorted(e["reference"] for e in filtre["elements"]) == ["PDX-2026-0901", "PDX-2026-0902"]
+    assert rabe.get(f"{BASE}/historique", params={"lecteur": "x"}).status_code == 422
+    csv = rabe.get(f"{BASE}/historique.csv", params={"lecteur": l1}).content.decode("utf-8")
+    assert csv.splitlines()[0].endswith(";Confiée à") and LECTEUR in csv.splitlines()[1]
+    # Une vue enregistrée garde le filtre.
+    assert rabe.post(f"{BASE}/moi/vues-historique", json={"nom": "Pour L2", "filtres": {"lecteur": l2}}).status_code in (200, 201)
+    # Le lecteur ne voit ni ses pairs ni la liste des lecteurs.
+    hl = cabinet["lecteur"].get(f"{BASE}/historique").json()
+    assert hl["lecteurs"] == [] and all(e["lecteurs"] == [] for e in hl["elements"])

@@ -172,8 +172,9 @@ def list_analyses(
     return [resume_analyse(a) for a in rows]
 
 
-def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
-    """Ligne de liste d'une analyse (liste du cabinet, historique paginé)."""
+def resume_analyse(a: Analysis, numero: int | None = None, *, lecteurs: bool = False) -> AnalysisSummary:
+    """Ligne de liste d'une analyse (liste du cabinet, historique paginé).
+    `lecteurs` : nommer ceux à qui elle est confiée (pour qui voit tout)."""
     return AnalysisSummary(
         id=a.id, created_at=a.created_at, reference=a.reference, date_examen=a.date_examen,
         deposant_id=a.utilisateur_id, deposant_nom=_nom(a.deposant),
@@ -186,6 +187,7 @@ def resume_analyse(a: Analysis, numero: int | None = None) -> AnalysisSummary:
         numero=numero,
         anomalies_retenues=sum(1 for d in a.detections if d.label != "tooth" and revue.au_compte_rendu(a, d)),
         cloturee_le=a.cloturee_le,
+        lecteurs=[attributions.nom(at.lecteur) for at in a.attributions] if lecteurs else [],
     )
 
 

@@ -156,6 +156,8 @@ class AnalysisSummary(BaseModel):
     numero: int | None = None
     anomalies_retenues: int = 0
     cloturee_le: datetime | None = None
+    # Lecteurs à qui elle est confiée (noms) ; vide pour qui ne voit pas tout.
+    lecteurs: list[str] = []
 
 
 def analyse_out(a) -> AnalysisOut:
